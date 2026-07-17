@@ -58,4 +58,8 @@ deterministic lockstep. Full plan: `C:\Users\mattc\.claude\plans\linear-stirring
   `Unity.exe -batchmode -projectPath . -runTests -testPlatform EditMode -testResults results.xml`
   (requires editor closed).
 - `Craftwar/Setup/Ensure 2D Renderer` menu (or `-executeMethod
-  Craftwar.EditorTools.ProjectBootstrap.Run`) creates/assigns the 2D renderer.
+  Craftwar.EditorTools.ProjectBootstrap.Run`) creates/assigns the 2D renderer
+  and the Game scene.
+- `Craftwar/Setup/Generate Default Stat Tables` (`DataCodegen.Run`) regenerates
+  `Sim/Data/Generated/DefaultData.gen.cs` from the BNE dat files; a round-trip
+  test fails if the committed table drifts from the source data.
