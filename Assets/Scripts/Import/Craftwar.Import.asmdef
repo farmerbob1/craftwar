@@ -1,0 +1,16 @@
+{
+    "name": "Craftwar.Import",
+    "rootNamespace": "Craftwar.Import",
+    "references": [
+        "Craftwar.Sim"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,20 @@
+{
+    "name": "Craftwar.App",
+    "rootNamespace": "Craftwar.App",
+    "references": [
+        "Craftwar.Sim",
+        "Craftwar.View",
+        "Craftwar.Net",
+        "Craftwar.Import",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
