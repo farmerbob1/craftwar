@@ -39,9 +39,16 @@ namespace Craftwar.Sim
         public const int UnitTurns = 2;        // UNIT_TURNS
         public const int UpgradeTurns = 2;     // UPGRADE_TURNS
 
+        // --- Combat ---
+        public const int AttackCooldownTicks = 50;  // ~1 attack/sec baseline
+        public const int ProjectileSpeedPxPerTick = 8;
+        public const int AcquisitionPeriod = 5;     // ticks between target scans
+        public const byte MissileNone = 0x1d;       // UDTA "no missile" id
+
         // --- Limits ---
         public const int MaxPlayers = 8;
         public const int NeutralPlayer = 15;
         public const int MaxUnits = 1200;
+        public const int MaxProjectiles = 256;
     }
 }

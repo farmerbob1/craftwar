@@ -26,6 +26,8 @@ namespace Craftwar.Sim
         /// <summary>Per-slot current path (packed tile indices); null when none.</summary>
         public readonly ushort[][] UnitPaths = new ushort[SimConstants.MaxUnits][];
 
+        public readonly Projectile[] Projectiles = new Projectile[SimConstants.MaxProjectiles];
+
         // One unit per tile per layer, exactly like the original.
         // Values are UnitId.Packed (0 = free). Surface = land+sea, Air separate.
         public uint[] OccupancySurface;
@@ -159,6 +161,12 @@ namespace Craftwar.Sim
             h.Add(HighestUnitIndex);
             for (int i = 0; i < HighestUnitIndex; i++)
                 Units[i].HashInto(ref h);
+            for (int i = 0; i < Projectiles.Length; i++)
+                if (Projectiles[i].Active)
+                {
+                    h.Add(i);
+                    Projectiles[i].HashInto(ref h);
+                }
             return h.Value;
         }
     }

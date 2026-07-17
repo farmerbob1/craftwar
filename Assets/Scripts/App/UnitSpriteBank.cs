@@ -18,33 +18,41 @@ namespace Craftwar.App
     {
         readonly War2Archive _archive;
         readonly Rgba[] _palette;
+        readonly PudEra _era;
         readonly Dictionary<uint, Sprite[]> _cache = new Dictionary<uint, Sprite[]>();
 
         public UnitSpriteBank(War2Archive archive, PudEra era)
         {
             _archive = archive;
+            _era = era;
             _palette = War2Palette.Decode(archive.ExtractEntry(War2Palette.EntryForEra(era)));
         }
 
-        public bool Has(ushort typeId) => War2Sprites.EntryForUnit(typeId) != 0;
+        public bool Has(ushort typeId) => War2Sprites.EntryForUnit(typeId, _era) != 0;
 
         public Sprite Get(ushort typeId, byte player, byte facing, out bool flipX)
         {
-            // Facings: N=0..NW=7; sprite rows store N,NE,E,SE,S (0-4).
-            int spriteDir = facing <= 4 ? facing : 8 - facing;
-            flipX = facing > 4;
-
+            flipX = false;
             var frames = GetFrames(typeId, player);
             if (frames == null || frames.Length == 0)
                 return null;
-            // Standing pose = first animation block (frames 0-4).
+
+            // Buildings and other single-pose banks have only a handful of
+            // frames (completed + construction stages); units carry 5-facing
+            // animation blocks (25+ frames).
+            if (frames.Length < 15)
+                return frames[0];
+
+            // Facings: N=0..NW=7; sprite rows store N,NE,E,SE,S (0-4).
+            int spriteDir = facing <= 4 ? facing : 8 - facing;
+            flipX = facing > 4;
             int index = spriteDir < frames.Length ? spriteDir : 0;
             return frames[index];
         }
 
         Sprite[] GetFrames(ushort typeId, byte player)
         {
-            int entry = War2Sprites.EntryForUnit(typeId);
+            int entry = War2Sprites.EntryForUnit(typeId, _era);
             if (entry == 0)
                 return null;
             byte playerColor = (byte)(player < 8 ? player : 0);

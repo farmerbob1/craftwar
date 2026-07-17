@@ -9,7 +9,7 @@ namespace Craftwar.Sim
     /// tick — never reorder without a determinism review, and never read
     /// anything outside GameState.
     /// </summary>
-    public sealed class GameSim
+    public sealed partial class GameSim
     {
         public readonly GameState State;
         Pathfinder _pathfinder;
@@ -120,6 +120,46 @@ namespace Craftwar.Sim
                     }
                     break;
 
+                case CommandOp.Attack:
+                    for (int i = 0; i < cmd.SelectionCount; i++)
+                    {
+                        var id = UnitId.FromPacked(cmd.Selection.Ids[i]);
+                        if (!State.TryGetUnitIndex(id, out int idx))
+                            continue;
+                        ref Unit u = ref State.Units[idx];
+                        if (u.Player != cmd.Player ||
+                            !State.Rules.Units[u.TypeId].Is(UnitTypeFlags.CanAttack))
+                            continue;
+                        u.Order = OrderType.Attack;
+                        u.AttackTarget = cmd.TargetUnit;
+                        u.ChaseX = 0xFFFF; // force chase-path refresh
+                        u.PathLength = 0;
+                        u.PathCursor = 0;
+                        u.WaitTicks = 0;
+                    }
+                    break;
+
+                case CommandOp.AttackMove:
+                    for (int i = 0; i < cmd.SelectionCount; i++)
+                    {
+                        var id = UnitId.FromPacked(cmd.Selection.Ids[i]);
+                        if (!State.TryGetUnitIndex(id, out int idx))
+                            continue;
+                        ref Unit u = ref State.Units[idx];
+                        if (u.Player != cmd.Player || UnitSpeeds.Get(u.TypeId) == 0)
+                            continue;
+                        u.Order = OrderType.AttackMove;
+                        u.OrderX = cmd.TargetX;
+                        u.OrderY = cmd.TargetY;
+                        u.GoalX = cmd.TargetX;
+                        u.GoalY = cmd.TargetY;
+                        u.AttackTarget = 0;
+                        u.PathLength = 0;
+                        u.PathCursor = 0;
+                        u.WaitTicks = 0;
+                    }
+                    break;
+
                 case CommandOp.Stop:
                     for (int i = 0; i < cmd.SelectionCount; i++)
                     {
@@ -130,6 +170,7 @@ namespace Craftwar.Sim
                         if (u.Player != cmd.Player)
                             continue;
                         u.Order = OrderType.None;
+                        u.AttackTarget = 0;
                         u.PathLength = 0;
                     }
                     break;
@@ -154,12 +195,15 @@ namespace Craftwar.Sim
                     continue;
                 }
 
-                if (u.Order != OrderType.Move)
+                if (u.Order == OrderType.None || UnitSpeeds.Get(u.TypeId) == 0)
                     continue;
 
                 if (u.TileX == u.OrderX && u.TileY == u.OrderY)
                 {
-                    u.Order = OrderType.None;
+                    // Arrival completes Move/AttackMove; Attack keeps chasing
+                    // (combat rewrites the chase destination as needed).
+                    if (u.Order != OrderType.Attack)
+                        u.Order = OrderType.None;
                     u.PathLength = 0;
                     continue;
                 }
@@ -181,10 +225,13 @@ namespace Craftwar.Sim
                 if (!State.FootprintFree(id, u.TypeId, nx, ny))
                 {
                     // Blocked on the final step: the destination is taken —
-                    // this is as close as it gets (gathering behavior).
+                    // this is as close as it gets (gathering behavior). For
+                    // Attack orders the blocker is usually the target itself;
+                    // stay put and let combat take over.
                     if (u.PathCursor >= u.PathLength - 1)
                     {
-                        u.Order = OrderType.None;
+                        if (u.Order != OrderType.Attack)
+                            u.Order = OrderType.None;
                         u.PathLength = 0;
                         continue;
                     }
@@ -289,7 +336,6 @@ namespace Craftwar.Sim
             return true;
         }
 
-        void TickCombat() { }
         void TickHarvest() { }
         void TickConstruction() { }
         void TickFog() { }

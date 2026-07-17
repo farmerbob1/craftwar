@@ -50,7 +50,55 @@ namespace Craftwar.View
             }
 
             if (mouse.rightButton.wasPressedThisFrame && _pool.Selected.Count > 0)
-                IssueMove(mouse.position.ReadValue());
+                IssueSmartOrder(mouse.position.ReadValue(), attackMove: false);
+
+            // A + left-click = attack-move.
+            if (Keyboard.current != null && Keyboard.current.aKey.isPressed
+                && mouse.leftButton.wasPressedThisFrame && _pool.Selected.Count > 0)
+            {
+                _dragging = false;
+                IssueSmartOrder(mouse.position.ReadValue(), attackMove: true);
+            }
+        }
+
+        /// <summary>Enemy under cursor -> Attack; otherwise Move/AttackMove.</summary>
+        unsafe void IssueSmartOrder(Vector2 screenPos, bool attackMove)
+        {
+            var state = _host.Sim.State;
+            Vector2 world = _camera.ScreenToWorldPoint(screenPos);
+            int tileX = Mathf.FloorToInt(world.x);
+            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y);
+            if (state.Terrain == null || !state.Terrain.InBounds(tileX, tileY))
+                return;
+
+            uint targetPacked = 0;
+            if (!attackMove)
+            {
+                uint occ = state.OccupancySurface[tileY * state.Terrain.Width + tileX];
+                if (occ == 0)
+                    occ = state.OccupancyAir[tileY * state.Terrain.Width + tileX];
+                if (occ != 0 && state.TryGetUnitIndex(Craftwar.Sim.UnitId.FromPacked(occ), out int ti)
+                    && state.Units[ti].Player != LocalPlayer
+                    && state.Units[ti].Player < SimConstants.MaxPlayers)
+                    targetPacked = occ;
+            }
+
+            var cmd = new GameCommand
+            {
+                Op = targetPacked != 0 ? CommandOp.Attack
+                    : attackMove ? CommandOp.AttackMove : CommandOp.Move,
+                Player = LocalPlayer,
+                TargetX = (ushort)tileX,
+                TargetY = (ushort)tileY,
+                TargetUnit = targetPacked,
+            };
+            foreach (uint packed in _pool.Selected)
+            {
+                if (cmd.SelectionCount >= GameCommand.MaxSelection)
+                    break;
+                cmd.Selection.Ids[cmd.SelectionCount++] = packed;
+            }
+            _host.SubmitCommand(cmd);
         }
 
         void SelectInRect(Vector2 a, Vector2 b, bool additive)
@@ -84,31 +132,6 @@ namespace Craftwar.View
                         break;
                 }
             }
-        }
-
-        unsafe void IssueMove(Vector2 screenPos)
-        {
-            Vector2 world = _camera.ScreenToWorldPoint(screenPos);
-            int tileX = Mathf.FloorToInt(world.x);
-            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y);
-            var state = _host.Sim.State;
-            if (state.Terrain == null || !state.Terrain.InBounds(tileX, tileY))
-                return;
-
-            var cmd = new GameCommand
-            {
-                Op = CommandOp.Move,
-                Player = LocalPlayer,
-                TargetX = (ushort)tileX,
-                TargetY = (ushort)tileY,
-            };
-            foreach (uint packed in _pool.Selected)
-            {
-                if (cmd.SelectionCount >= GameCommand.MaxSelection)
-                    break;
-                cmd.Selection.Ids[cmd.SelectionCount++] = packed;
-            }
-            _host.SubmitCommand(cmd);
         }
 
         void OnGUI()

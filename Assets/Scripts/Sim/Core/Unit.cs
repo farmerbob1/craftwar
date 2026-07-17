@@ -11,6 +11,8 @@ namespace Craftwar.Sim
     {
         None = 0,
         Move = 1,
+        Attack = 2,      // explicit target (AttackTarget)
+        AttackMove = 3,  // move to OrderX/Y, engaging anything on the way
     }
 
     /// <summary>
@@ -47,6 +49,14 @@ namespace Craftwar.Sim
         public sbyte StepDY;
         public byte WaitTicks;       // blocked-tile backoff
 
+        // Combat
+        public uint AttackTarget;    // UnitId.Packed of engaged enemy, 0 = none
+        public byte Cooldown;        // ticks until next attack
+        public ushort ChaseX;        // target's tile when we last pathed to it
+        public ushort ChaseY;
+        public ushort GoalX;         // attack-move final destination (resumed after kills)
+        public ushort GoalY;
+
         public bool IsAlive => (Flags & UnitFlags.Alive) != 0;
         public bool IsMoving => StepRemaining > 0;
 
@@ -72,6 +82,12 @@ namespace Craftwar.Sim
             h.Add((byte)StepDX);
             h.Add((byte)StepDY);
             h.Add(WaitTicks);
+            h.Add(AttackTarget);
+            h.Add(Cooldown);
+            h.Add(ChaseX);
+            h.Add(ChaseY);
+            h.Add(GoalX);
+            h.Add(GoalY);
         }
     }
 }
