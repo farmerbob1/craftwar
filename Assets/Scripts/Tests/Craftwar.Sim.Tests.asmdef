@@ -3,6 +3,9 @@
     "rootNamespace": "Craftwar.Sim.Tests",
     "references": [
         "Craftwar.Sim",
+        "Craftwar.Import",
+        "Craftwar.View",
+        "Craftwar.App",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

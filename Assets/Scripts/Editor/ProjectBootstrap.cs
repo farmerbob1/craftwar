@@ -1,6 +1,10 @@
+using Craftwar.App;
+using Craftwar.View;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.Tilemaps;
 
 namespace Craftwar.EditorTools
 {
@@ -19,8 +23,16 @@ namespace Craftwar.EditorTools
             "Assets/Settings/Mobile_RPAsset.asset",
         };
 
-        [MenuItem("Craftwar/Setup/Ensure 2D Renderer")]
         public static void Run()
+        {
+            EnsureRenderer2D();
+            EnsureGameScene();
+            AssetDatabase.SaveAssets();
+            Debug.Log("[Craftwar] ProjectBootstrap complete.");
+        }
+
+        [MenuItem("Craftwar/Setup/Ensure 2D Renderer")]
+        public static void EnsureRenderer2D()
         {
             var renderer2D = AssetDatabase.LoadAssetAtPath<Renderer2DData>(Renderer2DPath);
             if (renderer2D == null)
@@ -55,7 +67,47 @@ namespace Craftwar.EditorTools
             }
 
             AssetDatabase.SaveAssets();
-            Debug.Log("[Craftwar] ProjectBootstrap complete.");
+        }
+
+        const string GameScenePath = "Assets/Scenes/Game.unity";
+
+        [MenuItem("Craftwar/Setup/Ensure Game Scene")]
+        public static void EnsureGameScene()
+        {
+            if (AssetDatabase.LoadAssetAtPath<SceneAsset>(GameScenePath) != null)
+                return;
+
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            // Grid + terrain tilemap
+            var gridGo = new GameObject("Grid", typeof(Grid));
+            var terrainGo = new GameObject("Terrain", typeof(Tilemap), typeof(TilemapRenderer), typeof(TilemapView));
+            terrainGo.transform.SetParent(gridGo.transform, false);
+            terrainGo.GetComponent<TilemapRenderer>().sortingOrder = 0;
+
+            // Camera: orthographic, pixel perfect (32 PPU, 640x480 reference)
+            var camGo = new GameObject("Main Camera", typeof(Camera), typeof(CameraRig));
+            camGo.tag = "MainCamera";
+            var cam = camGo.GetComponent<Camera>();
+            cam.orthographic = true;
+            cam.orthographicSize = 7.5f; // 480px / 2 / 32ppu
+            cam.backgroundColor = Color.black;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.transform.position = new Vector3(32f, 32f, -10f);
+            var ppc = camGo.AddComponent<PixelPerfectCamera>();
+            ppc.assetsPPU = 32;
+            ppc.refResolutionX = 640;
+            ppc.refResolutionY = 480;
+
+            // Bootstrap object wired to the view components
+            var bootGo = new GameObject("GameBootstrap", typeof(GameBootstrap));
+            var so = new SerializedObject(bootGo.GetComponent<GameBootstrap>());
+            so.FindProperty("tilemapView").objectReferenceValue = terrainGo.GetComponent<TilemapView>();
+            so.FindProperty("cameraRig").objectReferenceValue = camGo.GetComponent<CameraRig>();
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            EditorSceneManager.SaveScene(scene, GameScenePath);
+            Debug.Log($"[Craftwar] Created {GameScenePath}");
         }
     }
 }
