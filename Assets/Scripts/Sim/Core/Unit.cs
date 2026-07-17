@@ -7,6 +7,12 @@ namespace Craftwar.Sim
         Building = 1 << 1,
     }
 
+    public enum OrderType : byte
+    {
+        None = 0,
+        Move = 1,
+    }
+
     /// <summary>
     /// One entity slot (units AND buildings, per the original model).
     /// Array-of-structs in GameState.Units; refer to slots via UnitId handles.
@@ -29,7 +35,20 @@ namespace Craftwar.Sim
 
         public int Hp;
 
+        // Active order + movement execution state
+        public OrderType Order;
+        public ushort OrderX;
+        public ushort OrderY;
+        public ushort PathCursor;    // next index into GameState.UnitPaths[slot]
+        public ushort PathLength;
+        public int MoveAccum;        // integer speed accumulator
+        public byte StepRemaining;   // pixels left in the current tile step
+        public sbyte StepDX;         // -1/0/1 per axis while stepping
+        public sbyte StepDY;
+        public byte WaitTicks;       // blocked-tile backoff
+
         public bool IsAlive => (Flags & UnitFlags.Alive) != 0;
+        public bool IsMoving => StepRemaining > 0;
 
         public void HashInto(ref StateHash h)
         {
@@ -43,6 +62,16 @@ namespace Craftwar.Sim
             h.Add(PixX);
             h.Add(PixY);
             h.Add(Hp);
+            h.Add((byte)Order);
+            h.Add(OrderX);
+            h.Add(OrderY);
+            h.Add(PathCursor);
+            h.Add(PathLength);
+            h.Add(MoveAccum);
+            h.Add(StepRemaining);
+            h.Add((byte)StepDX);
+            h.Add((byte)StepDY);
+            h.Add(WaitTicks);
         }
     }
 }

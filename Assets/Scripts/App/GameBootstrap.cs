@@ -1,6 +1,7 @@
 using System.IO;
 using Craftwar.Import;
 using Craftwar.Import.War2;
+using Craftwar.Sim;
 using Craftwar.Sim.Pud;
 using Craftwar.View;
 using UnityEngine;
@@ -53,9 +54,40 @@ namespace Craftwar.App
             cameraRig.SetEdgeScroll(false);
 #endif
 
+            // --- Simulation ---
+            var rules = RuleSet.CreateDefault();
+            rules.ApplyMapOverrides(pud);
+            var sim = new GameSim(seed: 42); // lobby seed at M10
+            sim.Setup(pud, rules);
+
+            var driver = new Craftwar.Net.LocalLockstepDriver();
+            var replay = new Replay { Seed = 42, MapHash = Replay.HashMapBytes(File.ReadAllBytes(mapPath)) };
+            var runner = gameObject.AddComponent<GameLoopRunner>();
+            runner.Init(sim, driver, replay);
+
+            // --- Unit views + input ---
+            var spriteBank = new UnitSpriteBank(archive, pud.Era);
+            var poolGo = new GameObject("UnitViews");
+            var pool = poolGo.AddComponent<UnitViewPool>();
+            pool.Init(runner, spriteBank, pud.Height);
+            var selection = gameObject.AddComponent<SelectionController>();
+            selection.Init(runner, pool, cameraRig.GetComponent<Camera>(), pud.Height);
+
+            // Center the camera on player 0's start location.
+            foreach (var e in pud.Units)
+            {
+                if ((e.Type == (byte)UnitTypeId.HumanStart || e.Type == (byte)UnitTypeId.OrcStart)
+                    && e.Owner == 0)
+                {
+                    cameraRig.transform.position = new Vector3(e.X, pud.Height - 1 - e.Y,
+                        cameraRig.transform.position.z);
+                    break;
+                }
+            }
+
             Debug.Log($"[Craftwar] Loaded '{Path.GetFileName(mapPath)}' " +
-                      $"{pud.Width}x{pud.Height} {pud.Era}, {pud.Units.Count} units, " +
-                      $"{catalog.TileCount} tiles decoded.");
+                      $"{pud.Width}x{pud.Height} {pud.Era}, {pud.Units.Count} map units, " +
+                      $"{sim.State.HighestUnitIndex} sim units, {catalog.TileCount} tiles.");
         }
     }
 }

@@ -3,6 +3,7 @@
     "rootNamespace": "Craftwar.Sim.Tests",
     "references": [
         "Craftwar.Sim",
+        "Craftwar.Net",
         "Craftwar.Import",
         "Craftwar.View",
         "Craftwar.App",

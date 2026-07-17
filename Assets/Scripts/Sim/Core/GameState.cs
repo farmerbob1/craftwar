@@ -19,10 +19,77 @@ namespace Craftwar.Sim
         readonly ushort[] _freeList = new ushort[SimConstants.MaxUnits];
         int _freeCount;
 
+        // Match-static references, set by GameSim.Setup.
+        public RuleSet Rules;
+        public TerrainMap Terrain;
+
+        /// <summary>Per-slot current path (packed tile indices); null when none.</summary>
+        public readonly ushort[][] UnitPaths = new ushort[SimConstants.MaxUnits][];
+
+        // One unit per tile per layer, exactly like the original.
+        // Values are UnitId.Packed (0 = free). Surface = land+sea, Air separate.
+        public uint[] OccupancySurface;
+        public uint[] OccupancyAir;
+
         public GameState(ulong seed)
         {
             // Fixed stream selector: one RNG stream, seeded per match.
             Rng = new Pcg32(seed, 54);
+        }
+
+        public int Footprint(ushort typeId)
+        {
+            if (Rules == null)
+                return 1;
+            int s = Rules.Units[typeId].SizeW;
+            return s < 1 ? 1 : s;
+        }
+
+        uint[] OccupancyFor(ushort typeId) =>
+            Rules != null && Rules.Units[typeId].MoveDomain == 1 ? OccupancyAir : OccupancySurface;
+
+        public void Occupy(UnitId id, ushort typeId, int tileX, int tileY)
+        {
+            if (Terrain == null) return;
+            var layer = OccupancyFor(typeId);
+            int size = Footprint(typeId);
+            for (int dy = 0; dy < size; dy++)
+                for (int dx = 0; dx < size; dx++)
+                    if (tileX + dx < Terrain.Width && tileY + dy < Terrain.Height)
+                        layer[(tileY + dy) * Terrain.Width + tileX + dx] = id.Packed;
+        }
+
+        public void Vacate(UnitId id, ushort typeId, int tileX, int tileY)
+        {
+            if (Terrain == null) return;
+            var layer = OccupancyFor(typeId);
+            int size = Footprint(typeId);
+            for (int dy = 0; dy < size; dy++)
+                for (int dx = 0; dx < size; dx++)
+                    if (tileX + dx < Terrain.Width && tileY + dy < Terrain.Height)
+                    {
+                        int i = (tileY + dy) * Terrain.Width + tileX + dx;
+                        if (layer[i] == id.Packed)
+                            layer[i] = 0;
+                    }
+        }
+
+        /// <summary>Is the footprint at (tileX,tileY) free for this unit (ignoring itself)?</summary>
+        public bool FootprintFree(UnitId self, ushort typeId, int tileX, int tileY)
+        {
+            if (Terrain == null) return true;
+            var layer = OccupancyFor(typeId);
+            int size = Footprint(typeId);
+            for (int dy = 0; dy < size; dy++)
+                for (int dx = 0; dx < size; dx++)
+                {
+                    if (tileX + dx >= Terrain.Width || tileY + dy >= Terrain.Height)
+                        return false;
+                    uint occ = layer[(tileY + dy) * Terrain.Width + tileX + dx];
+                    if (occ != 0 && occ != self.Packed)
+                        return false;
+                }
+            return true;
         }
 
         public UnitId SpawnUnit(ushort typeId, byte player, ushort tileX, ushort tileY)
@@ -56,14 +123,19 @@ namespace Craftwar.Sim
                 PixX = tileX * SimConstants.TilePixels,
                 PixY = tileY * SimConstants.TilePixels,
             };
-            return new UnitId(index, gen);
+            var id = new UnitId(index, gen);
+            Occupy(id, typeId, tileX, tileY);
+            return id;
         }
 
         public void DestroyUnit(UnitId id)
         {
             if (!TryGetUnitIndex(id, out int index))
                 return;
-            Units[index].Flags &= ~UnitFlags.Alive;
+            ref Unit u = ref Units[index];
+            Vacate(id, u.TypeId, u.TileX, u.TileY);
+            u.Flags &= ~UnitFlags.Alive;
+            UnitPaths[index] = null;
             _freeList[_freeCount++] = (ushort)index;
         }
 
