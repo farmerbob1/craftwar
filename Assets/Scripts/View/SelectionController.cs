@@ -18,16 +18,18 @@ namespace Craftwar.View
         UnitViewPool _pool;
         Camera _camera;
         int _mapHeight;
+        HudController _hud;
 
         Vector2 _dragStartScreen;
         bool _dragging;
 
-        public void Init(ISimHost host, UnitViewPool pool, Camera cam, int mapHeight)
+        public void Init(ISimHost host, UnitViewPool pool, Camera cam, int mapHeight, HudController hud)
         {
             _host = host;
             _pool = pool;
             _camera = cam;
             _mapHeight = mapHeight;
+            _hud = hud;
         }
 
         void Update()
@@ -35,6 +37,16 @@ namespace Craftwar.View
             var mouse = Mouse.current;
             if (mouse == null || _host?.Sim == null)
                 return;
+
+            // Building placement mode intercepts clicks entirely.
+            if (_hud != null && _hud.PendingBuildType != 0)
+            {
+                if (mouse.rightButton.wasPressedThisFrame)
+                    _hud.PendingBuildType = 0;
+                else if (mouse.leftButton.wasPressedThisFrame)
+                    PlaceBuilding(mouse.position.ReadValue());
+                return;
+            }
 
             if (mouse.leftButton.wasPressedThisFrame)
             {
@@ -61,7 +73,10 @@ namespace Craftwar.View
             }
         }
 
-        /// <summary>Enemy under cursor -> Attack; otherwise Move/AttackMove.</summary>
+        /// <summary>
+        /// Context order: enemy -> Attack, gold mine -> Harvest, tree ->
+        /// Harvest wood, otherwise Move/AttackMove.
+        /// </summary>
         unsafe void IssueSmartOrder(Vector2 screenPos, bool attackMove)
         {
             var state = _host.Sim.State;
@@ -72,21 +87,35 @@ namespace Craftwar.View
                 return;
 
             uint targetPacked = 0;
+            var op = attackMove ? CommandOp.AttackMove : CommandOp.Move;
             if (!attackMove)
             {
                 uint occ = state.OccupancySurface[tileY * state.Terrain.Width + tileX];
                 if (occ == 0)
                     occ = state.OccupancyAir[tileY * state.Terrain.Width + tileX];
-                if (occ != 0 && state.TryGetUnitIndex(Craftwar.Sim.UnitId.FromPacked(occ), out int ti)
-                    && state.Units[ti].Player != LocalPlayer
-                    && state.Units[ti].Player < SimConstants.MaxPlayers)
-                    targetPacked = occ;
+                if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int ti))
+                {
+                    ref var target = ref state.Units[ti];
+                    if (state.Rules.Units[target.TypeId].Is(UnitTypeFlags.GoldMine))
+                    {
+                        op = CommandOp.Harvest;
+                        targetPacked = occ;
+                    }
+                    else if (target.Player != LocalPlayer && target.Player < SimConstants.MaxPlayers)
+                    {
+                        op = CommandOp.Attack;
+                        targetPacked = occ;
+                    }
+                }
+                else if (state.Terrain.HasWood(tileX, tileY))
+                {
+                    op = CommandOp.Harvest; // TargetUnit stays 0 -> wood
+                }
             }
 
             var cmd = new GameCommand
             {
-                Op = targetPacked != 0 ? CommandOp.Attack
-                    : attackMove ? CommandOp.AttackMove : CommandOp.Move,
+                Op = op,
                 Player = LocalPlayer,
                 TargetX = (ushort)tileX,
                 TargetY = (ushort)tileY,
@@ -119,7 +148,7 @@ namespace Craftwar.View
             for (int i = 0; i < state.HighestUnitIndex; i++)
             {
                 ref var u = ref state.Units[i];
-                if (!u.IsAlive || u.Player != LocalPlayer)
+                if (!u.IsAlive || u.Player != LocalPlayer || (u.Flags & UnitFlags.Hidden) != 0)
                     continue;
                 if ((u.Flags & UnitFlags.Building) != 0)
                     continue;
@@ -132,6 +161,53 @@ namespace Craftwar.View
                         break;
                 }
             }
+
+            // Click with no mobile units hit: select the building under the cursor.
+            if (_pool.Selected.Count == 0)
+            {
+                int tileX = Mathf.FloorToInt(rect.center.x);
+                int tileY = _mapHeight - 1 - Mathf.FloorToInt(rect.center.y);
+                if (state.Terrain != null && state.Terrain.InBounds(tileX, tileY))
+                {
+                    uint occ = state.OccupancySurface[tileY * state.Terrain.Width + tileX];
+                    if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi)
+                        && state.Units[bi].Player == LocalPlayer
+                        && (state.Units[bi].Flags & UnitFlags.Building) != 0)
+                        _pool.Selected.Add(occ);
+                }
+            }
+        }
+
+        unsafe void PlaceBuilding(Vector2 screenPos)
+        {
+            var state = _host.Sim.State;
+            Vector2 world = _camera.ScreenToWorldPoint(screenPos);
+            int size = state.Footprint(_hud.PendingBuildType);
+            // Click points at the footprint center; convert to top-left tile.
+            int tileX = Mathf.FloorToInt(world.x) - (size - 1) / 2;
+            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y) - (size - 1) / 2;
+            if (state.Terrain == null || !state.Terrain.InBounds(tileX, tileY))
+                return;
+
+            var cmd = new GameCommand
+            {
+                Op = CommandOp.Build,
+                Player = LocalPlayer,
+                TargetX = (ushort)tileX,
+                TargetY = (ushort)tileY,
+                Param = _hud.PendingBuildType,
+            };
+            foreach (uint packed in _pool.Selected)
+            {
+                if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
+                    || !state.Rules.Units[state.Units[idx].TypeId].Is(UnitTypeFlags.Peon))
+                    continue;
+                cmd.Selection.Ids[cmd.SelectionCount++] = packed;
+                break; // one builder
+            }
+            if (cmd.SelectionCount > 0)
+                _host.SubmitCommand(cmd);
+            _hud.PendingBuildType = 0;
         }
 
         void OnGUI()

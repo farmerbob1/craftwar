@@ -19,6 +19,10 @@ namespace Craftwar.View
     {
         bool Has(ushort typeId);
         Sprite Get(ushort typeId, byte player, byte facing, out bool flipX);
+        /// <summary>Frame at animation block*5 + facing; clamps to available frames.</summary>
+        Sprite GetAnimFrame(ushort typeId, byte player, byte facing, int block, out bool flipX);
+        /// <summary>Number of 5-facing animation blocks (0 for single-pose banks).</summary>
+        int BlockCount(ushort typeId, byte player);
     }
 
     /// <summary>
@@ -56,8 +60,45 @@ namespace Craftwar.View
         }
 
         readonly Dictionary<int, SpriteRenderer> _projectileViews = new Dictionary<int, SpriteRenderer>();
-        readonly List<(SpriteRenderer sr, float dieAt)> _corpses = new List<(SpriteRenderer, float)>();
+        readonly List<(SpriteRenderer sr, float diedAt, ushort typeId, byte player, byte facing)> _corpses
+            = new List<(SpriteRenderer, float, ushort, byte, byte)>();
+        readonly Dictionary<int, (ushort typeId, byte player, byte facing)> _lastPose
+            = new Dictionary<int, (ushort, byte, byte)>();
         Sprite _projectileSprite;
+        const float CorpseSeconds = 2f;
+
+        /// <summary>
+        /// WC2 frame convention: blocks of 5 facings. Blocks 0-4 = walk cycle
+        /// (block 0 doubles as the stand pose), then attack blocks, with the
+        /// death animation in the last blocks. Returns -1 for single-pose banks.
+        /// </summary>
+        int PickAnimBlock(ref Unit u, GameState state)
+        {
+            int blocks = _sprites.BlockCount(u.TypeId, u.Player);
+            if (blocks <= 0)
+                return -1;
+
+            // Attacking / chopping: play attack blocks while the swing timer
+            // is fresh (first ~40% of the cooldown window).
+            bool swinging = u.Cooldown > SimConstants.AttackCooldownTicks * 3 / 5
+                || u.Harvest == HarvestStage.Chopping;
+            if (swinging && blocks > 6)
+            {
+                int attackStart = 5;
+                int attackCount = Mathf.Max(1, Mathf.Min(4, blocks - 8));
+                int step = (int)(Time.time * 10f) % attackCount;
+                return attackStart + step;
+            }
+
+            // Walking: cycle blocks 0..4.
+            if (u.IsMoving || u.PathLength > u.PathCursor)
+            {
+                int walkBlocks = Mathf.Min(5, blocks);
+                return (int)(Time.time * 9f) % walkBlocks;
+            }
+
+            return 0; // stand
+        }
 
         void LateUpdate()
         {
@@ -94,16 +135,27 @@ namespace Craftwar.View
                 sr.sortingOrder = Mathf.RoundToInt(pixY) + 1000; // lower on screen draws on top
 
                 bool flipX = false;
-                Sprite sprite = _sprites != null && _sprites.Has(u.TypeId)
-                    ? _sprites.Get(u.TypeId, u.Player, u.Facing, out flipX)
-                    : null;
+                Sprite sprite = null;
+                if (_sprites != null && _sprites.Has(u.TypeId))
+                {
+                    int block = PickAnimBlock(ref u, state);
+                    sprite = block >= 0
+                        ? _sprites.GetAnimFrame(u.TypeId, u.Player, u.Facing, block, out flipX)
+                        : _sprites.Get(u.TypeId, u.Player, u.Facing, out flipX);
+                }
                 sr.sprite = sprite != null ? sprite : _fallback;
                 sr.flipX = flipX;
+                _lastPose[i] = (u.TypeId, u.Player, u.Facing);
 
                 uint packed = new UnitId((ushort)i, u.Gen).Packed;
-                sr.color = Selected.Contains(packed)
+                Color baseColor = Selected.Contains(packed)
                     ? new Color(0.6f, 1f, 0.6f, 1f)
                     : Color.white;
+                if ((u.Flags & UnitFlags.UnderConstruction) != 0)
+                    baseColor.a = 0.55f; // scaffolding look until real stage frames
+                if ((u.Flags & UnitFlags.Hidden) != 0)
+                    baseColor.a = 0f;    // inside a mine/depot/site
+                sr.color = baseColor;
             }
 
             _toRemove.Clear();
@@ -112,12 +164,15 @@ namespace Craftwar.View
                     _toRemove.Add(kv.Key);
             foreach (int key in _toRemove)
             {
-                // Repurpose the dead unit's renderer as a brief fading corpse.
+                // Repurpose the dead unit's renderer to play the death
+                // animation, then fade.
                 var sr = _views[key];
                 _views.Remove(key);
                 sr.gameObject.name = "corpse";
-                sr.color = new Color(0.35f, 0.3f, 0.3f, 0.9f);
-                _corpses.Add((sr, Time.time + 2f));
+                sr.color = Color.white;
+                var pose = _lastPose.TryGetValue(key, out var p) ? p : ((ushort)0, (byte)0, (byte)0);
+                _lastPose.Remove(key);
+                _corpses.Add((sr, Time.time, pose.Item1, pose.Item2, pose.Item3));
             }
         }
 
@@ -125,16 +180,32 @@ namespace Craftwar.View
         {
             for (int i = _corpses.Count - 1; i >= 0; i--)
             {
-                var (sr, dieAt) = _corpses[i];
-                if (sr == null || Time.time >= dieAt)
+                var (sr, diedAt, typeId, player, facing) = _corpses[i];
+                float t = Time.time - diedAt;
+                if (sr == null || t >= CorpseSeconds)
                 {
                     if (sr != null)
                         Destroy(sr.gameObject);
                     _corpses.RemoveAt(i);
                     continue;
                 }
+
+                int blocks = _sprites != null ? _sprites.BlockCount(typeId, player) : 0;
+                if (blocks > 8 && t < 1f)
+                {
+                    // Death animation: the last ~3 blocks, once through.
+                    int deathCount = Mathf.Min(3, blocks - 5);
+                    int deathStart = blocks - deathCount;
+                    int step = Mathf.Min(deathCount - 1, (int)(t * deathCount / 0.8f));
+                    var sprite = _sprites.GetAnimFrame(typeId, player, facing, deathStart + step, out bool flip);
+                    if (sprite != null)
+                    {
+                        sr.sprite = sprite;
+                        sr.flipX = flip;
+                    }
+                }
                 var c = sr.color;
-                c.a = Mathf.Clamp01((dieAt - Time.time) / 2f);
+                c.a = Mathf.Clamp01((CorpseSeconds - t) / CorpseSeconds);
                 sr.color = c;
             }
         }

@@ -23,6 +23,7 @@ namespace Craftwar.Sim
 
         readonly byte[] _passable;           // bit per MoveDomain
         readonly byte[][] _clearance;        // [domain][tile]
+        readonly byte[] _wood;               // remaining wood units/100 per tile (1 = 100 lumber)
 
         public TerrainMap(int width, int height)
         {
@@ -32,6 +33,21 @@ namespace Craftwar.Sim
             _clearance = new byte[3][];
             for (int d = 0; d < 3; d++)
                 _clearance[d] = new byte[width * height];
+            _wood = new byte[width * height];
+        }
+
+        /// <summary>Forest per MTXM classification: solid 0x007x or boundary 0x07xx.</summary>
+        public static bool IsForestTile(ushort tileId) =>
+            (tileId >> 8) == 0x07 || ((tileId >> 8) == 0x00 && ((tileId >> 4) & 0xF) == 0x7);
+
+        public bool HasWood(int x, int y) => InBounds(x, y) && _wood[y * Width + x] > 0;
+
+        /// <summary>Fell the tree at (x,y): frees the tile for land movement.</summary>
+        public void Chop(int x, int y)
+        {
+            _wood[y * Width + x] = 0;
+            SetPassable(MoveDomain.Land, x, y, true);
+            RebuildClearance();
         }
 
         public static TerrainMap FromPud(PudFile pud)
@@ -56,6 +72,8 @@ namespace Craftwar.Sim
                     // 0x0081 forest/mountains, 0x008d wall, unknown: blocked
                 }
                 map._passable[i] = bits;
+                if (sqm == 0x0081 && IsForestTile(pud.Tiles[i]))
+                    map._wood[i] = 1; // one tree = 100 lumber
             }
             map.RebuildClearance();
             return map;

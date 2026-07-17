@@ -12,7 +12,7 @@ namespace Craftwar.Sim
             for (int i = 0; i < State.HighestUnitIndex; i++)
             {
                 ref Unit u = ref State.Units[i];
-                if (!u.IsAlive)
+                if (!u.IsAlive || (u.Flags & UnitFlags.Hidden) != 0)
                     continue;
                 ref UnitTypeData row = ref State.Rules.Units[u.TypeId];
                 if (!row.Is(UnitTypeFlags.CanAttack))

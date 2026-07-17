@@ -23,6 +23,13 @@ namespace Craftwar.Sim
         public RuleSet Rules;
         public TerrainMap Terrain;
 
+        /// <summary>Mutable copy of the MTXM tile layer (trees fall, walls break).</summary>
+        public ushort[] Tiles;
+
+        /// <summary>Tile mutations this tick, for the view to patch. Not hashed (derived from Tiles).</summary>
+        public readonly System.Collections.Generic.List<(ushort x, ushort y, ushort tile)> TileChanges
+            = new System.Collections.Generic.List<(ushort, ushort, ushort)>();
+
         /// <summary>Per-slot current path (packed tile indices); null when none.</summary>
         public readonly ushort[][] UnitPaths = new ushort[SimConstants.MaxUnits][];
 
@@ -158,6 +165,9 @@ namespace Craftwar.Sim
             h.Add(Rng.Inc);
             for (int i = 0; i < Players.Length; i++)
                 Players[i].HashInto(ref h);
+            if (Tiles != null)
+                for (int i = 0; i < Tiles.Length; i++)
+                    h.Add(Tiles[i]);
             h.Add(HighestUnitIndex);
             for (int i = 0; i < HighestUnitIndex; i++)
                 Units[i].HashInto(ref h);

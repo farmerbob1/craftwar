@@ -31,6 +31,7 @@ namespace Craftwar.Sim
         {
             State.Rules = rules;
             State.Terrain = TerrainMap.FromPud(pud);
+            State.Tiles = (ushort[])pud.Tiles.Clone();
             State.OccupancySurface = new uint[pud.Width * pud.Height];
             State.OccupancyAir = new uint[pud.Width * pud.Height];
             _pathfinder = new Pathfinder(State.Terrain, State);
@@ -67,9 +68,13 @@ namespace Craftwar.Sim
                     u.Hp = rules.Units[entry.Type].Hp;
                     if (rules.Units[entry.Type].Is(UnitTypeFlags.Building))
                         u.Flags |= UnitFlags.Building;
+                    if (rules.Units[entry.Type].Is(UnitTypeFlags.GoldMine | UnitTypeFlags.OilPatch))
+                        u.ResourceAmount = entry.Alter * 2500;
                     u.Facing = (byte)(State.Rng.Next(8)); // original: random idle facing
                 }
             }
+
+            RecountFood(); // food gates must be valid before the first command
         }
 
         /// <summary>
@@ -79,6 +84,8 @@ namespace Craftwar.Sim
         /// </summary>
         public void Advance(IReadOnlyList<GameCommand> commands)
         {
+            State.TileChanges.Clear();
+
             if (commands != null)
             {
                 for (int i = 0; i < commands.Count; i++)
@@ -167,17 +174,23 @@ namespace Craftwar.Sim
                         if (!State.TryGetUnitIndex(id, out int idx))
                             continue;
                         ref Unit u = ref State.Units[idx];
-                        if (u.Player != cmd.Player)
+                        if (u.Player != cmd.Player || (u.Flags & UnitFlags.Hidden) != 0)
                             continue;
                         u.Order = OrderType.None;
                         u.AttackTarget = 0;
+                        u.Harvest = HarvestStage.None;
                         u.PathLength = 0;
                     }
                     break;
+
+                case CommandOp.Harvest:
+                case CommandOp.Build:
+                case CommandOp.Train:
+                case CommandOp.SetRally:
+                    ApplyEconomyCommand(cmd);
+                    break;
             }
         }
-
-        void TickProduction() { }
 
         void TickMovement()
         {
@@ -185,7 +198,7 @@ namespace Craftwar.Sim
             for (int i = 0; i < State.HighestUnitIndex; i++)
             {
                 ref Unit u = ref State.Units[i];
-                if (!u.IsAlive)
+                if (!u.IsAlive || (u.Flags & UnitFlags.Hidden) != 0)
                     continue;
 
                 // Finish an in-flight tile step regardless of order changes.
@@ -200,9 +213,9 @@ namespace Craftwar.Sim
 
                 if (u.TileX == u.OrderX && u.TileY == u.OrderY)
                 {
-                    // Arrival completes Move/AttackMove; Attack keeps chasing
-                    // (combat rewrites the chase destination as needed).
-                    if (u.Order != OrderType.Attack)
+                    // Arrival completes Move/AttackMove only; Attack keeps
+                    // chasing and Harvest/Build have their own stage logic.
+                    if (u.Order == OrderType.Move || u.Order == OrderType.AttackMove)
                         u.Order = OrderType.None;
                     u.PathLength = 0;
                     continue;
@@ -212,7 +225,10 @@ namespace Craftwar.Sim
                 {
                     if (!Repath(ref u, i))
                     {
-                        u.Order = OrderType.None; // nowhere closer to go
+                        // Nowhere closer to go. Harvest/Build keep their order —
+                        // their stage logic decides based on adjacency.
+                        if (u.Order != OrderType.Harvest && u.Order != OrderType.Build)
+                            u.Order = OrderType.None;
                         continue;
                     }
                 }
@@ -230,7 +246,10 @@ namespace Craftwar.Sim
                     // stay put and let combat take over.
                     if (u.PathCursor >= u.PathLength - 1)
                     {
-                        if (u.Order != OrderType.Attack)
+                        // Move/AttackMove: as close as it gets. Attack/Harvest/
+                        // Build: the blocker is usually the destination itself
+                        // (target, mine, depot); stay put, stage logic decides.
+                        if (u.Order == OrderType.Move || u.Order == OrderType.AttackMove)
                             u.Order = OrderType.None;
                         u.PathLength = 0;
                         continue;
@@ -336,7 +355,6 @@ namespace Craftwar.Sim
             return true;
         }
 
-        void TickHarvest() { }
         void TickConstruction() { }
         void TickFog() { }
         void TickVictory() { }

@@ -5,6 +5,26 @@ namespace Craftwar.Sim
         None = 0,
         Alive = 1 << 0,
         Building = 1 << 1,
+        Hidden = 1 << 2,            // inside a mine/depot/construction site
+        UnderConstruction = 1 << 3,
+    }
+
+    public enum HarvestStage : byte
+    {
+        None = 0,
+        ToMine,
+        InMine,
+        ToDepot,
+        InDepot,
+        ToWood,
+        Chopping,
+    }
+
+    public enum CarryType : byte
+    {
+        None = 0,
+        Gold = 1,
+        Wood = 2,
     }
 
     public enum OrderType : byte
@@ -13,6 +33,8 @@ namespace Craftwar.Sim
         Move = 1,
         Attack = 2,      // explicit target (AttackTarget)
         AttackMove = 3,  // move to OrderX/Y, engaging anything on the way
+        Harvest = 4,     // gold/wood cycle (Unit.Harvest holds the stage)
+        Build = 5,       // walk to site, erect Unit.BuildType
     }
 
     /// <summary>
@@ -57,6 +79,17 @@ namespace Craftwar.Sim
         public ushort GoalX;         // attack-move final destination (resumed after kills)
         public ushort GoalY;
 
+        // Economy
+        public HarvestStage Harvest;
+        public CarryType Carry;
+        public ushort Timer;         // generic stage timer (in-mine, chopping, deposit)
+        public uint ResourceTarget;  // mine UnitId.Packed, or (0x8000_0000 | tileIndex) for wood
+        public int ResourceAmount;   // mines/patches: remaining resources
+        public ushort BuildType;     // peasant: queued building type; building: training type
+        public ushort TrainTicks;    // building: ticks left on training/construction
+        public ushort RallyX;
+        public ushort RallyY;
+
         public bool IsAlive => (Flags & UnitFlags.Alive) != 0;
         public bool IsMoving => StepRemaining > 0;
 
@@ -88,6 +121,15 @@ namespace Craftwar.Sim
             h.Add(ChaseY);
             h.Add(GoalX);
             h.Add(GoalY);
+            h.Add((byte)Harvest);
+            h.Add((byte)Carry);
+            h.Add(Timer);
+            h.Add(ResourceTarget);
+            h.Add(ResourceAmount);
+            h.Add(BuildType);
+            h.Add(TrainTicks);
+            h.Add(RallyX);
+            h.Add(RallyY);
         }
     }
 }

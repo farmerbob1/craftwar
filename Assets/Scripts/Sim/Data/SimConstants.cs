@@ -39,6 +39,14 @@ namespace Craftwar.Sim
         public const int UnitTurns = 2;        // UNIT_TURNS
         public const int UpgradeTurns = 2;     // UPGRADE_TURNS
 
+        // --- Harvest pacing (ticks) ---
+        public const int InMineTicks = 50;      // ~1s inside the mine
+        public const int InDepotTicks = 25;     // ~0.5s dropping off
+        public const int ChopTicks = 450;       // ~9s per 100 lumber
+        public const int CarryAmount = 100;     // per trip (GOLD/LUMBER_HARVEST)
+        public const int WoodPerTile = 100;
+        public const ushort ChoppedTileId = 0x0052; // solid ground replacing a felled tree
+
         // --- Combat ---
         public const int AttackCooldownTicks = 50;  // ~1 attack/sec baseline
         public const int ProjectileSpeedPxPerTick = 8;

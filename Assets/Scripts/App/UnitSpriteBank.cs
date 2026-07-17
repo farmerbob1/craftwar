@@ -50,6 +50,28 @@ namespace Craftwar.App
             return frames[index];
         }
 
+        public int BlockCount(ushort typeId, byte player)
+        {
+            var frames = GetFrames(typeId, player);
+            return frames == null || frames.Length < 15 ? 0 : frames.Length / 5;
+        }
+
+        public Sprite GetAnimFrame(ushort typeId, byte player, byte facing, int block, out bool flipX)
+        {
+            flipX = false;
+            var frames = GetFrames(typeId, player);
+            if (frames == null || frames.Length == 0)
+                return null;
+            if (frames.Length < 15)
+                return frames[0];
+            int spriteDir = facing <= 4 ? facing : 8 - facing;
+            flipX = facing > 4;
+            int index = block * 5 + spriteDir;
+            if (index >= frames.Length)
+                index = spriteDir;
+            return frames[index];
+        }
+
         Sprite[] GetFrames(ushort typeId, byte player)
         {
             int entry = War2Sprites.EntryForUnit(typeId, _era);

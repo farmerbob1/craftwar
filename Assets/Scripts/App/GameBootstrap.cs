@@ -22,6 +22,18 @@ namespace Craftwar.App
 
         public PudFile CurrentMap { get; private set; }
 
+        GameLoopRunner _runner;
+        ITileResolver _tileResolver;
+
+        void LateUpdate()
+        {
+            if (_runner == null || _runner.PendingTileChanges.Count == 0)
+                return;
+            foreach (var (x, y, tile) in _runner.PendingTileChanges)
+                tilemapView.SetTile(x, y, tile, _tileResolver);
+            _runner.PendingTileChanges.Clear();
+        }
+
         void Start()
         {
             var paths = LocalAssetPaths.Load();
@@ -70,8 +82,12 @@ namespace Craftwar.App
             var poolGo = new GameObject("UnitViews");
             var pool = poolGo.AddComponent<UnitViewPool>();
             pool.Init(runner, spriteBank, pud.Height);
+            var hud = gameObject.AddComponent<HudController>();
+            hud.Init(runner, pool);
             var selection = gameObject.AddComponent<SelectionController>();
-            selection.Init(runner, pool, cameraRig.GetComponent<Camera>(), pud.Height);
+            selection.Init(runner, pool, cameraRig.GetComponent<Camera>(), pud.Height, hud);
+            _runner = runner;
+            _tileResolver = catalog;
 
             // Center the camera on player 0's start location.
             foreach (var e in pud.Units)

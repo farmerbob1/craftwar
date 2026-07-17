@@ -27,6 +27,10 @@ namespace Craftwar.App
         float _accumulator;
         const float TickSeconds = SimConstants.MsPerTick / 1000f;
 
+        /// <summary>Tile mutations accumulated across the ticks run this frame; drained by the view.</summary>
+        public readonly List<(ushort x, ushort y, ushort tile)> PendingTileChanges
+            = new List<(ushort, ushort, ushort)>();
+
         public void Init(GameSim sim, ILockstepDriver driver, Replay replay)
         {
             Sim = sim;
@@ -56,6 +60,7 @@ namespace Craftwar.App
                     foreach (var c in _tickCommands)
                         _replay.Record(Sim.State.Tick, c);
                 Sim.Advance(_tickCommands);
+                PendingTileChanges.AddRange(Sim.State.TileChanges);
                 _accumulator -= TickSeconds;
             }
             Alpha = Mathf.Clamp01(_accumulator / TickSeconds);
