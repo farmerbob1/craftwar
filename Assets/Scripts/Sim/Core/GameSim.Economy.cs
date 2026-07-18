@@ -216,11 +216,17 @@ namespace Craftwar.Sim
         }
 
         /// <summary>First free land tile in a ring around the footprint.</summary>
-        bool TryFindSpawnTile(ref Unit b, out int sx, out int sy)
+        bool TryFindSpawnTile(ref Unit b, out int sx, out int sy) =>
+            TryFindSpawnTileNear(ref b, b.TileX, b.TileY, out sx, out sy);
+
+        /// <summary>Free ring tile closest to (prefX, prefY) — exits face the destination.</summary>
+        bool TryFindSpawnTileNear(ref Unit b, int prefX, int prefY, out int sx, out int sy)
         {
             int size = State.Footprint(b.TypeId);
             for (int ring = 1; ring <= 3; ring++)
             {
+                int bestDist = int.MaxValue;
+                sx = sy = 0;
                 for (int dy = -ring; dy <= size - 1 + ring; dy++)
                 {
                     for (int dx = -ring; dx <= size - 1 + ring; dx++)
@@ -229,15 +235,20 @@ namespace Craftwar.Sim
                         if (dx > -ring && dx < size - 1 + ring && dy > -ring && dy < size - 1 + ring)
                             continue;
                         int x = b.TileX + dx, y = b.TileY + dy;
-                        if (State.Terrain.IsPassable(MoveDomain.Land, x, y)
-                            && State.OccupancySurface[y * State.Terrain.Width + x] == 0)
+                        if (!State.Terrain.IsPassable(MoveDomain.Land, x, y)
+                            || State.OccupancySurface[y * State.Terrain.Width + x] != 0)
+                            continue;
+                        int dist = Chebyshev(x, y, prefX, prefY);
+                        if (dist < bestDist)
                         {
+                            bestDist = dist;
                             sx = x;
                             sy = y;
-                            return true;
                         }
                     }
                 }
+                if (bestDist != int.MaxValue)
+                    return true;
             }
             sx = sy = 0;
             return false;
@@ -308,7 +319,7 @@ namespace Craftwar.Sim
                         }
                         else
                         {
-                            WalkTo(ref u, mine.TileX, mine.TileY);
+                            WalkToBuilding(ref u, ref mine);
                         }
                         break;
                     }
@@ -321,7 +332,11 @@ namespace Craftwar.Sim
                             ref Unit mine = ref State.Units[mi];
                             mine.ResourceAmount -= SimConstants.CarryAmount;
                             u.Carry = CarryType.Gold;
-                            UnhideNear(ref u, i, mi);
+                            // Exit on the side facing the drop-off.
+                            int depot = FindDepot(ref u);
+                            UnhideNear(ref u, i, mi,
+                                depot >= 0 ? State.Units[depot].TileX : u.TileX,
+                                depot >= 0 ? State.Units[depot].TileY : u.TileY);
                             if (mine.ResourceAmount <= 0)
                                 State.DestroyUnit(new UnitId((ushort)mi, mine.Gen)); // mine collapses
                         }
@@ -372,8 +387,7 @@ namespace Craftwar.Sim
                         }
                         if (u.Timer > 0) { u.Timer--; break; }
                         State.Terrain.Chop(tx, ty);
-                        State.Tiles[ty * w + tx] = SimConstants.ChoppedTileId;
-                        State.TileChanges.Add(((ushort)tx, (ushort)ty, SimConstants.ChoppedTileId));
+                        RetileForestAround(tx, ty);
                         u.Carry = CarryType.Wood;
                         u.Harvest = HarvestStage.ToDepot;
                         u.PathLength = 0;
@@ -398,7 +412,7 @@ namespace Craftwar.Sim
                         }
                         else
                         {
-                            WalkTo(ref u, d.TileX, d.TileY);
+                            WalkToBuilding(ref u, ref d);
                         }
                         break;
                     }
@@ -409,7 +423,20 @@ namespace Craftwar.Sim
                         Deposit(ref u);
                         int depotSlot = u.ChaseX;
                         u.Carry = CarryType.None;
-                        UnhideNear(ref u, i, depotSlot);
+                        // Exit facing the resource we are returning to.
+                        int prefX = u.TileX, prefY = u.TileY;
+                        if ((u.ResourceTarget & WoodTargetFlag) != 0)
+                        {
+                            int tile = (int)(u.ResourceTarget & ~WoodTargetFlag);
+                            prefX = tile % State.Terrain.Width;
+                            prefY = tile / State.Terrain.Width;
+                        }
+                        else if (State.TryGetUnitIndex(UnitId.FromPacked(u.ResourceTarget), out int rmi))
+                        {
+                            prefX = State.Units[rmi].TileX;
+                            prefY = State.Units[rmi].TileY;
+                        }
+                        UnhideNear(ref u, i, depotSlot, prefX, prefY);
                         // Loop back for the next trip.
                         if ((u.ResourceTarget & WoodTargetFlag) != 0)
                         {
@@ -517,6 +544,18 @@ namespace Craftwar.Sim
             }
         }
 
+        /// <summary>
+        /// Walk toward the NEAREST edge of a building's footprint instead of
+        /// its top-left tile — kills the "circle around the mine" look.
+        /// </summary>
+        void WalkToBuilding(ref Unit u, ref Unit b)
+        {
+            int size = State.Footprint(b.TypeId);
+            ushort tx = (ushort)ClampTo(u.TileX, b.TileX, b.TileX + size - 1);
+            ushort ty = (ushort)ClampTo(u.TileY, b.TileY, b.TileY + size - 1);
+            WalkTo(ref u, tx, ty);
+        }
+
         void HideUnit(ref Unit u, int index)
         {
             State.Vacate(new UnitId((ushort)index, u.Gen), u.TypeId, u.TileX, u.TileY);
@@ -527,10 +566,10 @@ namespace Craftwar.Sim
             u.StepDY = 0;
         }
 
-        void UnhideNear(ref Unit u, int index, int nearSlot)
+        void UnhideNear(ref Unit u, int index, int nearSlot, int prefX, int prefY)
         {
             ref Unit host = ref State.Units[nearSlot];
-            if (TryFindSpawnTile(ref host, out int sx, out int sy))
+            if (TryFindSpawnTileNear(ref host, prefX, prefY, out int sx, out int sy))
             {
                 u.TileX = (ushort)sx;
                 u.TileY = (ushort)sy;
@@ -597,5 +636,53 @@ namespace Craftwar.Sim
         }
 
         static int ClampTo(int v, int min, int max) => v < min ? min : v > max ? max : v;
+
+        /// <summary>
+        /// Recompute forest boundary art around a felled tree using the PUD
+        /// tile encoding's corner shapes (0x07SV: S = which corners hold
+        /// forest). The felled tile itself becomes stumps; neighbors that no
+        /// longer border trees revert to grass.
+        /// </summary>
+        void RetileForestAround(int cx, int cy)
+        {
+            int w = State.Terrain.Width, h = State.Terrain.Height;
+            bool F(int x, int y) => State.Terrain.HasWood(x, y);
+
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int x = cx + dx, y = cy + dy;
+                    if (x < 0 || y < 0 || x >= w || y >= h || F(x, y))
+                        continue;
+                    bool isCenter = x == cx && y == cy;
+                    if (!isCenter && !TerrainMap.IsForestTile(State.Tiles[y * w + x]))
+                        continue; // untouched grass/other terrain stays
+
+                    int bits = 0;
+                    if (F(x - 1, y) || F(x, y - 1) || F(x - 1, y - 1)) bits |= 1; // UL
+                    if (F(x + 1, y) || F(x, y - 1) || F(x + 1, y - 1)) bits |= 2; // UR
+                    if (F(x - 1, y) || F(x, y + 1) || F(x - 1, y + 1)) bits |= 4; // LL
+                    if (F(x + 1, y) || F(x, y + 1) || F(x + 1, y + 1)) bits |= 8; // LR
+
+                    ushort id = bits switch
+                    {
+                        0 => isCenter
+                            ? SimConstants.ChoppedTileId
+                            : (ushort)(0x0050 + (x + y) % 3), // plain grass variation
+                        1 => 0x0700, 2 => 0x0710, 3 => 0x0720, 4 => 0x0730,
+                        5 => 0x0740, 6 => 0x0750, 7 => 0x0760, 8 => 0x0770,
+                        9 => 0x0780, 10 => 0x0790, 11 => 0x07A0, 12 => 0x07B0,
+                        13 => 0x07C0, 14 => 0x07D0,
+                        _ => (ushort)(0x0050 + (x + y) % 3),
+                    };
+                    if (State.Tiles[y * w + x] != id)
+                    {
+                        State.Tiles[y * w + x] = id;
+                        State.TileChanges.Add(((ushort)x, (ushort)y, id));
+                    }
+                }
+            }
+        }
     }
 }

@@ -102,16 +102,19 @@ namespace Craftwar.Sim.Tests
             Assert.GreaterOrEqual(gained, 100, "at least one tree delivered");
             Assert.AreEqual(0, gained % 100);
 
+            // Auto-tiling: the felled cell becomes a boundary/stump/grass tile
+            // (never solid forest 0x007x again) and opens for movement.
             bool anyChopped = false;
             for (int y = 24; y <= 26 && !anyChopped; y++)
                 for (int x = 4; x <= 8 && !anyChopped; x++)
-                    if (sim.State.Tiles[y * 32 + x] == SimConstants.ChoppedTileId)
-                    {
+                {
+                    ushort id = sim.State.Tiles[y * 32 + x];
+                    bool solidForest = (id & 0xFF00) == 0 && ((id >> 4) & 0xF) == 0x7;
+                    if (!solidForest && sim.State.Terrain.IsPassable(MoveDomain.Land, x, y)
+                        && !sim.State.Terrain.HasWood(x, y))
                         anyChopped = true;
-                        Assert.IsTrue(sim.State.Terrain.IsPassable(MoveDomain.Land, x, y),
-                            "felled tile becomes walkable");
-                    }
-            Assert.IsTrue(anyChopped, "the map must lose a tree");
+                }
+            Assert.IsTrue(anyChopped, "the map must lose a tree and open the tile");
         }
 
         [Test]

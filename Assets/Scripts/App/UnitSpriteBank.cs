@@ -56,10 +56,32 @@ namespace Craftwar.App
             return frames == null || frames.Length < 15 ? 0 : frames.Length / 5;
         }
 
-        public Sprite GetAnimFrame(ushort typeId, byte player, byte facing, int block, out bool flipX)
+        /// <summary>
+        /// Cargo sprite bank overrides (worker carrying gold/wood). Falls back
+        /// to the base bank if the entry doesn't decode as a unit bank.
+        /// </summary>
+        static int CarryEntryOverride(ushort typeId, byte carry)
+        {
+            bool human = typeId is (ushort)Craftwar.Sim.UnitTypeId.Peasant
+                or (ushort)Craftwar.Sim.UnitTypeId.AttackPeasant;
+            bool orc = typeId is (ushort)Craftwar.Sim.UnitTypeId.Peon
+                or (ushort)Craftwar.Sim.UnitTypeId.AttackPeon;
+            if (!human && !orc)
+                return 0;
+            // Verified visually from maindat.war: 122/123 = wood-carrying
+            // peasant/peon, 124/125 = gold-carrying peasant/peon.
+            return carry switch
+            {
+                1 => human ? 124 : 125, // gold sack
+                2 => human ? 122 : 123, // lumber bundle
+                _ => 0,
+            };
+        }
+
+        public Sprite GetAnimFrame(ushort typeId, byte player, byte facing, int block, byte carry, out bool flipX)
         {
             flipX = false;
-            var frames = GetFrames(typeId, player);
+            var frames = GetFrames(typeId, player, carry);
             if (frames == null || frames.Length == 0)
                 return null;
             if (frames.Length < 15)
@@ -72,13 +94,44 @@ namespace Craftwar.App
             return frames[index];
         }
 
-        Sprite[] GetFrames(ushort typeId, byte player)
+        readonly Dictionary<int, bool> _bankValidity = new Dictionary<int, bool>();
+
+        /// <summary>Sniff whether an archive entry decodes as a multi-frame unit bank.</summary>
+        bool LooksLikeUnitBank(int entry)
         {
-            int entry = War2Sprites.EntryForUnit(typeId, _era);
+            if (_bankValidity.TryGetValue(entry, out bool valid))
+                return valid;
+            valid = false;
+            try
+            {
+                var data = _archive.ExtractEntry(entry);
+                if (data != null && data.Length > 6)
+                {
+                    var bank = War2Sprites.Decode(data);
+                    valid = bank.FrameCount >= 15 && bank.MaxWidth >= 16 && bank.MaxWidth <= 96;
+                }
+            }
+            catch (War2FormatException) { }
+            catch (System.IndexOutOfRangeException) { }
+            _bankValidity[entry] = valid;
+            return valid;
+        }
+
+        Sprite[] GetFrames(ushort typeId, byte player, byte carry = 0)
+        {
+            int entry = 0;
+            if (carry != 0)
+            {
+                entry = CarryEntryOverride(typeId, carry);
+                if (entry != 0 && !LooksLikeUnitBank(entry))
+                    entry = 0; // wrong guess or absent: use base art
+            }
+            if (entry == 0)
+                entry = War2Sprites.EntryForUnit(typeId, _era);
             if (entry == 0)
                 return null;
             byte playerColor = (byte)(player < 8 ? player : 0);
-            uint key = (uint)(entry << 8) | playerColor;
+            uint key = ((uint)entry << 8) | playerColor;
             if (_cache.TryGetValue(key, out var cached))
                 return cached;
 

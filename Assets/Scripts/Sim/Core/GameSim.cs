@@ -259,16 +259,16 @@ namespace Craftwar.Sim
                     // every stationary unit as a wall (livelock escape), and
                     // finally give up. WaitTicks resets only on a real step.
                     u.WaitTicks++;
-                    if (u.WaitTicks == 10 || u.WaitTicks == 20)
+                    if (u.WaitTicks == 4 || u.WaitTicks == 12)
                     {
                         Repath(ref u, i, strict: false);
                     }
-                    else if (u.WaitTicks == 30)
+                    else if (u.WaitTicks == 20)
                     {
                         if (!Repath(ref u, i, strict: true))
                             u.Order = OrderType.None;
                     }
-                    else if (u.WaitTicks >= 45)
+                    else if (u.WaitTicks >= 32)
                     {
                         // Full reset: fresh plan next tick. Truly boxed-in
                         // units still terminate via the strict-repath failure.

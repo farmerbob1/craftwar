@@ -19,8 +19,9 @@ namespace Craftwar.View
     {
         bool Has(ushort typeId);
         Sprite Get(ushort typeId, byte player, byte facing, out bool flipX);
-        /// <summary>Frame at animation block*5 + facing; clamps to available frames.</summary>
-        Sprite GetAnimFrame(ushort typeId, byte player, byte facing, int block, out bool flipX);
+        /// <summary>Frame at animation block*5 + facing; clamps to available frames.
+        /// carry (CarryType) selects cargo sprite variants where they exist.</summary>
+        Sprite GetAnimFrame(ushort typeId, byte player, byte facing, int block, byte carry, out bool flipX);
         /// <summary>Number of 5-facing animation blocks (0 for single-pose banks).</summary>
         int BlockCount(ushort typeId, byte player);
     }
@@ -140,7 +141,7 @@ namespace Craftwar.View
                 {
                     int block = PickAnimBlock(ref u, state);
                     sprite = block >= 0
-                        ? _sprites.GetAnimFrame(u.TypeId, u.Player, u.Facing, block, out flipX)
+                        ? _sprites.GetAnimFrame(u.TypeId, u.Player, u.Facing, block, (byte)u.Carry, out flipX)
                         : _sprites.Get(u.TypeId, u.Player, u.Facing, out flipX);
                 }
                 sr.sprite = sprite != null ? sprite : _fallback;
@@ -197,7 +198,7 @@ namespace Craftwar.View
                     int deathCount = Mathf.Min(3, blocks - 5);
                     int deathStart = blocks - deathCount;
                     int step = Mathf.Min(deathCount - 1, (int)(t * deathCount / 0.8f));
-                    var sprite = _sprites.GetAnimFrame(typeId, player, facing, deathStart + step, out bool flip);
+                    var sprite = _sprites.GetAnimFrame(typeId, player, facing, deathStart + step, 0, out bool flip);
                     if (sprite != null)
                     {
                         sr.sprite = sprite;
