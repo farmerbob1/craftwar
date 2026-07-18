@@ -56,7 +56,7 @@ namespace Craftwar.Sim
                 State.TryGetUnitIndex(UnitId.FromPacked(u.AttackTarget), out int ti);
                 ref Unit target = ref State.Units[ti];
 
-                if (FootprintDistance(ref u, ref target) <= row.AttackRange)
+                if (FootprintDistance(ref u, ref target) <= EffectiveRange(ref u))
                 {
                     // In range: hold position, face the enemy, swing on cooldown.
                     u.PathLength = 0;
@@ -166,13 +166,14 @@ namespace Craftwar.Sim
         /// <summary>
         /// The WC2 damage roll: armor subtracts from basic only, pierce is
         /// added after, and the final hit lands at 50-100%:
-        /// half + rng(half + 1).
+        /// half + rng(half + 1). Strength/pierce/armor are the
+        /// upgrade-adjusted values.
         /// </summary>
-        int RollDamage(ref UnitTypeData attacker, ref UnitTypeData defender)
+        int RollDamage(ref Unit attacker, ref Unit defender)
         {
-            int dmg = attacker.BasicDamage - defender.Armor;
+            int dmg = EffectiveStrength(ref attacker) - EffectiveArmor(ref defender);
             if (dmg < 0) dmg = 0;
-            dmg += attacker.PiercingDamage;
+            dmg += EffectivePierce(ref attacker);
             int half = (dmg + 1) / 2;
             return half + State.Rng.Next(half + 1);
         }
@@ -180,8 +181,7 @@ namespace Craftwar.Sim
         void Strike(ref Unit attacker, int targetIndex, ref UnitTypeData row)
         {
             ref Unit target = ref State.Units[targetIndex];
-            ref UnitTypeData defRow = ref State.Rules.Units[target.TypeId];
-            int damage = RollDamage(ref row, ref defRow);
+            int damage = RollDamage(ref attacker, ref target);
 
             if (row.MissileWeapon == SimConstants.MissileNone)
             {

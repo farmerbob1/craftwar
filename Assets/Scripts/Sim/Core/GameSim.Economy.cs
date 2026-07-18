@@ -37,6 +37,12 @@ namespace Craftwar.Sim
                     break;
 
                 case CommandOp.Build:
+                    // The order must be on the player's race build menu and
+                    // pass the tech/ALOW gate before a worker even walks out.
+                    if (cmd.Param >= UdtaParser.UnitCount
+                        || !OnWorkerBuildMenu(cmd.Player, (UnitTypeId)cmd.Param)
+                        || !CanProduce(cmd.Player, (UnitTypeId)cmd.Param))
+                        break;
                     for (int i = 0; i < cmd.SelectionCount; i++)
                     {
                         if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]), out int idx))
@@ -58,6 +64,10 @@ namespace Craftwar.Sim
                     break;
 
                 case CommandOp.Train:
+                    // Trains a unit — or, when Param is a building type, starts
+                    // the building's own tier upgrade (Hall→Keep, tower guns).
+                    if (cmd.Param >= UdtaParser.UnitCount)
+                        break;
                     for (int i = 0; i < cmd.SelectionCount; i++)
                     {
                         if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]), out int idx))
@@ -65,16 +75,24 @@ namespace Craftwar.Sim
                         ref Unit b = ref State.Units[idx];
                         if (b.Player != cmd.Player || (b.Flags & UnitFlags.Building) == 0
                             || (b.Flags & UnitFlags.UnderConstruction) != 0
-                            || b.BuildType != 0
-                            || !CanTrain(b.TypeId, cmd.Param))
+                            || b.BuildType != 0 || b.ResearchId != 0)
+                            continue;
+                        var want = (UnitTypeId)cmd.Param;
+                        ref UnitTypeData row = ref State.Rules.Units[cmd.Param];
+                        bool selfUpgrade = row.Is(UnitTypeFlags.Building);
+                        bool ok = selfUpgrade
+                            ? CanUpgradeBuildingTo(b.Player, (UnitTypeId)b.TypeId, want)
+                            : CanTrainAt(b.Player, (UnitTypeId)b.TypeId, want);
+                        if (!ok)
                             continue;
                         ref PlayerState p = ref State.Players[b.Player];
-                        ref UnitTypeData row = ref State.Rules.Units[cmd.Param];
                         if (p.Gold < row.GoldCost || p.Lumber < row.LumberCost
-                            || p.FoodUsed + 1 > p.FoodMax)
+                            || p.Oil < row.OilCost
+                            || (!selfUpgrade && p.FoodUsed + 1 > p.FoodMax))
                             continue;
                         p.Gold -= row.GoldCost;
                         p.Lumber -= row.LumberCost;
+                        p.Oil -= row.OilCost;
                         b.BuildType = cmd.Param;
                         b.TrainTicks = BuildTicks(row.BuildTime);
                         break; // one building takes the order
@@ -96,18 +114,14 @@ namespace Craftwar.Sim
             }
         }
 
-        static bool CanTrain(ushort building, ushort unit) => (UnitTypeId)building switch
+        bool OnWorkerBuildMenu(byte player, UnitTypeId type)
         {
-            UnitTypeId.TownHall or UnitTypeId.Keep or UnitTypeId.Castle =>
-                unit == (ushort)UnitTypeId.Peasant,
-            UnitTypeId.GreatHall or UnitTypeId.Stronghold or UnitTypeId.Fortress =>
-                unit == (ushort)UnitTypeId.Peon,
-            UnitTypeId.HumanBarracks =>
-                unit is (ushort)UnitTypeId.Footman or (ushort)UnitTypeId.Archer,
-            UnitTypeId.OrcBarracks =>
-                unit is (ushort)UnitTypeId.Grunt or (ushort)UnitTypeId.Axethrower,
-            _ => false,
-        };
+            var menu = TechTree.WorkerBuildings(State.Players[player].Race);
+            for (int i = 0; i < menu.Length; i++)
+                if (menu[i] == type)
+                    return true;
+            return false;
+        }
 
         /// <summary>UDTA build time: 6 units = 1 second -> ticks at 50/s.</summary>
         static ushort BuildTicks(int buildTime) => (ushort)(buildTime * 50 / 6);
@@ -126,7 +140,18 @@ namespace Craftwar.Sim
             for (int i = 0; i < State.HighestUnitIndex; i++)
             {
                 ref Unit b = ref State.Units[i];
-                if (!b.IsAlive || (b.Flags & UnitFlags.Building) == 0)
+                if (!b.IsAlive)
+                    continue;
+
+                // Berserker regeneration (staggered by slot for smoothness).
+                if (b.TypeId == (ushort)UnitTypeId.Berserker
+                    && b.Player < SimConstants.MaxPlayers
+                    && (State.Tick + i) % SimConstants.RegenPeriodTicks == 0
+                    && State.Players[b.Player].HasResearched(UpgradeId.BerserkerRegeneration)
+                    && b.Hp < State.Rules.Units[b.TypeId].Hp)
+                    b.Hp++;
+
+                if ((b.Flags & UnitFlags.Building) == 0)
                     continue;
 
                 if ((b.Flags & UnitFlags.UnderConstruction) != 0)
@@ -150,6 +175,19 @@ namespace Craftwar.Sim
                     continue;
                 }
 
+                if (b.ResearchId != 0)
+                {
+                    if (b.TrainTicks > 0)
+                        b.TrainTicks--;
+                    if (b.TrainTicks == 0)
+                    {
+                        var done = (UpgradeId)(b.ResearchId - 1);
+                        b.ResearchId = 0;
+                        CompleteResearch(b.Player, done);
+                    }
+                    continue;
+                }
+
                 if (b.BuildType != 0)
                 {
                     if (b.TrainTicks > 0)
@@ -158,7 +196,11 @@ namespace Craftwar.Sim
                     {
                         ushort trained = b.BuildType;
                         b.BuildType = 0;
-                        if (TryFindSpawnTile(ref b, out int sx, out int sy))
+                        if (State.Rules.Units[trained].Is(UnitTypeFlags.Building))
+                        {
+                            UpgradeBuildingType(ref b, trained);
+                        }
+                        else if (TryFindSpawnTile(ref b, out int sx, out int sy))
                         {
                             var id = State.SpawnUnit(trained, b.Player, (ushort)sx, (ushort)sy);
                             if (State.TryGetUnitIndex(id, out int ui))
@@ -296,6 +338,11 @@ namespace Craftwar.Sim
                 if (u.Order == OrderType.Build && (u.Flags & UnitFlags.Hidden) == 0)
                 {
                     TickBuilderWalk(ref u, i);
+                    continue;
+                }
+                if (u.Order == OrderType.Repair)
+                {
+                    TickRepair(ref u, i);
                     continue;
                 }
                 if (u.Order != OrderType.Harvest)
@@ -599,7 +646,10 @@ namespace Craftwar.Sim
 
             ref PlayerState p = ref State.Players[u.Player];
             ref UnitTypeData row = ref State.Rules.Units[u.BuildType];
-            bool ok = p.Gold >= row.GoldCost && p.Lumber >= row.LumberCost;
+            // Re-check the tech gate on arrival — a prereq may have died mid-walk.
+            bool ok = p.Gold >= row.GoldCost && p.Lumber >= row.LumberCost
+                && p.Oil >= row.OilCost
+                && CanProduce(u.Player, (UnitTypeId)u.BuildType);
             if (ok)
             {
                 for (int dy = 0; dy < size && ok; dy++)
@@ -623,6 +673,7 @@ namespace Craftwar.Sim
 
             p.Gold -= row.GoldCost;
             p.Lumber -= row.LumberCost;
+            p.Oil -= row.OilCost;
             HideUnit(ref u, index);
 
             var id = State.SpawnUnit(u.BuildType, u.Player, u.OrderX, u.OrderY);

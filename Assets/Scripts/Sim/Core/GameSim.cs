@@ -50,7 +50,22 @@ namespace Craftwar.Sim
                     Gold = pud.StartGold[p],
                     Lumber = pud.StartLumber[p],
                     Oil = pud.StartOil[p],
+                    AllowedUnits = pud.AllowUnits?[p] ?? ~0u,
+                    AllowedUpgrades = pud.AllowUpgrades?[p] ?? ~0u,
+                    AllowedSpells = pud.AllowSpellResearch?[p] ?? ~0u,
                 };
+
+                // ALOW start-spells arrive pre-researched.
+                if (pud.AllowSpellStart != null)
+                {
+                    uint start = pud.AllowSpellStart[p];
+                    for (var u = UpgradeId.HolyVision; u <= UpgradeId.DeathAndDecay; u++)
+                    {
+                        int bit = TechTree.AlowSpellBit(u);
+                        if (bit >= 0 && (start & (1u << bit)) != 0)
+                            State.Players[p].Researched |= 1ul << (int)u;
+                    }
+                }
             }
 
             foreach (var entry in pud.Units)
@@ -189,6 +204,18 @@ namespace Craftwar.Sim
                 case CommandOp.SetRally:
                     ApplyEconomyCommand(cmd);
                     break;
+
+                case CommandOp.Research:
+                    ApplyResearchCommand(cmd);
+                    break;
+
+                case CommandOp.Cancel:
+                    ApplyCancelCommand(cmd);
+                    break;
+
+                case CommandOp.Repair:
+                    ApplyRepairCommand(cmd);
+                    break;
             }
         }
 
@@ -225,9 +252,10 @@ namespace Craftwar.Sim
                 {
                     if (!Repath(ref u, i))
                     {
-                        // Nowhere closer to go. Harvest/Build keep their order —
-                        // their stage logic decides based on adjacency.
-                        if (u.Order != OrderType.Harvest && u.Order != OrderType.Build)
+                        // Nowhere closer to go. Harvest/Build/Repair keep their
+                        // order — their stage logic decides based on adjacency.
+                        if (u.Order != OrderType.Harvest && u.Order != OrderType.Build
+                            && u.Order != OrderType.Repair)
                             u.Order = OrderType.None;
                         continue;
                     }

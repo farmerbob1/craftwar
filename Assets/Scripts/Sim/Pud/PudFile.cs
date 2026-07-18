@@ -68,6 +68,12 @@ namespace Craftwar.Sim.Pud
         public byte[] UnitDataOverride;   // UDTA payload if present
         public byte[] UpgradeDataOverride; // UGRD payload if present
 
+        /// <summary>ALOW tech restrictions; null when the map has none (= everything allowed).</summary>
+        public uint[] AllowUnits;          // units/buildings mask per slot
+        public uint[] AllowSpellStart;     // spells known from the start
+        public uint[] AllowSpellResearch;  // spells allowed to research
+        public uint[] AllowUpgrades;       // upgrades allowed to research
+
         public bool HasSection(string tag) => _seenSections.Contains(tag);
         readonly HashSet<string> _seenSections = new HashSet<string>();
 
@@ -204,7 +210,20 @@ namespace Craftwar.Sim.Pud
                     UpgradeDataOverride = SliceOverride(d, p, len);
                     break;
 
-                // ALOW handled at M5 (tech restrictions); unknown sections skipped.
+                case "ALOW":
+                    // 6 blocks of 16 u32s: units, spell-start, spell-allowed,
+                    // spell-researching (save files only), upgrade-allowed,
+                    // upgrade-acquiring (save files only).
+                    if (len >= 6 * SlotCount * 4)
+                    {
+                        AllowUnits = ReadU32Array(d, p, SlotCount);
+                        AllowSpellStart = ReadU32Array(d, p + 16 * 4, SlotCount);
+                        AllowSpellResearch = ReadU32Array(d, p + 32 * 4, SlotCount);
+                        AllowUpgrades = ReadU32Array(d, p + 64 * 4, SlotCount);
+                    }
+                    break;
+
+                // Unknown sections skipped.
             }
         }
 
@@ -238,6 +257,14 @@ namespace Craftwar.Sim.Pud
         {
             var arr = new ushort[count];
             CopyU16(d, p, arr, count);
+            return arr;
+        }
+
+        static uint[] ReadU32Array(byte[] d, int p, int count)
+        {
+            var arr = new uint[count];
+            for (int i = 0; i < count; i++)
+                arr[i] = ReadU32(d, p + i * 4);
             return arr;
         }
     }

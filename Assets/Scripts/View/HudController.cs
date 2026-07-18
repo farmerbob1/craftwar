@@ -40,9 +40,12 @@ namespace Craftwar.View
             DrawCommandCard(state);
         }
 
+        float _btnX, _btnY;
+
         void DrawCommandCard(GameState state)
         {
-            bool hasPeasant = false;
+            var sim = _host.Sim;
+            bool hasWorker = false;
             int building = -1;
             foreach (uint packed in _pool.Selected)
             {
@@ -50,72 +53,115 @@ namespace Craftwar.View
                     continue;
                 ref var u = ref state.Units[idx];
                 if (state.Rules.Units[u.TypeId].Is(UnitTypeFlags.Peon))
-                    hasPeasant = true;
-                if ((u.Flags & UnitFlags.Building) != 0 && (u.Flags & UnitFlags.UnderConstruction) == 0)
+                    hasWorker = true;
+                if ((u.Flags & UnitFlags.Building) != 0)
                     building = idx;
             }
 
-            float y = Screen.height - 34;
-            float x = 8;
+            _btnX = 8;
+            _btnY = Screen.height - 34;
 
-            if (hasPeasant)
+            if (hasWorker)
             {
-                Btn(ref x, y, "Farm", UnitTypeId.Farm, state, build: true);
-                Btn(ref x, y, "Barracks", UnitTypeId.HumanBarracks, state, build: true);
-                Btn(ref x, y, "Town Hall", UnitTypeId.TownHall, state, build: true);
+                var menu = TechTree.WorkerBuildings(state.Players[LocalPlayer].Race);
+                foreach (var b in menu)
+                    if (sim.CanProduce(LocalPlayer, b))
+                        if (Btn($"{NameOf(b)} ({CostOf(state, b)})"))
+                            PendingBuildType = (ushort)b;
+                return;
             }
-            else if (building >= 0)
+            if (building < 0)
+                return;
+
+            ref var bld = ref state.Units[building];
+            var bType = (UnitTypeId)bld.TypeId;
+
+            // Busy: show what's cooking and offer Cancel.
+            if ((bld.Flags & UnitFlags.UnderConstruction) != 0
+                || bld.BuildType != 0 || bld.ResearchId != 0)
             {
-                var bType = (UnitTypeId)state.Units[building].TypeId;
-                switch (bType)
+                string doing = (bld.Flags & UnitFlags.UnderConstruction) != 0 ? "constructing..."
+                    : bld.ResearchId != 0 ? $"researching {NameOf((UpgradeId)(bld.ResearchId - 1))}..."
+                    : $"{NameOf((UnitTypeId)bld.BuildType)}...";
+                if (Btn("Cancel"))
+                    Submit(CommandOp.Cancel, 0, building, state);
+                GUI.Label(new Rect(_btnX + 8, _btnY + 4, 400, 24), doing);
+                return;
+            }
+
+            // Train (research substitutions already applied).
+            ulong researched = state.Players[LocalPlayer].Researched;
+            foreach (var baseType in TechTree.Trains(bType))
+            {
+                var t = TechTree.TrainSubstitute(baseType, researched);
+                if (sim.CanTrainAt(LocalPlayer, bType, t))
+                    if (Btn($"Train {NameOf(t)} ({CostOf(state, t)})"))
+                        Submit(CommandOp.Train, (ushort)t, building, state);
+            }
+
+            // Building tier upgrades.
+            foreach (var target in TechTree.UpgradesTo(bType))
+                if (sim.CanUpgradeBuildingTo(LocalPlayer, bType, target))
+                    if (Btn($"Upgrade to {NameOf(target)} ({CostOf(state, target)})"))
+                        Submit(CommandOp.Train, (ushort)target, building, state);
+
+            // Research.
+            foreach (var u in TechTree.Research(bType))
+                if (sim.CanResearchAt(LocalPlayer, bType, u))
                 {
-                    case UnitTypeId.TownHall or UnitTypeId.Keep or UnitTypeId.Castle:
-                        Btn(ref x, y, "Train Peasant", UnitTypeId.Peasant, state, build: false, building);
-                        break;
-                    case UnitTypeId.GreatHall or UnitTypeId.Stronghold or UnitTypeId.Fortress:
-                        Btn(ref x, y, "Train Peon", UnitTypeId.Peon, state, build: false, building);
-                        break;
-                    case UnitTypeId.HumanBarracks:
-                        Btn(ref x, y, "Train Footman", UnitTypeId.Footman, state, build: false, building);
-                        Btn(ref x, y, "Train Archer", UnitTypeId.Archer, state, build: false, building);
-                        break;
-                    case UnitTypeId.OrcBarracks:
-                        Btn(ref x, y, "Train Grunt", UnitTypeId.Grunt, state, build: false, building);
-                        Btn(ref x, y, "Train Axethrower", UnitTypeId.Axethrower, state, build: false, building);
-                        break;
+                    ref var row = ref state.Rules.Upgrades[(int)u];
+                    string cost = row.Lumber > 0 ? $"{row.Gold}g/{row.Lumber}w" : $"{row.Gold}g";
+                    if (Btn($"{NameOf(u)} ({cost})"))
+                        Submit(CommandOp.Research, (ushort)u, building, state);
                 }
-                if (state.Units[building].BuildType != 0)
-                    GUI.Label(new Rect(x + 8, y + 4, 300, 24), "(training...)");
-            }
         }
 
-        unsafe void Btn(ref float x, float y, string label, UnitTypeId type, GameState state,
-            bool build, int buildingSlot = -1)
+        /// <summary>Bottom-anchored button that wraps into rows above.</summary>
+        bool Btn(string label)
+        {
+            float width = 160;
+            if (_btnX + width > Screen.width - 8)
+            {
+                _btnX = 8;
+                _btnY -= 32;
+            }
+            bool hit = GUI.Button(new Rect(_btnX, _btnY, width, 28), label);
+            _btnX += width + 6;
+            return hit;
+        }
+
+        unsafe void Submit(CommandOp op, ushort param, int buildingSlot, GameState state)
+        {
+            var cmd = new GameCommand
+            {
+                Op = op,
+                Player = LocalPlayer,
+                Param = param,
+                SelectionCount = 1,
+            };
+            cmd.Selection.Ids[0] =
+                new UnitId((ushort)buildingSlot, state.Units[buildingSlot].Gen).Packed;
+            _host.SubmitCommand(cmd);
+        }
+
+        static string CostOf(GameState state, UnitTypeId type)
         {
             ref var row = ref state.Rules.Units[(int)type];
-            string cost = row.LumberCost > 0 ? $"{row.GoldCost}g/{row.LumberCost}w" : $"{row.GoldCost}g";
-            float width = 150;
-            if (GUI.Button(new Rect(x, y, width, 28), $"{label} ({cost})"))
+            return row.LumberCost > 0 ? $"{row.GoldCost}g/{row.LumberCost}w" : $"{row.GoldCost}g";
+        }
+
+        /// <summary>Enum name with spaces ("ElvenLumberMill" → "Elven Lumber Mill").</summary>
+        static string NameOf<T>(T id)
+        {
+            string s = id.ToString();
+            var sb = new System.Text.StringBuilder(s.Length + 4);
+            for (int i = 0; i < s.Length; i++)
             {
-                if (build)
-                {
-                    PendingBuildType = (ushort)type;
-                }
-                else if (buildingSlot >= 0)
-                {
-                    var cmd = new GameCommand
-                    {
-                        Op = CommandOp.Train,
-                        Player = LocalPlayer,
-                        Param = (ushort)type,
-                        SelectionCount = 1,
-                    };
-                    cmd.Selection.Ids[0] =
-                        new UnitId((ushort)buildingSlot, state.Units[buildingSlot].Gen).Packed;
-                    _host.SubmitCommand(cmd);
-                }
+                if (i > 0 && char.IsUpper(s[i]) && !char.IsUpper(s[i - 1]))
+                    sb.Append(' ');
+                sb.Append(s[i]);
             }
-            x += width + 6;
+            return sb.ToString();
         }
     }
 }

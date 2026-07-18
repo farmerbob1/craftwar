@@ -35,6 +35,7 @@ namespace Craftwar.Sim
         AttackMove = 3,  // move to OrderX/Y, engaging anything on the way
         Harvest = 4,     // gold/wood cycle (Unit.Harvest holds the stage)
         Build = 5,       // walk to site, erect Unit.BuildType
+        Repair = 6,      // walk to building (ResourceTarget), hammer HP back
     }
 
     /// <summary>
@@ -86,7 +87,9 @@ namespace Craftwar.Sim
         public uint ResourceTarget;  // mine UnitId.Packed, or (0x8000_0000 | tileIndex) for wood
         public int ResourceAmount;   // mines/patches: remaining resources
         public ushort BuildType;     // peasant: queued building type; building: training type
-        public ushort TrainTicks;    // building: ticks left on training/construction
+                                     // (a building type here = self-upgrade in progress)
+        public ushort TrainTicks;    // building: ticks left on training/construction/research
+        public byte ResearchId;      // building: UpgradeId + 1 being researched, 0 = none
         public ushort RallyX;
         public ushort RallyY;
 
@@ -128,6 +131,7 @@ namespace Craftwar.Sim
             h.Add(ResourceAmount);
             h.Add(BuildType);
             h.Add(TrainTicks);
+            h.Add(ResearchId);
             h.Add(RallyX);
             h.Add(RallyY);
         }

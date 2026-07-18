@@ -47,6 +47,18 @@ namespace Craftwar.Sim
         public const int WoodPerTile = 100;
         public const ushort ChoppedTileId = 0x0057; // grass-with-stumps (verified in forest tileset)
 
+        // --- Repair (DISPATCH.C: REPAIR_HP=4 per event, RES_COST=1 gold+
+        // 1 lumber every REPAIR_TIME=2 events; event pacing tuned to ~5/s
+        // so a farm patches up in seconds like the original feel) ---
+        public const int RepairHpPerEvent = 4;
+        public const int RepairEventPeriodTicks = 10;
+        public const int RepairEventsPerCharge = 2;
+        public const int RepairChargeGold = 1;
+        public const int RepairChargeLumber = 1;
+
+        // --- Berserker regeneration research: +1 HP/s (heuristic rate) ---
+        public const int RegenPeriodTicks = 50;
+
         // --- Combat ---
         public const int AttackCooldownTicks = 50;  // ~1 attack/sec baseline
         public const int ProjectileSpeedPxPerTick = 8;

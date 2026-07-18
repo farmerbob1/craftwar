@@ -106,6 +106,15 @@ namespace Craftwar.View
                         op = CommandOp.Attack;
                         targetPacked = occ;
                     }
+                    else if (target.Player == LocalPlayer
+                        && (target.Flags & UnitFlags.Building) != 0
+                        && (target.Flags & UnitFlags.UnderConstruction) == 0
+                        && target.Hp < state.Rules.Units[target.TypeId].Hp
+                        && SelectionHasWorker(state))
+                    {
+                        op = CommandOp.Repair;
+                        targetPacked = occ;
+                    }
                 }
                 else if (state.Terrain.HasWood(tileX, tileY))
                 {
@@ -128,6 +137,15 @@ namespace Craftwar.View
                 cmd.Selection.Ids[cmd.SelectionCount++] = packed;
             }
             _host.SubmitCommand(cmd);
+        }
+
+        bool SelectionHasWorker(GameState state)
+        {
+            foreach (uint packed in _pool.Selected)
+                if (state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
+                    && state.Rules.Units[state.Units[idx].TypeId].Is(UnitTypeFlags.Peon))
+                    return true;
+            return false;
         }
 
         void SelectInRect(Vector2 a, Vector2 b, bool additive)
