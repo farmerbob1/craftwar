@@ -99,25 +99,11 @@ namespace Craftwar.View
             // pivot (0.5,0.5) centered on the footprint.
             float halfW = size * 0.5f;
             _ghost.transform.position = new Vector3(tileX + halfW, _mapHeight - tileY - halfW, 0f);
-            _ghost.color = IsValidPlacement(state, tileX, tileY, size) ? ValidTint : InvalidTint;
+            // One rule, shared with the sim (BuildSite) — the ghost must never
+            // promise a site TickBuilderWalk will then reject.
+            _ghost.color = BuildSite.IsValid(state, type, tileX, tileY)
+                ? ValidTint : InvalidTint;
             _ghost.enabled = true;
-        }
-
-        static bool IsValidPlacement(GameState state, int tileX, int tileY, int size)
-        {
-            var terrain = state.Terrain;
-            if (terrain == null)
-                return false;
-            for (int dy = 0; dy < size; dy++)
-                for (int dx = 0; dx < size; dx++)
-                {
-                    int x = tileX + dx, y = tileY + dy;
-                    if (!terrain.InBounds(x, y)
-                        || !terrain.IsPassable(MoveDomain.Land, x, y)
-                        || state.OccupancySurface[y * terrain.Width + x] != 0)
-                        return false;
-                }
-            return true;
         }
     }
 }

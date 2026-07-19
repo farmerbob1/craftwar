@@ -11,11 +11,11 @@ namespace Craftwar.Sim
     /// missed adjustment is a desync rather than a graphical glitch. Revisit
     /// only if profiling says so.
     ///
-    /// Fog is hashed state but nothing in the sim reads it at M6: it drives
-    /// rendering only. Combat acquisition is deliberately untouched, so this
-    /// system's position after TickCombat in the fixed order is harmless.
-    /// Gating gameplay on sight would require moving it earlier and is a
-    /// separate, balance-affecting decision.
+    /// Ordinary sight drives rendering only — combat acquisition ignores it, so
+    /// this system's position after TickCombat is harmless. The one exception,
+    /// added in M7, is the Detected grid: submarines are untargetable outside
+    /// sonar, so acquisition reads it. That runs one tick stale by design, which
+    /// is cheaper than reordering the systems and re-tuning M3-M5 fighting.
     /// </summary>
     public sealed partial class GameSim
     {
@@ -29,6 +29,9 @@ namespace Craftwar.Sim
                 byte[] vis = State.Visible[p];
                 if (vis != null)
                     System.Array.Clear(vis, 0, vis.Length);
+                byte[] det = State.Detected?[p];
+                if (det != null)
+                    System.Array.Clear(det, 0, det.Length);
             }
 
             for (int i = 0; i < State.HighestUnitIndex; i++)
@@ -47,8 +50,46 @@ namespace Craftwar.Sim
                 if (vis == null)
                     continue;
 
-                Reveal(vis, State.Explored[u.Player], ref u, EffectiveSight(ref u));
+                int sight = EffectiveSight(ref u);
+                Reveal(vis, State.Explored[u.Player], ref u, sight);
+
+                // Detectors sweep the same disc again into the sonar grid.
+                if (State.Rules.Units[u.TypeId].Is(UnitTypeFlags.SeesSubmarine))
+                {
+                    byte[] det = State.Detected?[u.Player];
+                    if (det != null)
+                        Reveal(det, null, ref u, sight);
+                }
             }
+        }
+
+        /// <summary>Is this tile swept by one of the player's detectors?</summary>
+        public bool IsDetected(int player, int x, int y)
+        {
+            if (State.Detected == null || player < 0 || player >= SimConstants.MaxPlayers)
+                return false;
+            byte[] g = State.Detected[player];
+            if (g == null || !State.Terrain.InBounds(x, y))
+                return false;
+            return g[y * State.Terrain.Width + x] != 0;
+        }
+
+        /// <summary>
+        /// A submerged unit is only visible — and only targetable — where the
+        /// player has a detector. Own submarines always resolve.
+        /// </summary>
+        public bool IsUnitDetected(int player, ref Unit u)
+        {
+            if (!State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Submarine))
+                return true;
+            if (u.Player == player)
+                return true;
+            int size = State.Footprint(u.TypeId);
+            for (int dy = 0; dy < size; dy++)
+                for (int dx = 0; dx < size; dx++)
+                    if (IsDetected(player, u.TileX + dx, u.TileY + dy))
+                        return true;
+            return false;
         }
 
         /// <summary>
@@ -125,6 +166,9 @@ namespace Craftwar.Sim
         /// original.</summary>
         public bool IsUnitVisible(int player, ref Unit u)
         {
+            // Submarines stay hidden outside sonar even in broad daylight.
+            if (!IsUnitDetected(player, ref u))
+                return false;
             int size = State.Footprint(u.TypeId);
             for (int dy = 0; dy < size; dy++)
                 for (int dx = 0; dx < size; dx++)

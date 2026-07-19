@@ -21,6 +21,7 @@ namespace Craftwar.View
         Patrol,
         Harvest,
         Repair,
+        Unload,
     }
 
     public sealed class UIState

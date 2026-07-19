@@ -53,6 +53,16 @@ namespace Craftwar.View
 
         readonly Dictionary<int, SpriteRenderer> _views = new Dictionary<int, SpriteRenderer>();
         readonly Dictionary<int, SpriteRenderer> _selBoxes = new Dictionary<int, SpriteRenderer>();
+        readonly Dictionary<int, SpriteRenderer> _shadows = new Dictionary<int, SpriteRenderer>();
+
+        // Sorting bands. Ground units interleave by screen row; flyers sit in
+        // their own band above all of them, still below projectiles (20000)
+        // and fog (25000).
+        const int GroundBand = 1000;
+        const int AirBand = 10000;
+        /// <summary>World units a flyer is drawn above its sim position.</summary>
+        const float AirLift = 0.55f;
+        static readonly Color ShadowTint = new Color(0f, 0f, 0f, 0.35f);
         readonly HashSet<int> _live = new HashSet<int>();
         readonly List<int> _toRemove = new List<int>();
 
@@ -130,11 +140,48 @@ namespace Craftwar.View
         /// (block 0 doubles as the stand pose), then attack blocks, with the
         /// death animation in the last blocks. Returns -1 for single-pose banks.
         /// </summary>
+        /// <summary>
+        /// A flyer's shadow: the same sprite flattened onto the deck, tinted
+        /// black, drawn just under the ground band so it never covers a unit.
+        /// Ground units have none — the original draws them at rest on the tile.
+        /// </summary>
+        void UpdateShadow(int slot, SpriteRenderer unitSr, bool airborne,
+            float worldX, float worldY)
+        {
+            if (!airborne)
+            {
+                if (_shadows.TryGetValue(slot, out var stale) && stale != null)
+                    stale.enabled = false;
+                return;
+            }
+
+            if (!_shadows.TryGetValue(slot, out var sh) || sh == null)
+            {
+                var go = new GameObject($"shadow_{slot}");
+                go.transform.SetParent(transform, false);
+                sh = go.AddComponent<SpriteRenderer>();
+                _shadows[slot] = sh;
+            }
+
+            sh.sprite = unitSr.sprite;
+            sh.flipX = unitSr.flipX;
+            sh.color = ShadowTint;
+            sh.transform.position = new Vector3(worldX, worldY, 0f);
+            sh.sortingOrder = GroundBand - 1;
+            sh.enabled = true;
+        }
+
         int PickAnimBlock(ref Unit u, GameState state)
         {
             int blocks = _sprites.BlockCount(u.TypeId, u.Player);
             if (blocks <= 0)
                 return -1;
+
+            // Ships and flyers have no gait: they turn in place and the hull or
+            // airframe is a single pose per facing. Cycling "walk" blocks over
+            // them animates whatever happens to sit in those slots.
+            if (state.DomainOf(u.TypeId) != MoveDomain.Land)
+                return 0;
 
             // Attacking / chopping: play attack blocks while the swing timer
             // is fresh (first ~40% of the cooldown window).
@@ -236,8 +283,15 @@ namespace Craftwar.View
                 float half = footprint * 0.5f;
                 float worldX = pixX / 32f + half;
                 float worldY = _mapHeight - pixY / 32f - half;
-                sr.transform.position = new Vector3(worldX, worldY, 0f);
-                sr.sortingOrder = Mathf.RoundToInt(pixY) + 1000; // lower on screen draws on top
+
+                // Flyers ride above the battlefield: lifted a little, drawn in
+                // their own band so they never interleave with ground units, and
+                // given a shadow on the deck. Purely presentational — the sim
+                // has no notion of altitude (and could not: floats are banned).
+                bool airborne = state.DomainOf(u.TypeId) == MoveDomain.Air;
+                sr.transform.position = new Vector3(
+                    worldX, worldY + (airborne ? AirLift : 0f), 0f);
+                sr.sortingOrder = Mathf.RoundToInt(pixY) + (airborne ? AirBand : GroundBand);
 
                 bool flipX = false;
                 Sprite sprite = null;
@@ -259,6 +313,7 @@ namespace Craftwar.View
                 sr.sprite = sprite != null ? sprite : _fallback;
                 sr.flipX = flipX;
                 sr.color = baseColor;
+                UpdateShadow(i, sr, airborne && baseColor.a > 0f, worldX, worldY);
                 _lastPose[i] = (u.TypeId, u.Player, u.Facing);
 
                 // Fog: own units are always drawn; everyone else only while in
@@ -288,6 +343,18 @@ namespace Craftwar.View
 
             UpdateRememberedBuildings(state);
 
+            // Shadows belong to live flyers only; drop the rest.
+            _toRemove.Clear();
+            foreach (var kv in _shadows)
+                if (!_live.Contains(kv.Key))
+                    _toRemove.Add(kv.Key);
+            foreach (int key in _toRemove)
+            {
+                if (_shadows[key] != null)
+                    Destroy(_shadows[key].gameObject);
+                _shadows.Remove(key);
+            }
+
             _toRemove.Clear();
             foreach (var kv in _views)
                 if (!_live.Contains(kv.Key))
@@ -303,6 +370,12 @@ namespace Craftwar.View
                     if (box != null)
                         Destroy(box.gameObject);
                     _selBoxes.Remove(key);
+                }
+                if (_shadows.TryGetValue(key, out var shadow))
+                {
+                    if (shadow != null)
+                        Destroy(shadow.gameObject);
+                    _shadows.Remove(key);
                 }
                 sr.gameObject.name = "corpse";
                 sr.color = Color.white;

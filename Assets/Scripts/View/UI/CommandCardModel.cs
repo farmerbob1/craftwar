@@ -19,6 +19,7 @@ namespace Craftwar.View
         Patrol,
         Harvest,
         Repair,
+        Unload,           // transport puts its passengers ashore at a clicked tile
 
         // Page navigation on a worker's card.
         BuildBasicMenu,
@@ -105,6 +106,7 @@ namespace Craftwar.View
             }
 
             bool hasWorker = false, hasMobile = false, canAttack = false;
+            bool hasTanker = false, hasTransport = false;
             int building = -1;
             foreach (uint packed in sel)
             {
@@ -122,6 +124,10 @@ namespace Craftwar.View
                 hasMobile = true;
                 if (row.Is(UnitTypeFlags.Peon))
                     hasWorker = true;
+                if (row.Is(UnitTypeFlags.Tanker))
+                    hasTanker = true;
+                if (row.Is(UnitTypeFlags.Transport))
+                    hasTransport = true;
                 if (row.Is(UnitTypeFlags.CanAttack))
                     canAttack = true;
             }
@@ -131,10 +137,11 @@ namespace Craftwar.View
             // state that should not arise rather than a real tie-break.
             if (hasMobile)
             {
-                if (Page != CardPage.Actions && hasWorker)
-                    BuildWorkerMenu(sim, state, player);
+                if (Page != CardPage.Actions && (hasWorker || hasTanker))
+                    BuildWorkerMenu(sim, state, player, hasTanker && !hasWorker);
                 else
-                    BuildActionMenu(hasWorker, canAttack, sim, state, player);
+                    BuildActionMenu(hasWorker, canAttack, sim, state, player,
+                        hasTanker, hasTransport);
                 return;
             }
             if (building >= 0)
@@ -146,13 +153,26 @@ namespace Craftwar.View
         /// Move/Stop/Attack/Patrol on the top rows, worker jobs below.
         /// </summary>
         void BuildActionMenu(bool hasWorker, bool canAttack,
-            GameSim sim, GameState state, byte player)
+            GameSim sim, GameState state, byte player,
+            bool hasTanker = false, bool hasTransport = false)
         {
             Slots[0] = Action(CommandSlotKind.Move, "Move");
             Slots[1] = Action(CommandSlotKind.Stop, "Stop");
             if (canAttack)
                 Slots[2] = Action(CommandSlotKind.Attack, "Attack");
             Slots[3] = Action(CommandSlotKind.Patrol, "Patrol");
+
+            // A transport's only extra verb is putting its passengers ashore.
+            if (hasTransport)
+                Slots[8] = Action(CommandSlotKind.Unload, "Unload");
+
+            if (hasTanker)
+            {
+                // Tankers pump oil and raise platforms; they have no other jobs.
+                Slots[4] = Action(CommandSlotKind.Harvest, "Harvest Oil");
+                if (CountTankerBuildable(sim, state, player) > 0)
+                    Slots[6] = Action(CommandSlotKind.BuildBasicMenu, "Build");
+            }
 
             if (!hasWorker)
                 return;
@@ -164,6 +184,16 @@ namespace Craftwar.View
                 Slots[6] = Action(CommandSlotKind.BuildBasicMenu, "Build");
             if (CountBuildable(sim, state, player, basic: false) > 0)
                 Slots[7] = Action(CommandSlotKind.BuildAdvancedMenu, "Advanced");
+        }
+
+        static int CountTankerBuildable(GameSim sim, GameState state, byte player)
+        {
+            var menu = TechTree.TankerBuildings(state.Players[player].Race);
+            int n = 0;
+            for (int i = 0; i < menu.Length; i++)
+                if (sim.CanProduce(player, menu[i]))
+                    n++;
+            return n;
         }
 
         static int CountBuildable(GameSim sim, GameState state, byte player, bool basic)
@@ -187,15 +217,18 @@ namespace Craftwar.View
                 Enabled = true,
             };
 
-        void BuildWorkerMenu(GameSim sim, GameState state, byte player)
+        void BuildWorkerMenu(GameSim sim, GameState state, byte player, bool tanker = false)
         {
             // Basic vs Advanced is the original's split, not a page-size
             // artifact: TechTree orders the menu basic-first and marks the
             // boundary. Each page holds at most 8, leaving slot 8 for Back.
-            var menu = TechTree.WorkerBuildings(state.Players[player].Race);
-            bool advanced = Page == CardPage.BuildAdvanced;
+            var menu = tanker
+                ? TechTree.TankerBuildings(state.Players[player].Race)
+                : TechTree.WorkerBuildings(state.Players[player].Race);
+            bool advanced = !tanker && Page == CardPage.BuildAdvanced;
             int lo = advanced ? TechTree.BasicBuildingCount : 0;
-            int hi = advanced ? menu.Length : TechTree.BasicBuildingCount;
+            int hi = tanker ? menu.Length
+                : advanced ? menu.Length : TechTree.BasicBuildingCount;
 
             int n = 0;
             for (int i = lo; i < hi && i < menu.Length && n < _menuScratch.Length; i++)
@@ -324,6 +357,7 @@ namespace Craftwar.View
                     case CommandSlotKind.Patrol:
                     case CommandSlotKind.Harvest:
                     case CommandSlotKind.Repair:
+                    case CommandSlotKind.Unload:
                     case CommandSlotKind.BuildBasicMenu:
                     case CommandSlotKind.BuildAdvancedMenu:
                     case CommandSlotKind.BackToActions:

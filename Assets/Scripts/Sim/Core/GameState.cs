@@ -60,6 +60,12 @@ namespace Craftwar.Sim
         /// Accumulated state (never cleared), so it genuinely must be hashed.</summary>
         public byte[][] Explored;
 
+        /// <summary>Per-player submarine detection this tick: [player][y*Width+x].
+        /// Written only by units carrying UnitTypeFlags.SeesSubmarine. Submerged
+        /// units are invisible and untargetable outside these discs — unlike the
+        /// rest of fog, this one does gate gameplay.</summary>
+        public byte[][] Detected;
+
         public GameState(ulong seed)
         {
             // Fixed stream selector: one RNG stream, seeded per match.
@@ -74,8 +80,30 @@ namespace Craftwar.Sim
             return s < 1 ? 1 : s;
         }
 
+        /// <summary>
+        /// The movement domain a unit type paths on. UDTA MoveDomain is 0 land /
+        /// 1 air / 2 naval; naval splits again because coast is "unpassable
+        /// unless CLASS_WATER_CANDOCK" — tankers and transports dock, warships
+        /// do not. This is the single source of truth; do not re-encode the
+        /// 0/1/2 mapping at call sites.
+        /// </summary>
+        public MoveDomain DomainOf(ushort typeId)
+        {
+            if (Rules == null) return MoveDomain.Land;
+            ref var row = ref Rules.Units[typeId];
+            switch (row.MoveDomain)
+            {
+                case 1: return MoveDomain.Air;
+                case 2:
+                    return row.Is(UnitTypeFlags.Tanker | UnitTypeFlags.Transport)
+                        ? MoveDomain.SeaDock
+                        : MoveDomain.Sea;
+                default: return MoveDomain.Land;
+            }
+        }
+
         uint[] OccupancyFor(ushort typeId) =>
-            Rules != null && Rules.Units[typeId].MoveDomain == 1 ? OccupancyAir : OccupancySurface;
+            DomainOf(typeId) == MoveDomain.Air ? OccupancyAir : OccupancySurface;
 
         public void Occupy(UnitId id, ushort typeId, int tileX, int tileY)
         {
@@ -219,6 +247,7 @@ namespace Craftwar.Sim
                     continue;
                 HashGrid(ref h, Visible, p);
                 HashGrid(ref h, Explored, p);
+                HashGrid(ref h, Detected, p);
             }
             return h.Value;
         }

@@ -107,8 +107,30 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   `AudioDirector` + `IAudioProvider` + `PlaceholderAudioBank` (synthesized
   tones, no Blizzard data) wired to sim events and local order acks.
 
+- **M7** sea/air/oil: **the SQM word is the original's `SQ_*` bit field, not an
+  enumeration** — `TerrainMap.FromPud` now decodes it bitwise (utype.h masks),
+  which finally gives us a shore concept. `MoveDomain` gained `SeaDock` (the
+  original's `CLASS_WATER_CANDOCK`): coast is passable to tankers/transports but
+  not to warships or land units, so islands are genuinely separated and a
+  transport must *dock* before troops can board. `GameState.DomainOf` is the one
+  place the UDTA 0/1/2 byte maps to a domain. Oil cycle reuses the gold path
+  exactly as the original does (HARVEST.C routes tankers through `harvest_gold`):
+  tanker → platform → shipyard/refinery, `InOilTicks` 10 vs 50, +25% per-player
+  refinery bonus (`gwRefineryTbl`, not per-depot). `BuildSite` is the single
+  placement rule shared by sim and ghost, covering land / shore (`!SQ_LAND`) /
+  oil-platform (open water + a patch to consume). Transports: cargo is a
+  back-pointer (`Unit.Transport` + `CargoCount`, both hashed), capacity 6,
+  shore-gated unload in slot order, cargo drowns with the hull, and a
+  `BoardStuckTicks` timeout so troops don't mill at an undockable ship. Full
+  naval/air tech branch wired (oil platform is on the *tanker's* card, not the
+  peasant's). Submarines are invisible and untargetable outside a per-player
+  `Detected` grid — the first time fog gates gameplay rather than rendering.
+  Laden-tanker art found at entries 126/127 by silhouette comparison against
+  59/60 (100% hull containment + ~7% new pixels; cross-pairings don't match).
+  152/152 EditMode.
+
 ## In flight
-Nothing — M6 just landed; M7 not started.
+Nothing — M7 just landed; M8 not started.
 
 ## Known gaps / decisions
 - Sim system order: commands → production → movement → combat → harvest →
@@ -156,8 +178,25 @@ Nothing — M6 just landed; M7 not started.
     implemented one, so the entry ids must be found empirically (the
     `DebugDump` sweep is the template) or via Wargus `wartool.exe`.
 
+- M7 decisions to revisit:
+  - **Coast is no longer land-passable.** This is faithful (utype.h: shore is
+    "unpassable unless CLASS_WATER_CANDOCK") and it severs land routes on the
+    island maps — Forsaken Isles, Frosty Fjords, Isolation, Dark Peninsula and
+    the narrow pinches on Ant Trails / Murky River / Dark Peninsula. That is the
+    point: the old value-switch decode let footmen walk between islands along the
+    coast. Verified across all 26 BNE maps; the water-free maps are byte-identical.
+  - Submarine detection is read by combat one tick stale (`TickFog` still runs
+    after `TickCombat`). Reordering would re-tune M3-M5 fighting; not worth it.
+  - Air units path with the same no-corner-cutting rule as ground. Harmless
+    (clearance is uniform for air) but slightly conservative around obstacles.
+  - `TryFindSpawnTileNear` rings out to 3 tiles. A transport unloading onto a
+    one-tile beach with 6 aboard will leave the surplus on board rather than
+    scatter them; the original is similarly stingy. Revisit if it annoys.
+  - Transport boarding needs the ship docked on coast. That matches the original
+    but there is no UI affordance telling the player so — M8 HUD work.
+  - Anim blocks for ships/flyers are forced to pose 0 (no gait). The per-unit
+    `.seq` pass is still the standing backlog item.
+
 ## Next milestones (per plan)
-- **M7** sea/air/oil (ship/tanker ALOW+upgrade plumbing already in place;
-  fog keys off unit sight only, so air units need no fog rework). M8 real HUD
-  + menus + music + first-run import (and the real sound decoder). M9 AI.
-  M10 LAN lockstep. M11 online + team vision. (Details in plan file.)
+- M8 real HUD + menus + music + first-run import (and the real sound decoder).
+  M9 AI. M10 LAN lockstep. M11 online + team vision. (Details in plan file.)

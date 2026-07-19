@@ -108,6 +108,28 @@ namespace Craftwar.Sim.Tests
         }
 
         [Test]
+        public void Tanker_CrossesACoastTileThatAWarshipCannot()
+        {
+            // A coast strip splits two pools. Only CANDOCK hulls (tankers and
+            // transports, MoveDomain.SeaDock) may cross it.
+            var pud = new Craftwar.Sim.Pud.PudFile { Width = 5, Height = 1 };
+            pud.Tiles = new ushort[] { 0x50, 0x50, 0x50, 0x50, 0x50 };
+            pud.MoveMap = new ushort[] { 0x0040, 0x0040, 0x0082, 0x0040, 0x0040 };
+            var map = TerrainMap.FromPud(pud);
+            var pf = new Pathfinder(map);
+            var path = new ushort[map.Width * map.Height];
+
+            int docking = pf.FindPath(MoveDomain.SeaDock, 1, 0, 0, 4, 0, path);
+            Assert.Greater(docking, 0, "a tanker crosses the coast");
+            Assert.AreEqual(4, path[docking - 1] % map.Width, "and reaches the far pool");
+
+            int warship = pf.FindPath(MoveDomain.Sea, 1, 0, 0, 4, 0, path);
+            if (warship > 0)
+                Assert.Less(path[warship - 1] % map.Width, 2,
+                    "a destroyer is stopped by the coast");
+        }
+
+        [Test]
         public void NoCornerCutting()
         {
             var map = Make(

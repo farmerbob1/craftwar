@@ -22,7 +22,10 @@ namespace Craftwar.EditorTools
             Directory.CreateDirectory(OutDir);
 
             // Sweep: standing facings of every plausible unit bank.
-            for (int entry = 120; entry <= 500; entry++)
+            // From 30, not 120: the ship and air banks live at 35-66 and were
+            // outside the original sweep (that is how the laden-tanker entries
+            // went unrecorded until M7).
+            for (int entry = 30; entry <= 500; entry++)
             {
                 SpriteBank bank;
                 try

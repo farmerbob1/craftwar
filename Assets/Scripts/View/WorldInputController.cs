@@ -180,7 +180,8 @@ namespace Craftwar.View
                     // A mine under the cursor is the target; bare ground with
                     // wood harvests wood (TargetUnit stays 0).
                     if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int mi)
-                        && state.Rules.Units[state.Units[mi].TypeId].Is(UnitTypeFlags.GoldMine))
+                        && state.Rules.Units[state.Units[mi].TypeId]
+                            .Is(UnitTypeFlags.GoldMine | UnitTypeFlags.OilSource))
                         targetPacked = occ;
                     else if (!state.Terrain.HasWood(tileX, tileY))
                     {
@@ -199,6 +200,10 @@ namespace Craftwar.View
                     }
                     op = CommandOp.Repair;
                     targetPacked = occ;
+                    break;
+
+                case PendingOrderKind.Unload:
+                    op = CommandOp.Unload;
                     break;
             }
 
@@ -302,9 +307,21 @@ namespace Craftwar.View
                         || _host.Sim.IsUnitVisible(LocalPlayer, ref state.Units[ti])))
                 {
                     ref var target = ref state.Units[ti];
-                    if (state.Rules.Units[target.TypeId].Is(UnitTypeFlags.GoldMine))
+                    // A completed oil platform is a harvest target for tankers,
+                    // exactly as a gold mine is for workers.
+                    if (state.Rules.Units[target.TypeId].Is(UnitTypeFlags.GoldMine)
+                        || (state.Rules.Units[target.TypeId].Is(UnitTypeFlags.OilSource)
+                            && (target.Flags & UnitFlags.UnderConstruction) == 0))
                     {
                         op = CommandOp.Harvest;
+                        targetPacked = occ;
+                    }
+                    // Our own transport with ground troops selected: climb in.
+                    else if (target.Player == LocalPlayer
+                        && state.Rules.Units[target.TypeId].Is(UnitTypeFlags.Transport)
+                        && SelectionHasGroundUnit(state))
+                    {
+                        op = CommandOp.Board;
                         targetPacked = occ;
                     }
                     else if (target.Player != LocalPlayer && target.Player < SimConstants.MaxPlayers)
@@ -325,6 +342,12 @@ namespace Craftwar.View
                 else if (state.Terrain.HasWood(tileX, tileY))
                 {
                     op = CommandOp.Harvest; // TargetUnit stays 0 -> wood
+                }
+                else if (SelectionHasLoadedTransport(state)
+                    && state.Terrain.IsPassable(MoveDomain.Land, tileX, tileY))
+                {
+                    // Right-clicking dry land with a laden transport unloads there.
+                    op = CommandOp.Unload;
                 }
             }
 
@@ -354,6 +377,25 @@ namespace Craftwar.View
             foreach (uint packed in _selection)
                 if (state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
                     && state.Rules.Units[state.Units[idx].TypeId].Is(UnitTypeFlags.Peon))
+                    return true;
+            return false;
+        }
+
+        bool SelectionHasGroundUnit(GameState state)
+        {
+            foreach (uint packed in _selection)
+                if (state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
+                    && (state.Units[idx].Flags & UnitFlags.Building) == 0
+                    && state.DomainOf(state.Units[idx].TypeId) == MoveDomain.Land)
+                    return true;
+            return false;
+        }
+
+        bool SelectionHasLoadedTransport(GameState state)
+        {
+            foreach (uint packed in _selection)
+                if (state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
+                    && state.Units[idx].CargoCount > 0)
                     return true;
             return false;
         }

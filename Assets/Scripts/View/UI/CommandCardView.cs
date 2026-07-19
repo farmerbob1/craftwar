@@ -179,6 +179,9 @@ namespace Craftwar.View
                 case CommandSlotKind.Repair:
                     _ui.BeginOrder(PendingOrderKind.Repair);
                     return;
+                case CommandSlotKind.Unload:
+                    _ui.BeginOrder(PendingOrderKind.Unload);
+                    return;
 
                 // Stop needs no target.
                 case CommandSlotKind.Stop:
@@ -302,6 +305,7 @@ namespace Craftwar.View
                     PendingOrderKind.Patrol => "Select a patrol point",
                     PendingOrderKind.Harvest => "Select a mine or forest",
                     PendingOrderKind.Repair => "Select a building to repair",
+                    PendingOrderKind.Unload => "Select a shore to unload at",
                     _ => string.Empty,
                 };
                 SetStatus(prompt);

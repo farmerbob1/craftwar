@@ -41,6 +41,7 @@ namespace Craftwar.Sim
 
         // --- Harvest pacing (ticks) ---
         public const int InMineTicks = 50;      // ~1s inside the mine
+        public const int InOilTicks = 10;       // OIL_HARVEST_TIME: pumping is quicker
         public const int InDepotTicks = 25;     // ~0.5s dropping off
         public const int ChopTicks = 450;       // ~9s per 100 lumber
         public const int CarryAmount = 100;     // per trip (GOLD/LUMBER_HARVEST)
@@ -58,6 +59,9 @@ namespace Craftwar.Sim
         // path progress the peon retargets a tree near itself, then gives up
         // (the original's find_new_tree -> ORDER_GUARD fallback).
         public const int WoodStuckTicks = 75;
+        /// <summary>Give up boarding if the transport never becomes reachable
+        /// (it is sitting in open water rather than docked at the coast).</summary>
+        public const int BoardStuckTicks = 150;
         public const int WoodSearchRadius = 15; // tile_find_tree range
 
         // --- Repair (DISPATCH.C: REPAIR_HP=4 per event, RES_COST=1 gold+

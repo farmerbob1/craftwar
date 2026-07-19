@@ -36,6 +36,7 @@ namespace Craftwar.Sim
             State.OccupancyAir = new uint[pud.Width * pud.Height];
             State.Visible = new byte[SimConstants.MaxPlayers][];
             State.Explored = new byte[SimConstants.MaxPlayers][];
+            State.Detected = new byte[SimConstants.MaxPlayers][];
             _pathfinder = new Pathfinder(State.Terrain, State);
             _pathScratch = new ushort[pud.Width * pud.Height];
 
@@ -63,6 +64,7 @@ namespace Craftwar.Sim
                 {
                     State.Visible[p] = new byte[pud.Width * pud.Height];
                     State.Explored[p] = new byte[pud.Width * pud.Height];
+                    State.Detected[p] = new byte[pud.Width * pud.Height];
                 }
 
                 // ALOW start-spells arrive pre-researched.
@@ -124,6 +126,7 @@ namespace Craftwar.Sim
             TickMovement();
             TickCombat();
             TickHarvest();
+            TickTransport();
             TickConstruction();
             TickFog();
             TickVictory();
@@ -264,6 +267,52 @@ namespace Craftwar.Sim
 
                 case CommandOp.Repair:
                     ApplyRepairCommand(cmd);
+                    break;
+
+                case CommandOp.Board:
+                    for (int i = 0; i < cmd.SelectionCount; i++)
+                    {
+                        if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]),
+                                out int idx))
+                            continue;
+                        ref Unit u = ref State.Units[idx];
+                        if (u.Player != cmd.Player || UnitSpeeds.Get(u.TypeId) == 0)
+                            continue;
+                        if (cmd.TargetUnit == 0
+                            || !State.TryGetUnitIndex(UnitId.FromPacked(cmd.TargetUnit), out int ti))
+                            continue;
+                        if (!CanBoard(ref u, ref State.Units[ti]))
+                            continue;
+                        u.Order = OrderType.Board;
+                        u.ResourceTarget = cmd.TargetUnit;
+                        u.AttackTarget = 0;
+                        // Park the walk order on our own tile: movement runs
+                        // before TickTransport picks the real destination.
+                        u.OrderX = (ushort)(u.TileX + u.StepDX);
+                        u.OrderY = (ushort)(u.TileY + u.StepDY);
+                        u.PathLength = 0;
+                        u.PathCursor = 0;
+                        u.WaitTicks = 0;
+                    }
+                    break;
+
+                case CommandOp.Unload:
+                    for (int i = 0; i < cmd.SelectionCount; i++)
+                    {
+                        if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]),
+                                out int idx))
+                            continue;
+                        ref Unit u = ref State.Units[idx];
+                        if (u.Player != cmd.Player
+                            || !State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Transport))
+                            continue;
+                        u.Order = OrderType.Unload;
+                        u.OrderX = cmd.TargetX;
+                        u.OrderY = cmd.TargetY;
+                        u.PathLength = 0;
+                        u.PathCursor = 0;
+                        u.WaitTicks = 0;
+                    }
                     break;
             }
         }
@@ -427,13 +476,7 @@ namespace Craftwar.Sim
 
         bool Repath(ref Unit u, int index, bool strict = false)
         {
-            var rules = State.Rules;
-            MoveDomain domain = rules.Units[u.TypeId].MoveDomain switch
-            {
-                1 => MoveDomain.Air,
-                2 => MoveDomain.Sea,
-                _ => MoveDomain.Land,
-            };
+            MoveDomain domain = State.DomainOf(u.TypeId);
             int size = State.Footprint(u.TypeId);
             int steps = _pathfinder.FindPath(domain, size, u.TileX, u.TileY, u.OrderX, u.OrderY,
                 _pathScratch, new UnitId((ushort)index, u.Gen).Packed, strict);

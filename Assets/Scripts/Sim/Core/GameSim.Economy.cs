@@ -14,8 +14,15 @@ namespace Craftwar.Sim
                         if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]), out int idx))
                             continue;
                         ref Unit u = ref State.Units[idx];
-                        if (u.Player != cmd.Player ||
-                            !State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Peon))
+                        if (u.Player != cmd.Player)
+                            continue;
+                        bool isPeon = State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Peon);
+                        bool isTanker = State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Tanker);
+                        if (!isPeon && !isTanker)
+                            continue;
+                        // A tanker only ever works a targeted oil platform — it
+                        // has no wood or gold cycle to fall back on.
+                        if (isTanker && !IsOilSource(cmd.TargetUnit))
                             continue;
                         u.Order = OrderType.Harvest;
                         u.AttackTarget = 0;
@@ -257,7 +264,7 @@ namespace Craftwar.Sim
                             Emit(SimEventKind.UpgradeComplete, b.Player, 0, trained,
                                 new UnitId((ushort)i, b.Gen).Packed);
                         }
-                        else if (TryFindSpawnTile(ref b, out int sx, out int sy))
+                        else if (TryFindSpawnTile(ref b, trained, out int sx, out int sy))
                         {
                             var id = State.SpawnUnit(trained, b.Player, (ushort)sx, (ushort)sy);
                             if (State.TryGetUnitIndex(id, out int ui))
@@ -316,14 +323,21 @@ namespace Craftwar.Sim
             }
         }
 
-        /// <summary>First free land tile in a ring around the footprint.</summary>
-        bool TryFindSpawnTile(ref Unit b, out int sx, out int sy) =>
-            TryFindSpawnTileNear(ref b, b.TileX, b.TileY, out sx, out sy);
+        /// <summary>
+        /// First free ring tile around the footprint that the *emerging* unit can
+        /// stand on — a shipyard ejects onto water, a barracks onto land, an
+        /// aviary onto the air layer.
+        /// </summary>
+        bool TryFindSpawnTile(ref Unit b, ushort spawnTypeId, out int sx, out int sy) =>
+            TryFindSpawnTileNear(ref b, spawnTypeId, b.TileX, b.TileY, out sx, out sy);
 
         /// <summary>Free ring tile closest to (prefX, prefY) — exits face the destination.</summary>
-        bool TryFindSpawnTileNear(ref Unit b, int prefX, int prefY, out int sx, out int sy)
+        bool TryFindSpawnTileNear(ref Unit b, ushort spawnTypeId, int prefX, int prefY,
+            out int sx, out int sy)
         {
             int size = State.Footprint(b.TypeId);
+            MoveDomain domain = State.DomainOf(spawnTypeId);
+            uint[] occ = domain == MoveDomain.Air ? State.OccupancyAir : State.OccupancySurface;
             for (int ring = 1; ring <= 3; ring++)
             {
                 int bestDist = int.MaxValue;
@@ -336,8 +350,8 @@ namespace Craftwar.Sim
                         if (dx > -ring && dx < size - 1 + ring && dy > -ring && dy < size - 1 + ring)
                             continue;
                         int x = b.TileX + dx, y = b.TileY + dy;
-                        if (!State.Terrain.IsPassable(MoveDomain.Land, x, y)
-                            || State.OccupancySurface[y * State.Terrain.Width + x] != 0)
+                        if (!State.Terrain.IsPassable(domain, x, y)
+                            || occ[y * State.Terrain.Width + x] != 0)
                             continue;
                         int dist = Chebyshev(x, y, prefX, prefY);
                         if (dist < bestDist)
@@ -365,7 +379,7 @@ namespace Craftwar.Sim
                     continue;
                 if (u.Order != OrderType.Build || u.OrderX != building.TileX || u.OrderY != building.TileY)
                     continue;
-                if (TryFindSpawnTile(ref building, out int sx, out int sy))
+                if (TryFindSpawnTile(ref building, u.TypeId, out int sx, out int sy))
                 {
                     u.Flags &= ~UnitFlags.Hidden;
                     u.TileX = (ushort)sx;
@@ -421,7 +435,11 @@ namespace Craftwar.Sim
                         {
                             HideUnit(ref u, i);
                             u.Harvest = HarvestStage.InMine;
-                            u.Timer = SimConstants.InMineTicks;
+                            // Pumping oil is much quicker than mining gold
+                            // (HARVEST.C: OIL_HARVEST_TIME vs HARVEST_TIME).
+                            u.Timer = (ushort)(State.Rules.Units[mine.TypeId].Is(UnitTypeFlags.OilSource)
+                                ? SimConstants.InOilTicks
+                                : SimConstants.InMineTicks);
                         }
                         else
                         {
@@ -437,7 +455,9 @@ namespace Craftwar.Sim
                         {
                             ref Unit mine = ref State.Units[mi];
                             mine.ResourceAmount -= SimConstants.CarryAmount;
-                            u.Carry = CarryType.Gold;
+                            u.Carry = State.Rules.Units[mine.TypeId].Is(UnitTypeFlags.OilSource)
+                                ? CarryType.Oil
+                                : CarryType.Gold;
                             // Exit on the side facing the drop-off.
                             int depot = FindDepot(ref u);
                             UnhideNear(ref u, i, mi,
@@ -620,15 +640,52 @@ namespace Craftwar.Sim
                     amount += amount * SimConstants.MillFactorPct / 100;
                 p.Lumber += amount;
             }
+            else if (u.Carry == CarryType.Oil)
+            {
+                // The refinery bonus is per *player*, not per drop-off point
+                // (HARVEST.C keys it off gwRefineryTbl[owner]) — unloading at a
+                // shipyard still pays the bonus once a refinery stands.
+                if (HasCompletedRefinery(u.Player))
+                    amount += amount * SimConstants.RefineryFactorPct / 100;
+                p.Oil += amount;
+            }
+        }
+
+        /// <summary>Is this a completed oil platform a tanker can pump from?</summary>
+        bool IsOilSource(uint packed)
+        {
+            if (packed == 0) return false;
+            if (!State.TryGetUnitIndex(UnitId.FromPacked(packed), out int i)) return false;
+            ref Unit t = ref State.Units[i];
+            return t.IsAlive
+                && (t.Flags & UnitFlags.UnderConstruction) == 0
+                && State.Rules.Units[t.TypeId].Is(UnitTypeFlags.OilSource);
+        }
+
+        bool HasCompletedRefinery(byte player)
+        {
+            for (int i = 0; i < State.HighestUnitIndex; i++)
+            {
+                ref Unit d = ref State.Units[i];
+                if (!d.IsAlive || d.Player != player
+                    || (d.Flags & UnitFlags.UnderConstruction) != 0)
+                    continue;
+                if ((UnitTypeId)d.TypeId is UnitTypeId.HumanRefinery or UnitTypeId.OrcRefinery)
+                    return true;
+            }
+            return false;
         }
 
         int FindDepot(ref Unit u)
         {
             // Halls (GoldDepot) accept wood too — the original hardcodes this;
             // the UDTA wood-storage bit is only set on lumber mills.
-            UnitTypeFlags need = u.Carry == CarryType.Wood
-                ? UnitTypeFlags.LumberDepot | UnitTypeFlags.GoldDepot
-                : UnitTypeFlags.GoldDepot;
+            UnitTypeFlags need = u.Carry switch
+            {
+                CarryType.Wood => UnitTypeFlags.LumberDepot | UnitTypeFlags.GoldDepot,
+                CarryType.Oil => UnitTypeFlags.OilDepot,   // shipyard or refinery
+                _ => UnitTypeFlags.GoldDepot,
+            };
             int best = -1, bestDist = int.MaxValue;
             for (int i = 0; i < State.HighestUnitIndex; i++)
             {
@@ -715,7 +772,7 @@ namespace Craftwar.Sim
         void UnhideNear(ref Unit u, int index, int nearSlot, int prefX, int prefY)
         {
             ref Unit host = ref State.Units[nearSlot];
-            if (TryFindSpawnTileNear(ref host, prefX, prefY, out int sx, out int sy))
+            if (TryFindSpawnTileNear(ref host, u.TypeId, prefX, prefY, out int sx, out int sy))
             {
                 u.TileX = (ushort)sx;
                 u.TileY = (ushort)sy;
@@ -757,18 +814,11 @@ namespace Craftwar.Sim
             bool affordable = shortfall == DenyReason.None;
             bool allowed = CanProduce(u.Player, (UnitTypeId)buildType);
             bool ok = affordable && allowed;
+            uint patchPacked = 0;
             if (ok)
             {
-                for (int dy = 0; dy < size && ok; dy++)
-                    for (int dx = 0; dx < size && ok; dx++)
-                    {
-                        int x = u.OrderX + dx, y = u.OrderY + dy;
-                        uint occ = State.Terrain.InBounds(x, y)
-                            ? State.OccupancySurface[y * State.Terrain.Width + x] : 1u;
-                        bool self = occ == new UnitId((ushort)index, u.Gen).Packed;
-                        if (!State.Terrain.IsPassable(MoveDomain.Land, x, y) || (occ != 0 && !self))
-                            ok = false;
-                    }
+                ok = BuildSite.Check(State, buildType, u.OrderX, u.OrderY,
+                    new UnitId((ushort)index, u.Gen).Packed, out patchPacked) == SiteBlock.None;
             }
             if (!ok)
             {
@@ -791,6 +841,15 @@ namespace Craftwar.Sim
             p.Oil -= row.OilCost;
             HideUnit(ref u, index);
 
+            // An oil platform replaces its patch and inherits the reserve.
+            int inheritedOil = 0;
+            if (patchPacked != 0
+                && State.TryGetUnitIndex(UnitId.FromPacked(patchPacked), out int pi))
+            {
+                inheritedOil = State.Units[pi].ResourceAmount;
+                State.DestroyUnit(UnitId.FromPacked(patchPacked));
+            }
+
             var id = State.SpawnUnit(buildType, u.Player, u.OrderX, u.OrderY);
             if (State.TryGetUnitIndex(id, out int bi))
             {
@@ -798,6 +857,7 @@ namespace Craftwar.Sim
                 b.Flags |= UnitFlags.Building | UnitFlags.UnderConstruction;
                 b.Hp = row.Hp / 10 == 0 ? 1 : row.Hp / 10;
                 b.TrainTicks = BuildTicksFor(row.BuildTime);
+                b.ResourceAmount = inheritedOil;
             }
         }
 

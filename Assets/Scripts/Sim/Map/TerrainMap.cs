@@ -7,6 +7,35 @@ namespace Craftwar.Sim
         Land = 0,
         Air = 1,
         Sea = 2,
+        /// <summary>
+        /// Water plus coast: the original's CLASS_WATER_CANDOCK, which only
+        /// tankers and transports have. Coast is "unpassable unless CANDOCK",
+        /// so a destroyer uses Sea and a transport uses SeaDock.
+        /// </summary>
+        SeaDock = 3,
+    }
+
+    /// <summary>
+    /// The PUD SQM word is the original's SQ_* bit field verbatim, not an
+    /// enumeration — decode it bitwise (utype.h).
+    /// </summary>
+    static class Sqm
+    {
+        public const ushort Land = 0x0001;
+        public const ushort Shore = 0x0002;
+        public const ushort PlayerWall = 0x0004;
+        public const ushort ComputerWall = 0x0008;
+        public const ushort Unbuildable = 0x0010;
+        public const ushort Water = 0x0040;
+        public const ushort Unpassable = 0x0080;
+        public const ushort Cave = 0x0200;   // 0x02xx: no flying units
+
+        // SQ_UNPASS_MASK minus the unit bits (occupancy is tracked separately).
+        public const ushort BlocksLand = Unpassable | Water | Shore | PlayerWall | ComputerWall;
+        // SQ_UNPASS_SHIP_MASK: a ship may not enter land or coast.
+        public const ushort BlocksSea = Land | Shore;
+        // SQ_UNPASS_SHIP_CANDOCK_MASK: a docking ship may enter coast, not land.
+        public const ushort BlocksSeaDock = Land;
     }
 
     /// <summary>
@@ -21,19 +50,23 @@ namespace Craftwar.Sim
         public readonly int Width;
         public readonly int Height;
 
+        public const int DomainCount = 4;
+
         readonly byte[] _passable;           // bit per MoveDomain
         readonly byte[][] _clearance;        // [domain][tile]
         readonly byte[] _wood;               // remaining wood units/100 per tile (1 = 100 lumber)
+        readonly byte[] _shore;              // 1 = SQ_SHORE: where transports unload and shore buildings sit
 
         public TerrainMap(int width, int height)
         {
             Width = width;
             Height = height;
             _passable = new byte[width * height];
-            _clearance = new byte[3][];
-            for (int d = 0; d < 3; d++)
+            _clearance = new byte[DomainCount][];
+            for (int d = 0; d < DomainCount; d++)
                 _clearance[d] = new byte[width * height];
             _wood = new byte[width * height];
+            _shore = new byte[width * height];
         }
 
         /// <summary>Forest per MTXM classification: solid 0x007x or boundary 0x07xx.</summary>
@@ -41,6 +74,9 @@ namespace Craftwar.Sim
             (tileId >> 8) == 0x07 || ((tileId >> 8) == 0x00 && ((tileId >> 4) & 0xF) == 0x7);
 
         public bool HasWood(int x, int y) => InBounds(x, y) && _wood[y * Width + x] > 0;
+
+        /// <summary>SQ_SHORE: the coast strip transports unload onto and shore buildings sit on.</summary>
+        public bool IsShore(int x, int y) => InBounds(x, y) && _shore[y * Width + x] != 0;
 
         /// <summary>Fell the tree at (x,y): frees the tile for land movement.</summary>
         public void Chop(int x, int y)
@@ -56,23 +92,16 @@ namespace Craftwar.Sim
             for (int i = 0; i < pud.MoveMap.Length; i++)
             {
                 ushort sqm = pud.MoveMap[i];
-                byte bits = 1 << (int)MoveDomain.Air; // air passes everything
-                switch (sqm)
-                {
-                    case 0x0000: // bridge
-                    case 0x0001: // land
-                    case 0x0002: // coast corner
-                    case 0x0011: // dirt
-                    case 0x0082: // coast
-                        bits |= 1 << (int)MoveDomain.Land;
-                        break;
-                    case 0x0040: // water
-                        bits |= 1 << (int)MoveDomain.Sea;
-                        break;
-                    // 0x0081 forest/mountains, 0x008d wall, unknown: blocked
-                }
+                byte bits = 0;
+                if ((sqm & Sqm.BlocksLand) == 0) bits |= 1 << (int)MoveDomain.Land;
+                if ((sqm & Sqm.BlocksSea) == 0) bits |= 1 << (int)MoveDomain.Sea;
+                if ((sqm & Sqm.BlocksSeaDock) == 0) bits |= 1 << (int)MoveDomain.SeaDock;
+                if ((sqm & Sqm.Cave) == 0) bits |= 1 << (int)MoveDomain.Air;
                 map._passable[i] = bits;
-                if (sqm == 0x0081 && IsForestTile(pud.Tiles[i]))
+                map._shore[i] = (byte)((sqm & Sqm.Shore) != 0 ? 1 : 0);
+                // Forest is LAND|UNPASSABLE; the MTXM id distinguishes trees from mountains.
+                if ((sqm & (Sqm.Land | Sqm.Unpassable)) == (Sqm.Land | Sqm.Unpassable)
+                    && IsForestTile(pud.Tiles[i]))
                     map._wood[i] = 1; // one tree = 100 lumber
             }
             map.RebuildClearance();
@@ -101,7 +130,7 @@ namespace Craftwar.Sim
         /// </summary>
         public void RebuildClearance()
         {
-            for (int d = 0; d < 3; d++)
+            for (int d = 0; d < DomainCount; d++)
             {
                 byte[] c = _clearance[d];
                 byte bit = (byte)(1 << d);

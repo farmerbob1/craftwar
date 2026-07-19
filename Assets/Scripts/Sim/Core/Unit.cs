@@ -12,6 +12,8 @@ namespace Craftwar.Sim
     public enum HarvestStage : byte
     {
         None = 0,
+        /// <summary>Walking to a gold mine *or* an oil platform — the original
+        /// runs tankers through the same harvest_gold path (HARVEST.C).</summary>
         ToMine,
         InMine,
         ToDepot,
@@ -25,6 +27,7 @@ namespace Craftwar.Sim
         None = 0,
         Gold = 1,
         Wood = 2,
+        Oil = 3,
     }
 
     public enum OrderType : byte
@@ -37,6 +40,8 @@ namespace Craftwar.Sim
         Build = 5,       // walk to site, erect Unit.BuildType
         Repair = 6,      // walk to building (ResourceTarget), hammer HP back
         Patrol = 7,      // march between OrderX/Y and GoalX/Y, engaging on the way
+        Board = 8,       // walk to the transport in ResourceTarget and climb in
+        Unload = 9,      // transport: put everyone ashore at OrderX/Y
     }
 
     /// <summary>
@@ -98,6 +103,14 @@ namespace Craftwar.Sim
         public ushort RallyX;
         public ushort RallyY;
 
+        // Transport. Cargo is stored as a back-pointer on the *passenger* rather
+        // than an array on the carrier: passengers are Hidden (as with a peasant
+        // inside a mine) and carry the packed id of their ride, so unloading is
+        // a unit-array scan in slot order — inherently deterministic. The
+        // carrier keeps only a count, for the capacity gate.
+        public uint Transport;      // passenger: packed id of the carrier, 0 = walking
+        public byte CargoCount;     // carrier: passengers aboard
+
         public bool IsAlive => (Flags & UnitFlags.Alive) != 0;
         public bool IsMoving => StepRemaining > 0;
 
@@ -139,6 +152,8 @@ namespace Craftwar.Sim
             h.Add(ResearchId);
             h.Add(RallyX);
             h.Add(RallyY);
+            h.Add(Transport);
+            h.Add(CargoCount);
         }
     }
 }

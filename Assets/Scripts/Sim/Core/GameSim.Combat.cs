@@ -157,6 +157,9 @@ namespace Craftwar.Sim
                             continue; // own or neutral
                         if (!CanTargetUnit(ref row, other.TypeId))
                             continue;
+                        // You cannot shoot what your sonar has not found.
+                        if (!IsUnitDetected(u.Player, ref other))
+                            continue;
                         int dist = FootprintDistance(ref u, ref other);
                         if (dist > range)
                             continue;
@@ -225,8 +228,14 @@ namespace Craftwar.Sim
             ref Unit target = ref State.Units[targetIndex];
             target.Hp -= damage;
             NotifyUnderAttack(ref target, targetIndex);
-            if (target.Hp <= 0)
-                State.DestroyUnit(new UnitId((ushort)targetIndex, target.Gen));
+            if (target.Hp > 0)
+                return;
+
+            var deadId = new UnitId((ushort)targetIndex, target.Gen);
+            bool carriedTroops = target.CargoCount > 0;
+            State.DestroyUnit(deadId);
+            if (carriedTroops)
+                DrownCargo(deadId); // a sinking transport takes its hold with it
         }
 
         /// <summary>

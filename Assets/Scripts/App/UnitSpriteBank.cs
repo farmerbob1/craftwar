@@ -83,6 +83,15 @@ namespace Craftwar.App
         /// </summary>
         static int CarryEntryOverride(ushort typeId, byte carry)
         {
+            // Laden tankers continue the same carry-variant block: 126/127.
+            // Identified by silhouette comparison against the base tanker banks
+            // (59/60) — 126 contains 100% of the human hull plus 7% extra
+            // pixels, 127 likewise for the orc, and the cross-pairings do not.
+            if (typeId == (ushort)Craftwar.Sim.UnitTypeId.HumanTanker)
+                return carry == 3 ? 126 : 0;
+            if (typeId == (ushort)Craftwar.Sim.UnitTypeId.OrcTanker)
+                return carry == 3 ? 127 : 0;
+
             bool human = typeId is (ushort)Craftwar.Sim.UnitTypeId.Peasant
                 or (ushort)Craftwar.Sim.UnitTypeId.AttackPeasant;
             bool orc = typeId is (ushort)Craftwar.Sim.UnitTypeId.Peon

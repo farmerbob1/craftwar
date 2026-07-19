@@ -78,7 +78,9 @@ namespace Craftwar.View
                 case SimEventKind.UnderAttack:
                     return "You are under attack!";
                 case SimEventKind.MineCollapsed:
-                    return "Your gold mine has collapsed";
+                    return (UnitTypeId)e.B is UnitTypeId.HumanOilWell or UnitTypeId.OrcOilWell
+                        ? "Your oil platform has run dry"
+                        : "Your gold mine has collapsed";
                 default:
                     return null;
             }

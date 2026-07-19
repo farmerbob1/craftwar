@@ -24,16 +24,29 @@ namespace Craftwar.Sim
         {
             UnitTypeId.Farm, UnitTypeId.HumanBarracks, UnitTypeId.TownHall,
             UnitTypeId.ElvenLumberMill, UnitTypeId.HumanBlacksmith, UnitTypeId.HumanScoutTower,
-            UnitTypeId.Stables, UnitTypeId.Church, UnitTypeId.MageTower, UnitTypeId.GnomishInventor,
+            UnitTypeId.HumanShipyard, UnitTypeId.HumanFoundry, UnitTypeId.HumanRefinery,
+            UnitTypeId.Stables, UnitTypeId.Church, UnitTypeId.GnomishInventor,
+            UnitTypeId.GryphonAviary, UnitTypeId.MageTower,
         };
 
         public static readonly UnitTypeId[] OrcBuildings =
         {
             UnitTypeId.PigFarm, UnitTypeId.OrcBarracks, UnitTypeId.GreatHall,
             UnitTypeId.TrollLumberMill, UnitTypeId.OrcBlacksmith, UnitTypeId.OrcScoutTower,
-            UnitTypeId.OgreMound, UnitTypeId.AltarOfStorms, UnitTypeId.TempleOfTheDamned,
-            UnitTypeId.GoblinAlchemist,
+            UnitTypeId.OrcShipyard, UnitTypeId.OrcFoundry, UnitTypeId.OrcRefinery,
+            UnitTypeId.OgreMound, UnitTypeId.AltarOfStorms, UnitTypeId.GoblinAlchemist,
+            UnitTypeId.DragonRoost, UnitTypeId.TempleOfTheDamned,
         };
+
+        /// <summary>
+        /// Oil platforms are raised by *tankers*, not workers — they never
+        /// appear on the peasant card (the original puts them on the tanker's).
+        /// </summary>
+        static readonly UnitTypeId[] HumanTankerBuildings = { UnitTypeId.HumanOilWell };
+        static readonly UnitTypeId[] OrcTankerBuildings = { UnitTypeId.OrcOilWell };
+
+        public static UnitTypeId[] TankerBuildings(Race race) =>
+            race == Race.Orc ? OrcTankerBuildings : HumanTankerBuildings;
 
         /// <summary>
         /// Where the basic/advanced boundary falls in the arrays above.
@@ -79,6 +92,21 @@ namespace Craftwar.Sim
             { UnitTypeId.OgreMound, UnitTypeId.OrcBlacksmith, UnitTypeId.TrollLumberMill };
         static readonly UnitTypeId[] NeedHSmith = { UnitTypeId.HumanBlacksmith };
         static readonly UnitTypeId[] NeedOSmith = { UnitTypeId.OrcBlacksmith };
+        // Naval + air
+        static readonly UnitTypeId[] NeedHShipyard = { UnitTypeId.HumanShipyard };
+        static readonly UnitTypeId[] NeedOShipyard = { UnitTypeId.OrcShipyard };
+        static readonly UnitTypeId[] NeedHFoundry = { UnitTypeId.HumanFoundry };
+        static readonly UnitTypeId[] NeedOFoundry = { UnitTypeId.OrcFoundry };
+        static readonly UnitTypeId[] NeedHAviary = { UnitTypeId.GryphonAviary };
+        static readonly UnitTypeId[] NeedODragonRoost = { UnitTypeId.DragonRoost };
+        static readonly UnitTypeId[] NeedHInventorAndShipyard =
+            { UnitTypeId.GnomishInventor, UnitTypeId.HumanShipyard };
+        static readonly UnitTypeId[] NeedOAlchemistAndShipyard =
+            { UnitTypeId.GoblinAlchemist, UnitTypeId.OrcShipyard };
+        static readonly UnitTypeId[] NeedHFoundryAndShipyard =
+            { UnitTypeId.HumanFoundry, UnitTypeId.HumanShipyard };
+        static readonly UnitTypeId[] NeedOFoundryAndShipyard =
+            { UnitTypeId.OrcFoundry, UnitTypeId.OrcShipyard };
 
         /// <summary>Buildings that must exist before `type` can be built or trained.</summary>
         public static UnitTypeId[] Prereqs(UnitTypeId type) => type switch
@@ -117,6 +145,28 @@ namespace Craftwar.Sim
             UnitTypeId.Paladin => NeedStables,
             UnitTypeId.OgreMage => NeedMound,
 
+            // Naval + air structures
+            UnitTypeId.HumanFoundry => NeedHShipyard,
+            UnitTypeId.OrcFoundry => NeedOShipyard,
+            UnitTypeId.HumanRefinery => NeedHShipyard,
+            UnitTypeId.OrcRefinery => NeedOShipyard,
+            UnitTypeId.HumanOilWell => NeedHShipyard,
+            UnitTypeId.OrcOilWell => NeedOShipyard,
+            UnitTypeId.GryphonAviary => NeedCastle,
+            UnitTypeId.DragonRoost => NeedFortress,
+
+            // Naval units (the shipyard itself is implied by the build menu)
+            UnitTypeId.ElvenDestroyer => NeedHShipyard,
+            UnitTypeId.TrollDestroyer => NeedOShipyard,
+            UnitTypeId.Battleship => NeedHFoundryAndShipyard,
+            UnitTypeId.Juggernaught => NeedOFoundryAndShipyard,
+            UnitTypeId.GnomishSubmarine => NeedHInventorAndShipyard,
+            UnitTypeId.GiantTurtle => NeedOAlchemistAndShipyard,
+
+            // Air units
+            UnitTypeId.GryphonRider => NeedHAviary,
+            UnitTypeId.Dragon => NeedODragonRoost,
+
             _ => NoBuildings,
         };
 
@@ -147,8 +197,23 @@ namespace Craftwar.Sim
             { UnitTypeId.Grunt, UnitTypeId.Axethrower, UnitTypeId.Catapult, UnitTypeId.Ogre };
         static readonly UnitTypeId[] TrainsMage = { UnitTypeId.Mage };
         static readonly UnitTypeId[] TrainsDeathKnight = { UnitTypeId.DeathKnight };
-        static readonly UnitTypeId[] TrainsDwarves = { UnitTypeId.Dwarves };
-        static readonly UnitTypeId[] TrainsSappers = { UnitTypeId.GoblinSapper };
+        // The inventor/alchemist also turn out the scouting flyers.
+        static readonly UnitTypeId[] TrainsDwarves =
+            { UnitTypeId.Dwarves, UnitTypeId.GnomishFlyingMachine };
+        static readonly UnitTypeId[] TrainsSappers =
+            { UnitTypeId.GoblinSapper, UnitTypeId.GoblinZeppelin };
+        static readonly UnitTypeId[] TrainsHShipyard =
+        {
+            UnitTypeId.HumanTanker, UnitTypeId.HumanTransport, UnitTypeId.ElvenDestroyer,
+            UnitTypeId.GnomishSubmarine, UnitTypeId.Battleship,
+        };
+        static readonly UnitTypeId[] TrainsOShipyard =
+        {
+            UnitTypeId.OrcTanker, UnitTypeId.OrcTransport, UnitTypeId.TrollDestroyer,
+            UnitTypeId.GiantTurtle, UnitTypeId.Juggernaught,
+        };
+        static readonly UnitTypeId[] TrainsAviary = { UnitTypeId.GryphonRider };
+        static readonly UnitTypeId[] TrainsRoost = { UnitTypeId.Dragon };
 
         /// <summary>Base production list per building (before research
         /// substitutions like archer→ranger).</summary>
@@ -162,6 +227,10 @@ namespace Craftwar.Sim
             UnitTypeId.TempleOfTheDamned => TrainsDeathKnight,
             UnitTypeId.GnomishInventor => TrainsDwarves,
             UnitTypeId.GoblinAlchemist => TrainsSappers,
+            UnitTypeId.HumanShipyard => TrainsHShipyard,
+            UnitTypeId.OrcShipyard => TrainsOShipyard,
+            UnitTypeId.GryphonAviary => TrainsAviary,
+            UnitTypeId.DragonRoost => TrainsRoost,
             _ => NoBuildings,
         };
 
@@ -243,8 +312,19 @@ namespace Craftwar.Sim
             { UpgradeId.Haste, UpgradeId.RaiseDead, UpgradeId.Whirlwind,
               UpgradeId.UnholyArmor, UpgradeId.DeathAndDecay };
 
+        // The foundry is the naval smithy — these magnitudes already apply in
+        // GameSim.Tech (the MoveDomain == 2 branches); it had no provider until now.
+        static readonly UpgradeId[] HFoundryResearch =
+            { UpgradeId.HumanShipCannon1, UpgradeId.HumanShipCannon2,
+              UpgradeId.HumanShipArmor1, UpgradeId.HumanShipArmor2 };
+        static readonly UpgradeId[] OFoundryResearch =
+            { UpgradeId.OrcShipCannon1, UpgradeId.OrcShipCannon2,
+              UpgradeId.OrcShipArmor1, UpgradeId.OrcShipArmor2 };
+
         public static UpgradeId[] Research(UnitTypeId building) => building switch
         {
+            UnitTypeId.HumanFoundry => HFoundryResearch,
+            UnitTypeId.OrcFoundry => OFoundryResearch,
             UnitTypeId.HumanBlacksmith => HSmithResearch,
             UnitTypeId.OrcBlacksmith => OSmithResearch,
             UnitTypeId.ElvenLumberMill => ElvenMillResearch,
