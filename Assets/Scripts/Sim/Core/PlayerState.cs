@@ -7,11 +7,45 @@ namespace Craftwar.Sim
         Neutral = 2,
     }
 
+    /// <summary>
+    /// Who drives a slot. Distinct from <see cref="PlayerState.InGame"/>: the PUD
+    /// marks passive-computer and rescue slots as in-game so their units spawn,
+    /// but they are not melee participants. Victory keys off this, never off
+    /// InGame — otherwise a map with a rescue slot never resolves.
+    /// </summary>
+    public enum Controller : byte
+    {
+        None = 0,
+        Human,
+        Computer,
+    }
+
+    /// <summary>Melee standing of a slot. Hashed: it gates nothing today but the
+    /// campaign track (M13) will branch on it, and it must survive save/replay.</summary>
+    public enum PlayerOutcome : byte
+    {
+        Playing = 0,
+        Defeated,
+        Victorious,
+    }
+
     /// <summary>Per-player economy and status. Index = player slot 0-7.</summary>
     public struct PlayerState
     {
         public bool InGame;
         public Race Race;
+
+        /// <summary>Melee participant kind. Set once at Setup, never mutated.</summary>
+        public Controller Controller;
+
+        /// <summary>Alliance group. Free-for-all is modelled as every slot on its
+        /// own team (Team = slot index), so the evaluator needs no special case.</summary>
+        public byte Team;
+
+        /// <summary>Mutated by TickVictory. The authoritative match result — the
+        /// view polls this rather than relying on catching a one-frame event.</summary>
+        public PlayerOutcome Outcome;
+
         public int Gold;
         public int Lumber;
         public int Oil;
@@ -38,6 +72,9 @@ namespace Craftwar.Sim
         {
             h.Add((byte)(InGame ? 1 : 0));
             h.Add((byte)Race);
+            h.Add((byte)Controller);
+            h.Add(Team);
+            h.Add((byte)Outcome);
             h.Add(Gold);
             h.Add(Lumber);
             h.Add(Oil);

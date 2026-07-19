@@ -81,6 +81,13 @@ namespace Craftwar.View
                     return (UnitTypeId)e.B is UnitTypeId.HumanOilWell or UnitTypeId.OrcOilWell
                         ? "Your oil platform has run dry"
                         : "Your gold mine has collapsed";
+                // The feed is filtered to the local player, so these only ever
+                // describe you. The victory screen is the real announcement;
+                // this is the line that scrolls past underneath it.
+                case SimEventKind.PlayerDefeated:
+                    return "You have been defeated";
+                case SimEventKind.PlayerVictorious:
+                    return "Victory!";
                 default:
                     return null;
             }

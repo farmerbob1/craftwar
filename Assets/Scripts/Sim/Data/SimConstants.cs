@@ -86,6 +86,11 @@ namespace Craftwar.Sim
         public const int AcquisitionPeriod = 5;     // ticks between target scans
         public const byte MissileNone = 0x1d;       // UDTA "no missile" id
 
+        /// <summary>Ticks between victory evaluations — one second at 50 Hz.
+        /// A full unit scan is cheap; running it every tick would be waste, and
+        /// running it on a counter would be a desync hazard (see TickVictory).</summary>
+        public const int VictoryCheckTicks = 50;
+
         // --- Limits ---
         public const int MaxPlayers = 8;
         public const int NeutralPlayer = 15;

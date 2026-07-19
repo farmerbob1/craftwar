@@ -11,6 +11,8 @@ namespace Craftwar.Sim
         BuildSiteBlocked,
         UnderAttack,          // B = victim TypeId, UnitPacked = victim (throttled)
         MineCollapsed,
+        PlayerDefeated,       // Player = the slot that just lost
+        PlayerVictorious,     // Player = the slot that just won
     }
 
     public enum DenyReason : byte

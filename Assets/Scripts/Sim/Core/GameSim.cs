@@ -17,6 +17,21 @@ namespace Craftwar.Sim
         // Scratch path buffer reused by every search this tick.
         ushort[] _pathScratch;
 
+        // Victory. The evaluator is swappable so the campaign track (M13) can
+        // supply scenario objectives; the scratch array lives here rather than on
+        // GameState because it is fully rewritten each call and so cannot carry
+        // state between ticks — same reasoning as _pathScratch.
+        IVictoryEvaluator _victory = new MeleeVictoryEvaluator();
+        readonly PlayerOutcome[] _outcomeScratch = new PlayerOutcome[SimConstants.MaxPlayers];
+
+        /// <summary>Replace the melee rules with scenario objectives. Must be set
+        /// before the first Advance so every peer evaluates identically.</summary>
+        public void SetVictoryEvaluator(IVictoryEvaluator evaluator)
+        {
+            if (evaluator != null)
+                _victory = evaluator;
+        }
+
         public GameSim(ulong seed)
         {
             State = new GameState(seed);
@@ -28,6 +43,13 @@ namespace Craftwar.Sim
         /// seed camera/AI placement at the app layer).
         /// </summary>
         public void Setup(PudFile pud, RuleSet rules)
+            => Setup(pud, rules, MatchSetup.FromPud(pud));
+
+        /// <summary>
+        /// As <see cref="Setup(PudFile, RuleSet)"/>, but with lobby overrides for
+        /// controller/race/team. The two-argument form is the map's own defaults.
+        /// </summary>
+        public void Setup(PudFile pud, RuleSet rules, MatchSetup setup)
         {
             State.Rules = rules;
             State.Terrain = TerrainMap.FromPud(pud);
@@ -43,13 +65,16 @@ namespace Craftwar.Sim
             for (int p = 0; p < SimConstants.MaxPlayers; p++)
             {
                 byte owner = pud.Owner[p];
-                bool inGame = owner == (byte)PudOwner.Human || owner == (byte)PudOwner.Computer
-                    || owner == (byte)PudOwner.PassiveComputer || owner == (byte)PudOwner.RescuePassive
-                    || owner == (byte)PudOwner.RescueActive;
+                bool inGame = MatchSetup.IsInGame(owner);
                 State.Players[p] = new PlayerState
                 {
                     InGame = inGame,
-                    Race = pud.Side[p] <= 2 ? (Race)pud.Side[p] : Race.Neutral,
+                    Race = setup.Slots[p].Race,
+                    // A slot the map does not spawn cannot be a participant, even
+                    // if a lobby tried to seat someone there.
+                    Controller = inGame ? setup.Slots[p].Controller : Controller.None,
+                    Team = setup.Slots[p].Team,
+                    Outcome = PlayerOutcome.Playing,
                     Gold = pud.StartGold[p],
                     Lumber = pud.StartLumber[p],
                     Oil = pud.StartOil[p],
@@ -494,6 +519,40 @@ namespace Craftwar.Sim
         }
 
         void TickConstruction() { }
-        void TickVictory() { }
+
+        /// <summary>
+        /// Resolve wins and losses. Runs once a second rather than every tick:
+        /// a full unit scan is O(HighestUnitIndex) and, exactly as with fog
+        /// (see the M6 note in PROGRESS.md), a scan cannot desync where an
+        /// incrementally-maintained counter can — spawn, death, transport
+        /// load/unload, hall tier swaps and unit transforms would each have to
+        /// adjust it correctly, and one miss is a desync rather than a glitch.
+        ///
+        /// Outcomes are latched: once a slot is Defeated or Victorious it stays
+        /// that way, so a transient "no units" tick during a transform cannot
+        /// un-defeat anyone and the events fire exactly once.
+        /// </summary>
+        void TickVictory()
+        {
+            if (State.Tick % SimConstants.VictoryCheckTicks != 0)
+                return;
+
+            _victory.Evaluate(State, _outcomeScratch);
+
+            for (int p = 0; p < SimConstants.MaxPlayers; p++)
+            {
+                if (State.Players[p].Outcome != PlayerOutcome.Playing)
+                    continue; // already resolved — latch
+                PlayerOutcome now = _outcomeScratch[p];
+                if (now == PlayerOutcome.Playing)
+                    continue;
+
+                State.Players[p].Outcome = now;
+                Emit(now == PlayerOutcome.Defeated
+                        ? SimEventKind.PlayerDefeated
+                        : SimEventKind.PlayerVictorious,
+                    (byte)p, 0, 0);
+            }
+        }
     }
 }
