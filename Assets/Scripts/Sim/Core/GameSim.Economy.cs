@@ -412,10 +412,36 @@ namespace Craftwar.Sim
                     u.PixX = sx * SimConstants.TilePixels;
                     u.PixY = sy * SimConstants.TilePixels;
                     u.Order = OrderType.None;
+                    u.OrderX = u.TileX;
+                    u.OrderY = u.TileY;
                     State.Occupy(new UnitId((ushort)i, u.Gen), u.TypeId, sx, sy);
+                    ResumeWorkAfterBuilding(ref u, ref building, buildingIndex);
                 }
                 return;
             }
+        }
+
+        /// <summary>
+        /// A tanker that has just raised an oil platform starts hauling from it
+        /// immediately. Unlike a peasant — which has gold, wood, repair and the
+        /// rest of the build menu to choose between, so the original leaves it
+        /// idle — a tanker has exactly one job, and parking it beside a finished
+        /// rig is never what the player wanted.
+        /// </summary>
+        void ResumeWorkAfterBuilding(ref Unit u, ref Unit building, int buildingIndex)
+        {
+            if (!State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Tanker))
+                return;
+            if (!State.Rules.Units[building.TypeId].Is(UnitTypeFlags.OilSource))
+                return;
+
+            u.Order = OrderType.Harvest;
+            u.Harvest = HarvestStage.ToMine;
+            u.ResourceTarget = new UnitId((ushort)buildingIndex, building.Gen).Packed;
+            u.Carry = CarryType.None;
+            u.Timer = 0;
+            u.PathLength = 0;
+            u.PathCursor = 0;
         }
 
         // ------------------------------------------------------------------

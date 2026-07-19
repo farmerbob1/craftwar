@@ -58,6 +58,11 @@ namespace Craftwar.View
         // Sorting bands. Ground units interleave by screen row; flyers sit in
         // their own band above all of them, still below projectiles (20000)
         // and fog (25000).
+        //
+        // Scenery sits below every unit but above the terrain (order 0): an oil
+        // patch is flat on the water and ships sail *over* it, so it must never
+        // win the row tie-break against a hull crossing its top row.
+        const int SceneryBand = 500;
         const int GroundBand = 1000;
         const int AirBand = 10000;
         /// <summary>World units a flyer is drawn above its sim position.</summary>
@@ -291,7 +296,12 @@ namespace Craftwar.View
                 bool airborne = state.DomainOf(u.TypeId) == MoveDomain.Air;
                 sr.transform.position = new Vector3(
                     worldX, worldY + (airborne ? AirLift : 0f), 0f);
-                sr.sortingOrder = Mathf.RoundToInt(pixY) + (airborne ? AirBand : GroundBand);
+                // Pass-through scenery (the oil patch) uses the same rule as the
+                // sim: if it does not block movement, things move over it.
+                int band = airborne ? AirBand
+                    : state.BlocksMovement(u.TypeId) ? GroundBand
+                    : SceneryBand;
+                sr.sortingOrder = Mathf.RoundToInt(pixY) + band;
 
                 bool flipX = false;
                 Sprite sprite = null;

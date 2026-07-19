@@ -351,6 +351,53 @@ namespace Craftwar.Sim.Tests
         }
 
         [Test]
+        public void Tanker_StartsHaulingFromTheRigItJustBuilt()
+        {
+            // Regression: the tanker sat idle beside a finished platform. It has
+            // no other job, so it should get straight to work.
+            var pud = CoastMap();
+            pud.Units.Add(new PudUnitEntry
+            { X = PatchX, Y = PatchY, Type = (byte)UnitTypeId.OilPatch, Owner = 15, Alter = 4 });
+            var sim = Boot(pud);
+            Place(sim, UnitTypeId.HumanShipyard, 11, 12);
+            var id = sim.State.SpawnUnit((ushort)UnitTypeId.HumanTanker, 0, 18, 8);
+            sim.State.TryGetUnitIndex(id, out int tanker);
+            sim.State.Units[tanker].Hp = 90;
+            int oilBefore = sim.State.Players[0].Oil;
+
+            // Build the rig, then let the cycle run.
+            Run(sim, 3000, Cmd(sim, CommandOp.Build, tanker,
+                tx: PatchX, ty: PatchY, param: (ushort)UnitTypeId.HumanOilWell));
+
+            int rig = SlotOf(sim, UnitTypeId.HumanOilWell);
+            Assert.GreaterOrEqual(rig, 0, "the platform was built");
+            Assert.AreEqual(UnitFlags.None,
+                sim.State.Units[rig].Flags & UnitFlags.UnderConstruction, "and finished");
+            Assert.AreEqual(OrderType.Harvest, sim.State.Units[tanker].Order,
+                "the tanker went straight back to work");
+            Assert.Greater(sim.State.Players[0].Oil, oilBefore,
+                "and oil is coming in without a further order");
+        }
+
+        [Test]
+        public void Peasant_StaysIdleAfterBuilding()
+        {
+            // The original leaves a peasant idle — it has several jobs to pick
+            // from, so guessing one would be wrong.
+            var sim = Boot(CoastMap());
+            var id = sim.State.SpawnUnit((ushort)UnitTypeId.Peasant, 0, 4, 6);
+            sim.State.TryGetUnitIndex(id, out int peasant);
+            sim.State.Units[peasant].Hp = 90;
+
+            Run(sim, 3000, Cmd(sim, CommandOp.Build, peasant,
+                tx: 4, ty: 10, param: (ushort)UnitTypeId.Farm));
+
+            Assert.GreaterOrEqual(SlotOf(sim, UnitTypeId.Farm), 0, "the farm was built");
+            Assert.AreEqual(OrderType.None, sim.State.Units[peasant].Order,
+                "the peasant waits for orders");
+        }
+
+        [Test]
         public void OilCycle_IsDeterministic()
         {
             static uint RunOnce()
