@@ -4,9 +4,11 @@ using UnityEngine.InputSystem;
 namespace Craftwar.View
 {
     /// <summary>
-    /// Classic RTS camera: WASD/arrow keys + screen-edge scroll + wheel zoom,
-    /// clamped to map bounds. View-only — reads input devices directly and
-    /// never touches the sim.
+    /// Classic RTS camera: arrow keys + screen-edge scroll + wheel zoom,
+    /// clamped to map bounds. View-only — never touches the sim. All the math
+    /// is unchanged from M1; only the input source moved to InputRouter, which
+    /// also means panning goes dead under a modal along with the rest of the
+    /// Camera map. WASD no longer pans — those keys are command-card hotkeys.
     /// </summary>
     [RequireComponent(typeof(Camera))]
     public sealed class CameraRig : MonoBehaviour
@@ -20,11 +22,14 @@ namespace Craftwar.View
         Camera _camera;
         Rect _mapBounds = new Rect(0, 0, 128, 128);
         bool _edgeScrollEnabled = true;
+        InputRouter _input;
 
         void Awake()
         {
             _camera = GetComponent<Camera>();
         }
+
+        public void Init(InputRouter input) => _input = input;
 
         /// <summary>Map size in tiles (1 tile = 1 world unit).</summary>
         public void SetMapBounds(int widthTiles, int heightTiles)
@@ -39,21 +44,15 @@ namespace Craftwar.View
 
         void Update()
         {
-            var keyboard = Keyboard.current;
-            var mouse = Mouse.current;
-            Vector2 move = Vector2.zero;
+            if (_input == null)
+                return;
 
-            if (keyboard != null)
-            {
-                if (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed) move.y += 1;
-                if (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed) move.y -= 1;
-                if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed) move.x -= 1;
-                if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed) move.x += 1;
-            }
+            var mouse = Mouse.current;
+            Vector2 move = _input.Pan;
 
             if (_edgeScrollEnabled && mouse != null && move == Vector2.zero)
             {
-                Vector2 pos = mouse.position.ReadValue();
+                Vector2 pos = _input.PointerPosition;
                 if (pos.x >= 0 && pos.y >= 0 && pos.x <= Screen.width && pos.y <= Screen.height)
                 {
                     if (pos.x <= edgePixels) move.x -= 1;
@@ -70,14 +69,11 @@ namespace Craftwar.View
                 transform.position += delta;
             }
 
-            if (mouse != null)
+            float scroll = _input.Zoom;
+            if (scroll != 0)
             {
-                float scroll = mouse.scroll.ReadValue().y;
-                if (scroll != 0)
-                {
-                    float size = _camera.orthographicSize - Mathf.Sign(scroll) * zoomStep;
-                    _camera.orthographicSize = Mathf.Clamp(size, minOrthoSize, maxOrthoSize);
-                }
+                float size = _camera.orthographicSize - Mathf.Sign(scroll) * zoomStep;
+                _camera.orthographicSize = Mathf.Clamp(size, minOrthoSize, maxOrthoSize);
             }
 
             ClampToBounds();

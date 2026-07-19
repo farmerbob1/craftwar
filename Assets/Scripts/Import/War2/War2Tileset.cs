@@ -76,6 +76,21 @@ namespace Craftwar.Import.War2
 
         static readonly int[] Flip = { 7, 6, 5, 4, 3, 2, 1, 0 };
 
+        /// <summary>
+        /// Decode a megatile directly by its number, bypassing the map-tile
+        /// (entry D) indirection. Needed for the "special" megatiles that have
+        /// no MTXM id at all: the removed-tree stumps (126) and the
+        /// single-tree column pieces (121-123) that the engine swaps in when
+        /// chopping — same numbers in every era. Returns null if out of range.
+        /// </summary>
+        public byte[] DecodeMegatile(int megatile)
+        {
+            int infoBase = megatile * 32;
+            if (megatile <= 0 || infoBase + 32 > _info.Length)
+                return null;
+            return DecodePixels(infoBase);
+        }
+
         void TryDecode(ushort tileId, List<DecodedTile> output)
         {
             int mapOffset = ((tileId >> 4) * 42) + ((tileId & 0xF) * 2);
@@ -89,6 +104,17 @@ namespace Craftwar.Import.War2
             if (infoBase + 32 > _info.Length)
                 return;
 
+            byte[] rgba = DecodePixels(infoBase);
+
+            // libwar2 skips tiles whose first pixel decodes to pure black.
+            if (rgba[0] == 0 && rgba[1] == 0 && rgba[2] == 0)
+                return;
+
+            output.Add(new DecodedTile { TileId = tileId, Pixels = rgba });
+        }
+
+        byte[] DecodePixels(int infoBase)
+        {
             var rgba = new byte[TileSize * TileSize * 4];
             for (int part = 0; part < 16; part++)
             {
@@ -115,11 +141,7 @@ namespace Craftwar.Import.War2
                 }
             }
 
-            // libwar2 skips tiles whose first pixel decodes to pure black.
-            if (rgba[0] == 0 && rgba[1] == 0 && rgba[2] == 0)
-                return;
-
-            output.Add(new DecodedTile { TileId = tileId, Pixels = rgba });
+            return rgba;
         }
     }
 }

@@ -112,29 +112,50 @@ namespace Craftwar.Sim
 
         unsafe void ApplyResearchCommand(in GameCommand cmd)
         {
-            for (int i = 0; i < cmd.SelectionCount; i++)
+            // Same one-event-per-command discipline as Train: remember the first
+            // real reason, report it only if no lab takes the order.
+            var deny = DenyReason.None;
+            bool taken = false;
+            for (int i = 0; i < cmd.SelectionCount && !taken; i++)
             {
                 if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]), out int idx))
                     continue;
                 ref Unit b = ref State.Units[idx];
-                if (b.Player != cmd.Player || (b.Flags & UnitFlags.Building) == 0
-                    || (b.Flags & UnitFlags.UnderConstruction) != 0
-                    || b.BuildType != 0 || b.ResearchId != 0)
+                if (b.Player != cmd.Player || (b.Flags & UnitFlags.Building) == 0)
                     continue;
+                if ((b.Flags & UnitFlags.UnderConstruction) != 0
+                    || b.BuildType != 0 || b.ResearchId != 0)
+                {
+                    if (deny == DenyReason.None)
+                        deny = DenyReason.Busy;
+                    continue;
+                }
                 var u = (UpgradeId)cmd.Param;
                 if (!CanResearchAt(b.Player, (UnitTypeId)b.TypeId, u))
+                {
+                    if (deny == DenyReason.None)
+                        deny = DenyReason.TechUnavailable;
                     continue;
+                }
                 ref PlayerState p = ref State.Players[b.Player];
                 ref UpgradeData row = ref State.Rules.Upgrades[(int)u];
-                if (p.Gold < row.Gold || p.Lumber < row.Lumber || p.Oil < row.Oil)
+                var shortfall = ShortfallFor(ref p, row.Gold, row.Lumber, row.Oil, needsFood: false);
+                if (shortfall != DenyReason.None)
+                {
+                    if (deny == DenyReason.None || deny == DenyReason.Busy
+                        || deny == DenyReason.TechUnavailable)
+                        deny = shortfall;
                     continue;
+                }
                 p.Gold -= row.Gold;
                 p.Lumber -= row.Lumber;
                 p.Oil -= row.Oil;
                 b.ResearchId = (byte)((int)u + 1);
-                b.TrainTicks = BuildTicks(row.Time);
-                break; // one lab takes the order
+                b.TrainTicks = BuildTicksFor(row.Time);
+                taken = true; // one lab takes the order
             }
+            if (!taken && deny != DenyReason.None)
+                Emit(SimEventKind.CommandDenied, cmd.Player, (ushort)deny, cmd.Param);
         }
 
         /// <summary>Cancel whatever the selected building is working on —
@@ -170,7 +191,7 @@ namespace Craftwar.Sim
                 }
                 else if (b.BuildType != 0)
                 {
-                    ref UnitTypeData row = ref State.Rules.Units[b.BuildType];
+                    ref UnitTypeData row = ref State.Rules.Units[b.BuildType - 1];
                     p.Gold += row.GoldCost;
                     p.Lumber += row.LumberCost;
                     p.Oil += row.OilCost;

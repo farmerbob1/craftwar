@@ -1,0 +1,10 @@
+/* Craftwar placeholder dark theme.
+   Order matters: the Unity default theme supplies control styling, then our
+   custom-property values, then structure sheets that consume only var(--cw-*).
+   The M8 WC2 skin is a ThemeWc2.tss that swaps vars-dark for vars-wc2 and adds
+   9-slice background-image rules — no UXML or C# changes. */
+@import url("unity-theme://default");
+@import url("project:///Assets/UI/Themes/vars-dark.uss");
+@import url("project:///Assets/UI/USS/base.uss");
+@import url("project:///Assets/UI/USS/hud.uss");
+@import url("project:///Assets/UI/USS/menus.uss");

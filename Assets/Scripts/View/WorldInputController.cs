@@ -1,76 +1,158 @@
-using System.Collections.Generic;
 using Craftwar.Sim;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 namespace Craftwar.View
 {
     /// <summary>
-    /// Drag-box selection + right-click move orders. Terminates exclusively
-    /// in GameCommands handed to the sim host — the view never touches state.
-    /// M2: local player is always slot 0.
+    /// Drag-box selection + right-click smart orders + building placement.
+    /// Replaces SelectionController: the order/selection logic is unchanged,
+    /// but input now arrives from InputRouter and the drag rectangle is drawn
+    /// by the UI layer. Terminates exclusively in GameCommands handed to the
+    /// sim host — the view never touches state. Local player is always slot 0.
     /// </summary>
-    public sealed class SelectionController : MonoBehaviour
+    public sealed class WorldInputController : MonoBehaviour
     {
         const byte LocalPlayer = 0;
 
         ISimHost _host;
-        UnitViewPool _pool;
+        SelectionState _selection;
+        UIState _ui;
         Camera _camera;
         int _mapHeight;
-        HudController _hud;
+        InputRouter _input;
+        DragSelectOverlayView _dragView;
 
         Vector2 _dragStartScreen;
         bool _dragging;
 
-        public void Init(ISimHost host, UnitViewPool pool, Camera cam, int mapHeight, HudController hud)
+        public void Init(ISimHost host, UIState ui, Camera cam, int mapHeight,
+            InputRouter input, DragSelectOverlayView dragView)
         {
             _host = host;
-            _pool = pool;
+            _ui = ui;
+            _selection = ui.Selection;
             _camera = cam;
             _mapHeight = mapHeight;
-            _hud = hud;
+            _input = input;
+            _dragView = dragView;
+
+            _input.OnSelectPressed += HandleSelectPressed;
+            _input.OnSelectReleased += HandleSelectReleased;
+            _input.OnOrderPressed += HandleOrderPressed;
+        }
+
+        void OnDestroy()
+        {
+            if (_input == null)
+                return;
+            _input.OnSelectPressed -= HandleSelectPressed;
+            _input.OnSelectReleased -= HandleSelectReleased;
+            _input.OnOrderPressed -= HandleOrderPressed;
+        }
+
+        void HandleSelectPressed()
+        {
+            if (_host?.Sim == null)
+                return;
+
+            // Placement mode swallows the click entirely.
+            if (_ui.PendingBuildType != 0)
+            {
+                if (!_ui.PointerOverUI)
+                    PlaceBuilding(_input.PointerPosition);
+                return;
+            }
+
+            // A press that lands on the HUD belongs to the HUD.
+            if (_ui.PointerOverUI)
+                return;
+
+            if (_input.AttackMove && _selection.Count > 0)
+            {
+                IssueSmartOrder(_input.PointerPosition, attackMove: true);
+                return;
+            }
+
+            _dragStartScreen = _input.PointerPosition;
+            _dragging = true;
+        }
+
+        void HandleSelectReleased()
+        {
+            if (!_dragging || _host?.Sim == null)
+                return;
+            _dragging = false;
+            _dragView?.Hide();
+            // A drag that began in the world completes in the world, even if
+            // the pointer wandered over the sidebar on the way up.
+            SelectInRect(_dragStartScreen, _input.PointerPosition, _input.Additive);
+        }
+
+        void HandleOrderPressed()
+        {
+            if (_host?.Sim == null)
+                return;
+
+            if (_ui.PendingBuildType != 0)
+            {
+                _ui.PendingBuildType = 0; // right-click cancels placement
+                return;
+            }
+            if (_ui.PointerOverUI || _selection.Count == 0)
+                return;
+
+            if (TryIssueRally(_input.PointerPosition))
+                return;
+            IssueSmartOrder(_input.PointerPosition, attackMove: false);
         }
 
         void Update()
         {
-            var mouse = Mouse.current;
-            if (mouse == null || _host?.Sim == null)
-                return;
+            if (_dragging)
+                _dragView?.Show(_dragStartScreen, _input.PointerPosition);
+        }
 
-            // Building placement mode intercepts clicks entirely.
-            if (_hud != null && _hud.PendingBuildType != 0)
+        /// <summary>
+        /// A single completed building of ours selected: right-click sets its
+        /// rally point instead of issuing a move order it could never obey.
+        /// </summary>
+        unsafe bool TryIssueRally(Vector2 screenPos)
+        {
+            if (_selection.Count != 1)
+                return false;
+            var state = _host.Sim.State;
+            int idx = -1;
+            foreach (uint packed in _selection)
             {
-                if (mouse.rightButton.wasPressedThisFrame)
-                    _hud.PendingBuildType = 0;
-                else if (mouse.leftButton.wasPressedThisFrame)
-                    PlaceBuilding(mouse.position.ReadValue());
-                return;
+                if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out idx))
+                    return false;
+                break;
             }
+            if (idx < 0)
+                return false;
+            ref var b = ref state.Units[idx];
+            if (b.Player != LocalPlayer
+                || (b.Flags & UnitFlags.Building) == 0
+                || (b.Flags & UnitFlags.UnderConstruction) != 0)
+                return false;
 
-            if (mouse.leftButton.wasPressedThisFrame)
+            Vector2 world = _camera.ScreenToWorldPoint(screenPos);
+            int tileX = Mathf.FloorToInt(world.x);
+            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y);
+            if (state.Terrain == null || !state.Terrain.InBounds(tileX, tileY))
+                return false;
+
+            var cmd = new GameCommand
             {
-                _dragStartScreen = mouse.position.ReadValue();
-                _dragging = true;
-            }
-
-            if (_dragging && mouse.leftButton.wasReleasedThisFrame)
-            {
-                _dragging = false;
-                SelectInRect(_dragStartScreen, mouse.position.ReadValue(),
-                    additive: Keyboard.current != null && Keyboard.current.shiftKey.isPressed);
-            }
-
-            if (mouse.rightButton.wasPressedThisFrame && _pool.Selected.Count > 0)
-                IssueSmartOrder(mouse.position.ReadValue(), attackMove: false);
-
-            // A + left-click = attack-move.
-            if (Keyboard.current != null && Keyboard.current.aKey.isPressed
-                && mouse.leftButton.wasPressedThisFrame && _pool.Selected.Count > 0)
-            {
-                _dragging = false;
-                IssueSmartOrder(mouse.position.ReadValue(), attackMove: true);
-            }
+                Op = CommandOp.SetRally,
+                Player = LocalPlayer,
+                TargetX = (ushort)tileX,
+                TargetY = (ushort)tileY,
+                SelectionCount = 1,
+            };
+            cmd.Selection.Ids[0] = new UnitId((ushort)idx, b.Gen).Packed;
+            _host.SubmitCommand(cmd);
+            return true;
         }
 
         /// <summary>
@@ -130,7 +212,7 @@ namespace Craftwar.View
                 TargetY = (ushort)tileY,
                 TargetUnit = targetPacked,
             };
-            foreach (uint packed in _pool.Selected)
+            foreach (uint packed in _selection)
             {
                 if (cmd.SelectionCount >= GameCommand.MaxSelection)
                     break;
@@ -141,7 +223,7 @@ namespace Craftwar.View
 
         bool SelectionHasWorker(GameState state)
         {
-            foreach (uint packed in _pool.Selected)
+            foreach (uint packed in _selection)
                 if (state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
                     && state.Rules.Units[state.Units[idx].TypeId].Is(UnitTypeFlags.Peon))
                     return true;
@@ -151,7 +233,7 @@ namespace Craftwar.View
         void SelectInRect(Vector2 a, Vector2 b, bool additive)
         {
             if (!additive)
-                _pool.Selected.Clear();
+                _selection.Clear();
 
             Vector2 wa = _camera.ScreenToWorldPoint(a);
             Vector2 wb = _camera.ScreenToWorldPoint(b);
@@ -174,14 +256,14 @@ namespace Craftwar.View
                 float wy = _mapHeight - u.PixY / 32f - 0.5f;
                 if (rect.Contains(new Vector2(wx, wy)))
                 {
-                    _pool.Selected.Add(new UnitId((ushort)i, u.Gen).Packed);
-                    if (_pool.Selected.Count >= GameCommand.MaxSelection)
+                    _selection.Add(new UnitId((ushort)i, u.Gen).Packed);
+                    if (_selection.Count >= GameCommand.MaxSelection)
                         break;
                 }
             }
 
             // Click with no mobile units hit: select the building under the cursor.
-            if (_pool.Selected.Count == 0)
+            if (_selection.Count == 0)
             {
                 int tileX = Mathf.FloorToInt(rect.center.x);
                 int tileY = _mapHeight - 1 - Mathf.FloorToInt(rect.center.y);
@@ -191,7 +273,7 @@ namespace Craftwar.View
                     if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi)
                         && state.Units[bi].Player == LocalPlayer
                         && (state.Units[bi].Flags & UnitFlags.Building) != 0)
-                        _pool.Selected.Add(occ);
+                        _selection.Add(occ);
                 }
             }
         }
@@ -200,7 +282,7 @@ namespace Craftwar.View
         {
             var state = _host.Sim.State;
             Vector2 world = _camera.ScreenToWorldPoint(screenPos);
-            int size = state.Footprint(_hud.PendingBuildType);
+            int size = state.Footprint(_ui.PendingBuildType);
             // Click points at the footprint center; convert to top-left tile.
             int tileX = Mathf.FloorToInt(world.x) - (size - 1) / 2;
             int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y) - (size - 1) / 2;
@@ -213,9 +295,9 @@ namespace Craftwar.View
                 Player = LocalPlayer,
                 TargetX = (ushort)tileX,
                 TargetY = (ushort)tileY,
-                Param = _hud.PendingBuildType,
+                Param = _ui.PendingBuildType,
             };
-            foreach (uint packed in _pool.Selected)
+            foreach (uint packed in _selection)
             {
                 if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
                     || !state.Rules.Units[state.Units[idx].TypeId].Is(UnitTypeFlags.Peon))
@@ -225,18 +307,7 @@ namespace Craftwar.View
             }
             if (cmd.SelectionCount > 0)
                 _host.SubmitCommand(cmd);
-            _hud.PendingBuildType = 0;
-        }
-
-        void OnGUI()
-        {
-            if (!_dragging || Mouse.current == null)
-                return;
-            Vector2 cur = Mouse.current.position.ReadValue();
-            var r = Rect.MinMaxRect(
-                Mathf.Min(_dragStartScreen.x, cur.x), Screen.height - Mathf.Max(_dragStartScreen.y, cur.y),
-                Mathf.Max(_dragStartScreen.x, cur.x), Screen.height - Mathf.Min(_dragStartScreen.y, cur.y));
-            GUI.Box(r, GUIContent.none);
+            _ui.PendingBuildType = 0;
         }
     }
 }

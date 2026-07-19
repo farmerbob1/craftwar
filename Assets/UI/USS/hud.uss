@@ -1,0 +1,319 @@
+/* In-game HUD chrome. Sizes are in the 1920x1080 reference space; the panel
+   scales by height, so the HUD keeps a constant fraction of screen height and
+   ultrawide screens gain battlefield rather than stretched chrome. */
+
+.hud {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+/* --- top resource strip --- */
+
+.resource-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    height: 34px;
+    flex-direction: row;
+    align-items: center;
+    padding-left: 12px;
+    padding-right: 12px;
+    background-color: var(--cw-panel-bg);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.resource-bar__item {
+    flex-direction: row;
+    align-items: center;
+    margin-right: 24px;
+}
+
+.resource-bar__spacer {
+    flex-grow: 1;
+}
+
+.resource-bar__label {
+    color: var(--cw-text-dim);
+    font-size: 12px;
+    margin-right: 6px;
+}
+
+.resource-bar__value {
+    color: var(--cw-text);
+    font-size: 15px;
+    -unity-font-style: bold;
+    min-width: 46px;
+}
+
+.resource-bar__value--gold {
+    color: var(--cw-gold);
+}
+
+.resource-bar__value--lumber {
+    color: var(--cw-lumber);
+}
+
+.resource-bar__value--oil {
+    color: var(--cw-oil);
+}
+
+.resource-bar__value--warn {
+    color: var(--cw-warn);
+}
+
+/* --- left sidebar --- */
+
+.sidebar {
+    position: absolute;
+    left: 0;
+    top: 34px;
+    bottom: 0;
+    width: 208px;
+    padding: 8px;
+    background-color: var(--cw-panel-bg);
+    border-right-width: 1px;
+    border-right-color: var(--cw-panel-border);
+}
+
+.minimap {
+    height: 192px;
+    background-color: rgb(14, 16, 19);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.minimap__content {
+    flex-grow: 1;
+}
+
+.selection-panel {
+    flex-grow: 1;
+    margin-top: 8px;
+    padding: 6px;
+    background-color: rgba(14, 16, 19, 0.6);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.command-card {
+    margin-top: 8px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 192px;
+    height: 192px;
+}
+
+/* 3x3 grid of 60px cells with 2px gutters = 192px. */
+.command-button {
+    width: 60px;
+    height: 60px;
+    margin-right: 2px;
+    margin-bottom: 2px;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--cw-btn-bg);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.command-button:hover {
+    background-color: var(--cw-btn-bg-hover);
+    border-left-color: var(--cw-accent);
+    border-right-color: var(--cw-accent);
+    border-top-color: var(--cw-accent);
+    border-bottom-color: var(--cw-accent);
+}
+
+.command-button--empty {
+    display: none;
+}
+
+/* Unaffordable: still clickable (the sim has the final say), just dimmed. */
+.command-button--disabled {
+    background-color: var(--cw-btn-bg-disabled);
+}
+
+.command-button__icon {
+    color: var(--cw-text);
+    font-size: 20px;
+    -unity-font-style: bold;
+}
+
+.command-button--disabled .command-button__icon {
+    color: var(--cw-text-dim);
+}
+
+.command-button__key {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    color: var(--cw-accent);
+    font-size: 10px;
+}
+
+.command-button__cost {
+    position: absolute;
+    bottom: 2px;
+    color: var(--cw-text-dim);
+    font-size: 10px;
+}
+
+.command-button--disabled .command-button__cost {
+    color: var(--cw-warn);
+}
+
+/* --- drag selection --- */
+
+.drag-select {
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-hp-high);
+    border-right-color: var(--cw-hp-high);
+    border-top-color: var(--cw-hp-high);
+    border-bottom-color: var(--cw-hp-high);
+    background-color: rgba(46, 204, 87, 0.12);
+}
+
+/* --- notification feed --- */
+
+.notify-feed {
+    position: absolute;
+    left: 208px;
+    right: 0;
+    bottom: 24px;
+    align-items: center;
+}
+
+.notify-feed__line {
+    color: var(--cw-text);
+    font-size: 14px;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    margin-top: 2px;
+    background-color: var(--cw-panel-bg);
+}
+
+.notify-feed__line--warn {
+    color: var(--cw-warn);
+}
+
+/* --- selection panel --- */
+
+.selection__name {
+    color: var(--cw-accent);
+    font-size: 14px;
+    -unity-font-style: bold;
+    margin-bottom: 4px;
+}
+
+.selection__hp-text {
+    color: var(--cw-text);
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.selection__bar {
+    margin-bottom: 6px;
+}
+
+.selection__stat {
+    color: var(--cw-text-dim);
+    font-size: 11px;
+}
+
+.selection__progress-label {
+    color: var(--cw-text);
+    font-size: 11px;
+    margin-top: 6px;
+    margin-bottom: 2px;
+}
+
+.selection__hidden {
+    display: none;
+}
+
+.unit-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.unit-tile {
+    width: 42px;
+    height: 42px;
+    margin-right: 3px;
+    margin-bottom: 3px;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--cw-btn-bg);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.unit-tile:hover {
+    border-left-color: var(--cw-accent);
+    border-right-color: var(--cw-accent);
+    border-top-color: var(--cw-accent);
+    border-bottom-color: var(--cw-accent);
+}
+
+.unit-tile--empty {
+    display: none;
+}
+
+.unit-tile__initials {
+    color: var(--cw-text);
+    font-size: 14px;
+    -unity-font-style: bold;
+}
+
+.unit-tile__hp {
+    position: absolute;
+    bottom: 2px;
+    left: 3px;
+    right: 3px;
+    height: 4px;
+}
+
+/* Busy building: what it's making, above the card. */
+.card-status {
+    margin-top: 8px;
+}
+
+.card-status__label {
+    color: var(--cw-text);
+    font-size: 12px;
+    margin-bottom: 4px;
+}

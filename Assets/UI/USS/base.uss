@@ -1,0 +1,55 @@
+/* Shared primitives. Colors come exclusively from var(--cw-*) so a theme
+   swap needs no edits here. */
+
+.panel {
+    background-color: var(--cw-panel-bg);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.text {
+    color: var(--cw-text);
+    font-size: 13px;
+}
+
+.text--dim {
+    color: var(--cw-text-dim);
+}
+
+.text--warn {
+    color: var(--cw-warn);
+}
+
+/* Generic progress/HP bar: a track with a fill whose width is set from C#. */
+.bar {
+    height: 6px;
+    background-color: rgb(18, 19, 22);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.bar__fill {
+    height: 100%;
+    width: 100%;
+    background-color: var(--cw-hp-high);
+}
+
+.bar__fill--mid {
+    background-color: var(--cw-hp-mid);
+}
+
+.bar__fill--low {
+    background-color: var(--cw-hp-low);
+}

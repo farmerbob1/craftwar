@@ -31,6 +31,9 @@ namespace Craftwar.App
         public readonly List<(ushort x, ushort y, ushort tile)> PendingTileChanges
             = new List<(ushort, ushort, ushort)>();
 
+        /// <summary>Presentation events accumulated across the ticks run this frame; drained by the view.</summary>
+        public readonly List<SimEvent> PendingSimEvents = new List<SimEvent>();
+
         public void Init(GameSim sim, ILockstepDriver driver, Replay replay)
         {
             Sim = sim;
@@ -43,9 +46,29 @@ namespace Craftwar.App
 
         public void SubmitCommand(in GameCommand cmd) => Driver.SubmitLocalCommand(cmd);
 
+        /// <summary>
+        /// Single-player pause. The sim simply stops being advanced, so the
+        /// state hash and the replay are untouched — a replay recorded across a
+        /// paused session still verifies. Zeroing the accumulator on pause stops
+        /// the wall-clock gap from being spent as catch-up ticks on resume, and
+        /// freezing Alpha holds units mid-stride instead of snapping them.
+        /// Networked lockstep (M10) cannot pause this way: every peer would
+        /// have to agree, so that becomes a driver-level concern.
+        /// </summary>
+        public bool Paused { get; private set; }
+
+        public void SetPaused(bool paused)
+        {
+            if (Paused == paused)
+                return;
+            Paused = paused;
+            if (paused)
+                _accumulator = 0f;
+        }
+
         void Update()
         {
-            if (Sim == null)
+            if (Sim == null || Paused)
                 return;
 
             _accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f);
@@ -61,9 +84,33 @@ namespace Craftwar.App
                         _replay.Record(Sim.State.Tick, c);
                 Sim.Advance(_tickCommands);
                 PendingTileChanges.AddRange(Sim.State.TileChanges);
+                PendingSimEvents.AddRange(Sim.State.Events);
+                ReconcileTeleports();
                 _accumulator -= TickSeconds;
             }
             Alpha = Mathf.Clamp01(_accumulator / TickSeconds);
+        }
+
+        /// <summary>
+        /// A unit whose position jumped further than any legal per-tick move
+        /// (mine/depot exit, training spawn into a recycled or fresh slot)
+        /// must not interpolate across the gap — snap its previous position
+        /// so it renders at the new spot immediately. Fastest units move
+        /// under 1 px per tick, so 4 px cleanly separates walk from teleport.
+        /// </summary>
+        void ReconcileTeleports()
+        {
+            var units = Sim.State.Units;
+            for (int i = 0; i < Sim.State.HighestUnitIndex; i++)
+            {
+                int dx = units[i].PixX - PrevPixX[i];
+                int dy = units[i].PixY - PrevPixY[i];
+                if (dx > 4 || dx < -4 || dy > 4 || dy < -4)
+                {
+                    PrevPixX[i] = units[i].PixX;
+                    PrevPixY[i] = units[i].PixY;
+                }
+            }
         }
 
         void SnapshotPositions()

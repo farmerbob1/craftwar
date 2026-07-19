@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!-- Cloned 9x into the command card and never re-created; activation is a
+         click or the slot's grid hotkey. Placeholder art until M8: an initials
+         box plus the hotkey letter. -->
+    <ui:VisualElement class="command-button">
+        <ui:Label name="icon" class="command-button__icon" text="?" picking-mode="Ignore" />
+        <ui:Label name="key" class="command-button__key" text="Q" picking-mode="Ignore" />
+        <ui:Label name="cost" class="command-button__cost" text="" picking-mode="Ignore" />
+    </ui:VisualElement>
+</ui:UXML>

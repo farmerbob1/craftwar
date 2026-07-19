@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!-- picking-mode Ignore on every container: only elements that actually
+         draw a panel are allowed to block world clicks. -->
+    <ui:VisualElement name="hud" class="hud" picking-mode="Ignore">
+
+        <ui:VisualElement name="resource-bar" class="resource-bar">
+            <ui:VisualElement class="resource-bar__item" picking-mode="Ignore">
+                <ui:Label class="resource-bar__label" text="Gold" picking-mode="Ignore" />
+                <ui:Label name="gold-value" class="resource-bar__value" text="0" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement class="resource-bar__item" picking-mode="Ignore">
+                <ui:Label class="resource-bar__label" text="Lumber" picking-mode="Ignore" />
+                <ui:Label name="lumber-value" class="resource-bar__value" text="0" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement class="resource-bar__item" picking-mode="Ignore">
+                <ui:Label class="resource-bar__label" text="Oil" picking-mode="Ignore" />
+                <ui:Label name="oil-value" class="resource-bar__value" text="0" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement class="resource-bar__spacer" picking-mode="Ignore" />
+            <ui:VisualElement class="resource-bar__item" picking-mode="Ignore">
+                <ui:Label class="resource-bar__label" text="Food" picking-mode="Ignore" />
+                <ui:Label name="food-value" class="resource-bar__value" text="0/0" picking-mode="Ignore" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="sidebar" class="sidebar">
+            <ui:VisualElement name="minimap-frame" class="minimap">
+                <ui:VisualElement name="minimap-content" class="minimap__content" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement name="selection-panel" class="selection-panel" />
+            <ui:VisualElement name="command-card" class="command-card" />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>

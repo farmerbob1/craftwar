@@ -22,6 +22,11 @@ namespace Craftwar.Sim
                         u.PathLength = 0;
                         u.PathCursor = 0;
                         u.Timer = 0;
+                        // Park the walk order on our own tile (or the step in
+                        // flight): TickMovement runs before TickHarvest picks
+                        // the real target, and must not chase the stale OrderX/Y.
+                        u.OrderX = (ushort)(u.TileX + u.StepDX);
+                        u.OrderY = (ushort)(u.TileY + u.StepDY);
                         if (cmd.TargetUnit != 0)
                         {
                             u.ResourceTarget = cmd.TargetUnit;
@@ -42,7 +47,11 @@ namespace Craftwar.Sim
                     if (cmd.Param >= UdtaParser.UnitCount
                         || !OnWorkerBuildMenu(cmd.Player, (UnitTypeId)cmd.Param)
                         || !CanProduce(cmd.Player, (UnitTypeId)cmd.Param))
+                    {
+                        Emit(SimEventKind.CommandDenied, cmd.Player,
+                            (ushort)DenyReason.TechUnavailable, cmd.Param);
                         break;
+                    }
                     for (int i = 0; i < cmd.SelectionCount; i++)
                     {
                         if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]), out int idx))
@@ -52,7 +61,7 @@ namespace Craftwar.Sim
                             !State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Peon))
                             continue;
                         u.Order = OrderType.Build;
-                        u.BuildType = cmd.Param;
+                        u.BuildType = (ushort)(cmd.Param + 1); // 1-based, 0 = idle
                         u.OrderX = cmd.TargetX;
                         u.OrderY = cmd.TargetY;
                         u.AttackTarget = 0;
@@ -68,15 +77,26 @@ namespace Craftwar.Sim
                     // the building's own tier upgrade (Hall→Keep, tower guns).
                     if (cmd.Param >= UdtaParser.UnitCount)
                         break;
-                    for (int i = 0; i < cmd.SelectionCount; i++)
+                {
+                    // One CommandDenied per command, not per candidate: keep the
+                    // first real reason we hit and report it only if no building
+                    // in the selection ends up taking the order.
+                    var deny = DenyReason.None;
+                    bool taken = false;
+                    for (int i = 0; i < cmd.SelectionCount && !taken; i++)
                     {
                         if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]), out int idx))
                             continue;
                         ref Unit b = ref State.Units[idx];
-                        if (b.Player != cmd.Player || (b.Flags & UnitFlags.Building) == 0
-                            || (b.Flags & UnitFlags.UnderConstruction) != 0
-                            || b.BuildType != 0 || b.ResearchId != 0)
+                        if (b.Player != cmd.Player || (b.Flags & UnitFlags.Building) == 0)
                             continue;
+                        if ((b.Flags & UnitFlags.UnderConstruction) != 0
+                            || b.BuildType != 0 || b.ResearchId != 0)
+                        {
+                            if (deny == DenyReason.None)
+                                deny = DenyReason.Busy;
+                            continue;
+                        }
                         var want = (UnitTypeId)cmd.Param;
                         ref UnitTypeData row = ref State.Rules.Units[cmd.Param];
                         bool selfUpgrade = row.Is(UnitTypeFlags.Building);
@@ -84,19 +104,31 @@ namespace Craftwar.Sim
                             ? CanUpgradeBuildingTo(b.Player, (UnitTypeId)b.TypeId, want)
                             : CanTrainAt(b.Player, (UnitTypeId)b.TypeId, want);
                         if (!ok)
+                        {
+                            if (deny == DenyReason.None)
+                                deny = DenyReason.TechUnavailable;
                             continue;
+                        }
                         ref PlayerState p = ref State.Players[b.Player];
-                        if (p.Gold < row.GoldCost || p.Lumber < row.LumberCost
-                            || p.Oil < row.OilCost
-                            || (!selfUpgrade && p.FoodUsed + 1 > p.FoodMax))
+                        var short_ = ShortfallFor(ref p, row.GoldCost, row.LumberCost, row.OilCost,
+                            needsFood: !selfUpgrade);
+                        if (short_ != DenyReason.None)
+                        {
+                            if (deny == DenyReason.None || deny == DenyReason.Busy
+                                || deny == DenyReason.TechUnavailable)
+                                deny = short_;
                             continue;
+                        }
                         p.Gold -= row.GoldCost;
                         p.Lumber -= row.LumberCost;
                         p.Oil -= row.OilCost;
-                        b.BuildType = cmd.Param;
-                        b.TrainTicks = BuildTicks(row.BuildTime);
-                        break; // one building takes the order
+                        b.BuildType = (ushort)(cmd.Param + 1); // 1-based, 0 = idle
+                        b.TrainTicks = BuildTicksFor(row.BuildTime);
+                        taken = true; // one building takes the order
                     }
+                    if (!taken && deny != DenyReason.None)
+                        Emit(SimEventKind.CommandDenied, cmd.Player, (ushort)deny, cmd.Param);
+                }
                     break;
 
                 case CommandOp.SetRally:
@@ -123,8 +155,27 @@ namespace Craftwar.Sim
             return false;
         }
 
-        /// <summary>UDTA build time: 6 units = 1 second -> ticks at 50/s.</summary>
-        static ushort BuildTicks(int buildTime) => (ushort)(buildTime * 50 / 6);
+        /// <summary>
+        /// Which resource a player is short of, in a fixed check order so the
+        /// reported reason is deterministic. None = affordable.
+        /// </summary>
+        static DenyReason ShortfallFor(ref PlayerState p, int gold, int lumber, int oil, bool needsFood)
+        {
+            if (p.Gold < gold)
+                return DenyReason.NotEnoughGold;
+            if (p.Lumber < lumber)
+                return DenyReason.NotEnoughLumber;
+            if (p.Oil < oil)
+                return DenyReason.NotEnoughOil;
+            if (needsFood && p.FoodUsed + 1 > p.FoodMax)
+                return DenyReason.NotEnoughFood;
+            return DenyReason.None;
+        }
+
+        /// <summary>UDTA build time: 6 units = 1 second -> ticks at 50/s.
+        /// Public so the UI can turn a TrainTicks countdown into a progress
+        /// fraction from the same formula.</summary>
+        public static ushort BuildTicksFor(int buildTime) => (ushort)(buildTime * 50 / 6);
 
         // ------------------------------------------------------------------
         // Production: building construction progress + training queues + food.
@@ -157,7 +208,7 @@ namespace Craftwar.Sim
                 if ((b.Flags & UnitFlags.UnderConstruction) != 0)
                 {
                     ref UnitTypeData row = ref State.Rules.Units[b.TypeId];
-                    int total = BuildTicks(row.BuildTime);
+                    int total = BuildTicksFor(row.BuildTime);
                     if (b.TrainTicks > 0)
                     {
                         b.TrainTicks--;
@@ -171,6 +222,8 @@ namespace Craftwar.Sim
                         b.Flags &= ~UnitFlags.UnderConstruction;
                         b.Hp = row.Hp;
                         ReleaseBuilder(ref b, i);
+                        Emit(SimEventKind.ConstructionComplete, b.Player, 0, b.TypeId,
+                            new UnitId((ushort)i, b.Gen).Packed);
                     }
                     continue;
                 }
@@ -184,6 +237,8 @@ namespace Craftwar.Sim
                         var done = (UpgradeId)(b.ResearchId - 1);
                         b.ResearchId = 0;
                         CompleteResearch(b.Player, done);
+                        Emit(SimEventKind.ResearchComplete, b.Player, 0, (ushort)done,
+                            new UnitId((ushort)i, b.Gen).Packed);
                     }
                     continue;
                 }
@@ -194,11 +249,13 @@ namespace Craftwar.Sim
                         b.TrainTicks--;
                     if (b.TrainTicks == 0)
                     {
-                        ushort trained = b.BuildType;
+                        ushort trained = (ushort)(b.BuildType - 1); // decode 1-based
                         b.BuildType = 0;
                         if (State.Rules.Units[trained].Is(UnitTypeFlags.Building))
                         {
                             UpgradeBuildingType(ref b, trained);
+                            Emit(SimEventKind.UpgradeComplete, b.Player, 0, trained,
+                                new UnitId((ushort)i, b.Gen).Packed);
                         }
                         else if (TryFindSpawnTile(ref b, out int sx, out int sy))
                         {
@@ -215,10 +272,12 @@ namespace Craftwar.Sim
                                     nu.OrderY = b.RallyY;
                                 }
                             }
+                            Emit(SimEventKind.TrainComplete, b.Player, 0, trained,
+                                new UnitId((ushort)i, b.Gen).Packed);
                         }
                         else
                         {
-                            b.BuildType = trained; // blocked exits: retry
+                            b.BuildType = (ushort)(trained + 1); // blocked exits: retry (re-encode)
                             b.TrainTicks = 25;
                         }
                     }
@@ -358,7 +417,7 @@ namespace Craftwar.Sim
                             break;
                         }
                         ref Unit mine = ref State.Units[mi];
-                        if (FootprintDistance(ref u, ref mine) <= 1)
+                        if (u.StepRemaining == 0 && FootprintDistance(ref u, ref mine) <= 1)
                         {
                             HideUnit(ref u, i);
                             u.Harvest = HarvestStage.InMine;
@@ -385,7 +444,10 @@ namespace Craftwar.Sim
                                 depot >= 0 ? State.Units[depot].TileX : u.TileX,
                                 depot >= 0 ? State.Units[depot].TileY : u.TileY);
                             if (mine.ResourceAmount <= 0)
+                            {
                                 State.DestroyUnit(new UnitId((ushort)mi, mine.Gen)); // mine collapses
+                                Emit(SimEventKind.MineCollapsed, u.Player, 0, mine.TypeId);
+                            }
                         }
                         u.Harvest = HarvestStage.ToDepot;
                         u.PathLength = 0;
@@ -398,14 +460,26 @@ namespace Craftwar.Sim
                         int tx = tile % w, ty = tile / w;
                         if (!State.Terrain.HasWood(tx, ty))
                         {
-                            // Tree gone: find another nearby, else stop.
-                            if (FindNearbyWood(u.TileX, u.TileY, out int nx, out int ny))
+                            // Tree gone (felled by us or someone else): next
+                            // tree near the OLD one — the original's saved
+                            // location — so return trips go back to the same
+                            // forest instead of searching around the depot.
+                            if (FindNearbyWood(tx, ty, out int nx, out int ny)
+                                || FindNearbyWood(u.TileX, u.TileY, out nx, out ny))
+                            {
                                 u.ResourceTarget = WoodTargetFlag | (uint)(ny * w + nx);
+                                u.Timer = 0;
+                            }
                             else
+                            {
                                 EndHarvest(ref u);
+                            }
                             break;
                         }
-                        if (Chebyshev(u.TileX, u.TileY, tx, ty) <= 1)
+                        // Only start chopping once fully on a tile: mid-step
+                        // the unit still occupies TileX/Y, and parking the
+                        // order there would drag it a tile backwards.
+                        if (u.StepRemaining == 0 && Chebyshev(u.TileX, u.TileY, tx, ty) <= 1)
                         {
                             u.Harvest = HarvestStage.Chopping;
                             u.Timer = SimConstants.ChopTicks;
@@ -419,6 +493,26 @@ namespace Craftwar.Sim
                         else
                         {
                             WalkTo(ref u, (ushort)tx, (ushort)ty);
+                            // Walled-off tree (e.g. forest behind a mine row):
+                            // movement can't produce a path, so the peon would
+                            // stand forever. Count the standstill, retarget a
+                            // tree near where we stand, and finally give up.
+                            if (u.StepRemaining == 0 && u.PathCursor >= u.PathLength)
+                            {
+                                if (++u.Timer >= SimConstants.WoodStuckTicks)
+                                {
+                                    u.Timer = 0;
+                                    if (FindNearbyWood(u.TileX, u.TileY, out int nx, out int ny)
+                                        && ny * w + nx != tile)
+                                        u.ResourceTarget = WoodTargetFlag | (uint)(ny * w + nx);
+                                    else
+                                        EndHarvest(ref u);
+                                }
+                            }
+                            else
+                            {
+                                u.Timer = 0;
+                            }
                         }
                         break;
                     }
@@ -450,7 +544,7 @@ namespace Craftwar.Sim
                             break;
                         }
                         ref Unit d = ref State.Units[depot];
-                        if (FootprintDistance(ref u, ref d) <= 1)
+                        if (u.StepRemaining == 0 && FootprintDistance(ref u, ref d) <= 1)
                         {
                             HideUnit(ref u, i);
                             u.Harvest = HarvestStage.InDepot;
@@ -556,7 +650,7 @@ namespace Craftwar.Sim
 
         bool FindNearbyWood(int cx, int cy, out int wx, out int wy)
         {
-            for (int r = 1; r <= 6; r++)
+            for (int r = 1; r <= SimConstants.WoodSearchRadius; r++)
                 for (int dy = -r; dy <= r; dy++)
                     for (int dx = -r; dx <= r; dx++)
                     {
@@ -605,7 +699,12 @@ namespace Craftwar.Sim
 
         void HideUnit(ref Unit u, int index)
         {
-            State.Vacate(new UnitId((ushort)index, u.Gen), u.TypeId, u.TileX, u.TileY);
+            var id = new UnitId((ushort)index, u.Gen);
+            // A mid-step unit has already reserved its step destination;
+            // release it too or the tile stays blocked forever.
+            if (u.StepRemaining > 0)
+                State.Vacate(id, u.TypeId, u.TileX + u.StepDX, u.TileY + u.StepDY);
+            State.Vacate(id, u.TypeId, u.TileX, u.TileY);
             u.Flags |= UnitFlags.Hidden;
             u.PathLength = 0;
             u.StepRemaining = 0;
@@ -623,6 +722,11 @@ namespace Craftwar.Sim
             }
             u.PixX = u.TileX * SimConstants.TilePixels;
             u.PixY = u.TileY * SimConstants.TilePixels;
+            // Park the walk order on the exit tile: movement runs before the
+            // harvest stage picks the next destination, and following the
+            // pre-hide order for even one step walks the wrong way.
+            u.OrderX = u.TileX;
+            u.OrderY = u.TileY;
             u.Flags &= ~UnitFlags.Hidden;
             State.Occupy(new UnitId((ushort)index, u.Gen), u.TypeId, u.TileX, u.TileY);
         }
@@ -637,7 +741,8 @@ namespace Craftwar.Sim
         void TickBuilderWalk(ref Unit u, int index)
         {
             // Walking to the construction site; on arrival validate + erect.
-            int size = State.Footprint(u.BuildType);
+            ushort buildType = (ushort)(u.BuildType - 1); // decode 1-based
+            int size = State.Footprint(buildType);
             int dist = Chebyshev(u.TileX, u.TileY,
                 ClampTo(u.TileX, u.OrderX, u.OrderX + size - 1),
                 ClampTo(u.TileY, u.OrderY, u.OrderY + size - 1));
@@ -645,11 +750,13 @@ namespace Craftwar.Sim
                 return; // movement system keeps walking toward OrderX/Y
 
             ref PlayerState p = ref State.Players[u.Player];
-            ref UnitTypeData row = ref State.Rules.Units[u.BuildType];
+            ref UnitTypeData row = ref State.Rules.Units[buildType];
             // Re-check the tech gate on arrival — a prereq may have died mid-walk.
-            bool ok = p.Gold >= row.GoldCost && p.Lumber >= row.LumberCost
-                && p.Oil >= row.OilCost
-                && CanProduce(u.Player, (UnitTypeId)u.BuildType);
+            var shortfall = ShortfallFor(ref p, row.GoldCost, row.LumberCost, row.OilCost,
+                needsFood: false);
+            bool affordable = shortfall == DenyReason.None;
+            bool allowed = CanProduce(u.Player, (UnitTypeId)buildType);
+            bool ok = affordable && allowed;
             if (ok)
             {
                 for (int dy = 0; dy < size && ok; dy++)
@@ -665,6 +772,14 @@ namespace Craftwar.Sim
             }
             if (!ok)
             {
+                // The order is dropped either way; tell the UI which wall it hit.
+                if (!affordable)
+                    Emit(SimEventKind.CommandDenied, u.Player, (ushort)shortfall, buildType);
+                else if (!allowed)
+                    Emit(SimEventKind.CommandDenied, u.Player,
+                        (ushort)DenyReason.TechUnavailable, buildType);
+                else
+                    Emit(SimEventKind.BuildSiteBlocked, u.Player, 0, buildType);
                 u.Order = OrderType.None;
                 u.BuildType = 0;
                 u.PathLength = 0;
@@ -676,58 +791,136 @@ namespace Craftwar.Sim
             p.Oil -= row.OilCost;
             HideUnit(ref u, index);
 
-            var id = State.SpawnUnit(u.BuildType, u.Player, u.OrderX, u.OrderY);
+            var id = State.SpawnUnit(buildType, u.Player, u.OrderX, u.OrderY);
             if (State.TryGetUnitIndex(id, out int bi))
             {
                 ref Unit b = ref State.Units[bi];
                 b.Flags |= UnitFlags.Building | UnitFlags.UnderConstruction;
                 b.Hp = row.Hp / 10 == 0 ? 1 : row.Hp / 10;
-                b.TrainTicks = BuildTicks(row.BuildTime);
+                b.TrainTicks = BuildTicksFor(row.BuildTime);
             }
         }
 
         static int ClampTo(int v, int min, int max) => v < min ? min : v > max ? max : v;
 
         /// <summary>
-        /// Recompute forest boundary art around a felled tree using the PUD
-        /// tile encoding's corner shapes (0x07SV: S = which corners hold
-        /// forest). The felled tile itself becomes stumps; neighbors that no
-        /// longer border trees revert to grass.
+        /// Recompute forest art around a felled tree (the original retiles the
+        /// same 3x3 window — TILE.C tile_finish_tree_harvest).
+        ///
+        /// Corner-vertex model matching the PUD boundary encoding (0x07SV,
+        /// pud_format.txt Appendix D: S says which part of the tile shows
+        /// forest): a tile-corner vertex is forest only while ALL four tiles
+        /// sharing it still hold wood. Transitions are therefore drawn on the
+        /// forest side, and non-wood terrain is never repainted.
+        ///
+        /// Remnants the boundary shapes can't draw use the tileset's special
+        /// megatiles: 1-wide vertical strips become one-tree column pieces,
+        /// and anything else (lone trees, 1-tall rows) loses its wood
+        /// entirely, leaving stumps — the original does the same (the PSX
+        /// F_TREE.BIN table flattens them to the stump matrix). Each removal
+        /// ripples outward through the worklist.
         /// </summary>
         void RetileForestAround(int cx, int cy)
         {
+            var work = new System.Collections.Generic.List<(int x, int y)> { (cx, cy) };
+            for (int i = 0; i < work.Count; i++)
+                RetileForestWindow(work[i].x, work[i].y, work);
+        }
+
+        void RetileForestWindow(int cx, int cy, System.Collections.Generic.List<(int x, int y)> work)
+        {
             int w = State.Terrain.Width, h = State.Terrain.Height;
-            bool F(int x, int y) => State.Terrain.HasWood(x, y);
+            // Off-map counts as wood so forests stay solid at the border.
+            bool Wood(int x, int y) =>
+                x < 0 || y < 0 || x >= w || y >= h || State.Terrain.HasWood(x, y);
+            // Vertex (vx,vy) = shared corner of the four tiles whose
+            // top-left tile is (vx-1, vy-1).
+            bool Vert(int vx, int vy) =>
+                Wood(vx - 1, vy - 1) && Wood(vx, vy - 1) && Wood(vx - 1, vy) && Wood(vx, vy);
 
             for (int dy = -1; dy <= 1; dy++)
             {
                 for (int dx = -1; dx <= 1; dx++)
                 {
                     int x = cx + dx, y = cy + dy;
-                    if (x < 0 || y < 0 || x >= w || y >= h || F(x, y))
+                    if (x < 0 || y < 0 || x >= w || y >= h)
                         continue;
+                    bool hasWood = State.Terrain.HasWood(x, y);
                     bool isCenter = x == cx && y == cy;
-                    if (!isCenter && !TerrainMap.IsForestTile(State.Tiles[y * w + x]))
-                        continue; // untouched grass/other terrain stays
+                    if (!hasWood && !isCenter)
+                        continue; // only the felled tile and live forest repaint
 
                     int bits = 0;
-                    if (F(x - 1, y) || F(x, y - 1) || F(x - 1, y - 1)) bits |= 1; // UL
-                    if (F(x + 1, y) || F(x, y - 1) || F(x + 1, y - 1)) bits |= 2; // UR
-                    if (F(x - 1, y) || F(x, y + 1) || F(x - 1, y + 1)) bits |= 4; // LL
-                    if (F(x + 1, y) || F(x, y + 1) || F(x + 1, y + 1)) bits |= 8; // LR
+                    if (Vert(x, y)) bits |= 1;             // UL corner
+                    if (Vert(x + 1, y)) bits |= 2;         // UR
+                    if (Vert(x, y + 1)) bits |= 4;         // LL
+                    if (Vert(x + 1, y + 1)) bits |= 8;     // LR
 
-                    ushort id = bits switch
+                    ushort cur = State.Tiles[y * w + x];
+                    ushort id;
+                    if (!hasWood)
                     {
-                        0 => isCenter
-                            ? SimConstants.ChoppedTileId
-                            : (ushort)(0x0050 + (x + y) % 3), // plain grass variation
-                        1 => 0x0700, 2 => 0x0710, 3 => 0x0720, 4 => 0x0730,
-                        5 => 0x0740, 6 => 0x0750, 7 => 0x0760, 8 => 0x0770,
-                        9 => 0x0780, 10 => 0x0790, 11 => 0x07A0, 12 => 0x07B0,
-                        13 => 0x07C0, 14 => 0x07D0,
-                        _ => (ushort)(0x0050 + (x + y) % 3),
-                    };
-                    if (State.Tiles[y * w + x] != id)
+                        // A non-wood tile shares all four of its own vertices,
+                        // so the felled center always has bits == 0: stumps.
+                        id = SimConstants.ChoppedTileId;
+                    }
+                    else if (bits == 15)
+                    {
+                        // Deep forest: solid tree tile (keep authored variation).
+                        id = (cur & 0xFFF0) == 0x0070 ? cur : (ushort)(0x0070 + (x + y) % 3);
+                    }
+                    else if (bits != 0)
+                    {
+                        id = bits switch
+                        {
+                            // Appendix D shapes: filled = forest.
+                            1 => 0x0700,   // UL
+                            2 => 0x0710,   // UR
+                            3 => 0x0720,   // upper half
+                            4 => 0x0730,   // LL
+                            5 => 0x0740,   // left half
+                            6 => 0x0750,   // UR+LL (clear UL/LR)
+                            7 => 0x0760,   // clear LR
+                            8 => 0x0770,   // LR
+                            9 => 0x0780,   // UL+LR
+                            10 => 0x0790,  // right half (clear left)
+                            11 => 0x07A0,  // clear LL
+                            12 => 0x07B0,  // lower half (clear upper)
+                            13 => 0x07C0,  // clear UR
+                            _ => 0x07D0,   // 14: clear UL
+                        };
+                        // Same shape group -> keep the authored variation.
+                        if ((cur & 0xFFF0) == (id & 0xFFF0))
+                            id = cur;
+                    }
+                    else
+                    {
+                        // Wood with no forest corners: a remnant. Vertical
+                        // single-file trees have dedicated column art; anything
+                        // else can't be drawn and is removed (no lumber).
+                        bool woodN = State.Terrain.HasWood(x, y - 1);
+                        bool woodS = State.Terrain.HasWood(x, y + 1);
+                        if (woodN && woodS)
+                        {
+                            id = SimConstants.OneTreeMidTileId;
+                        }
+                        else if (woodS)
+                        {
+                            id = SimConstants.OneTreeTopTileId;
+                        }
+                        else if (woodN)
+                        {
+                            id = SimConstants.OneTreeBotTileId;
+                        }
+                        else
+                        {
+                            State.Terrain.Chop(x, y);
+                            id = SimConstants.ChoppedTileId;
+                            work.Add((x, y)); // removal ripples outward
+                        }
+                    }
+
+                    if (cur != id)
                     {
                         State.Tiles[y * w + x] = id;
                         State.TileChanges.Add(((ushort)x, (ushort)y, id));

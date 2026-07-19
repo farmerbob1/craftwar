@@ -1,0 +1,56 @@
+/* Screen-stack menus (pause menu at phase 6, main menu / match setup at M8).
+   Intentionally minimal until then — the theme vars are already in place. */
+
+.screen-scrim {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.55);
+    align-items: center;
+    justify-content: center;
+}
+
+.menu {
+    width: 320px;
+    padding: 20px;
+    background-color: var(--cw-panel-bg-solid);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.menu__title {
+    color: var(--cw-accent);
+    font-size: 20px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-bottom: 16px;
+}
+
+.menu__button {
+    height: 36px;
+    margin-bottom: 8px;
+    color: var(--cw-text);
+    font-size: 14px;
+    background-color: var(--cw-btn-bg);
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.menu__button:hover {
+    background-color: var(--cw-btn-bg-hover);
+}
+
+.menu__button:disabled {
+    color: var(--cw-text-dim);
+    background-color: var(--cw-btn-bg-disabled);
+}

@@ -12,6 +12,11 @@ Unity.exe -batchmode -projectPath . -runTests -testPlatform EditMode -testResult
 Unity 6000.5.4f1 at `C:\Program Files\Unity\Hub\Editor\6000.5.4f1\Editor\Unity.exe`.
 All work is committed per milestone; check `git log --oneline`.
 
+Editor-open alternative: the Sim (+Net, +Import/War2) compiles standalone —
+a scratch csproj with `<Compile Include="...\Assets\Scripts\Sim\**\*.cs"/>`
+(+ Net, Import\War2), net10.0, AllowUnsafeBlocks, NUnitLite 3.14 runs every
+pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
+
 ## Done (all tests green at each commit)
 - **M0** scaffold: asmdefs (Sim = pure C#, noEngineReferences), Pcg32,
   StateHash, GameCommand wire format, determinism test rig, 2D renderer.
@@ -48,6 +53,40 @@ All work is committed per milestone; check `git log --oneline`.
   transforms, berserker regen, repair (4 HP/event, 1g+1w per 2 events,
   DISPATCH.C), tech-tree-driven IMGUI command card.
 
+- **Playtest fixes 2** (post-M5): harvest no longer walks a tile the wrong
+  way after commands/mine/depot exits (TickMovement ran before TickHarvest
+  picked the new target — orders now parked on issue/unhide); chop only
+  starts once fully on a tile (mid-step park dragged the peon backwards);
+  hidden/destroyed mid-step units release their reserved step tile (phantom
+  blockers); wood retarget searches around the previous tree (saved-location,
+  PSX HARVEST.C) instead of the depot, radius 6→15 (tile_find_tree), and a
+  75-tick no-path timeout retargets/gives up on walled-off trees (Gold Rush
+  mine rows made the nearest forest unreachable → permanent livelock);
+  **forest retiling rewritten** — old version punched bare grass squares
+  into the forest (bits==15 fell through to grass) and never repainted
+  still-wooded neighbors. Now corner-vertex marching squares per
+  pud_format.txt Appendix D (vertex = forest iff all 4 sharing tiles hold
+  wood, off-map counts as wood; transitions drawn on the forest side like
+  the original, PSX TILE.C retiles the same 3x3): neighbors → 0x07S0
+  shapes. **The real chopping art has NO MTXM id**: removed-tree stumps =
+  megatile 126, one-tree column pieces = megatiles 121-123 (identical in
+  every era; found via PSX F_TREE.BIN whose center column maps every tree
+  matrix to the stump matrix, cross-confirmed by Wargus "special" slots +
+  wartool.cpp raw-megatile layout). RuntimeTileCatalog decodes them via
+  War2Tileset.DecodeMegatile under synthetic ids 0xFF79-7B/0xFF7E
+  (SimConstants). Remnant rules per the original: 1-wide vertical strips →
+  top/mid/bot one-tree pieces (still wood); lone trees / 1-tall rows are
+  unrepresentable → wood removed (no lumber), stumps left, removal ripples
+  via worklist (PSX table flattens the same way; Stratagus removes
+  unrepresentable wood). NOTE: 0x0057 was wrong (it's a rock/debris decor
+  tile). Corner model validated against Gold Rush authored art (97.8%
+  shape-group match). Original never fades stumps back to grass (no such
+  code in PSX source). Walk animation now requires IsMoving — blocked/
+  waiting units stand instead of treading air;
+  view: teleports
+  (exits, spawns) snap interpolation instead of sliding across the map;
+  selection is a 9-sliced green rectangle under the sprite, not a tint.
+
 ## In flight
 Nothing — M5 just landed; next milestone not started.
 
@@ -63,6 +102,9 @@ Nothing — M5 just landed; next milestone not started.
 - HUD is IMGUI placeholder until M8; construction sites render translucent
   (no stage frames yet); no sounds yet; walls unsupported.
 - Backlog task: PSX UNITDATA.ARR diff report (spot checks matched BNE).
+- FindNearbyWood has no reachability check (PSX gates on region map
+  `rgn_has_access`); the ToWood stuck-timeout compensates. Revisit if
+  peons dither between unreachable trees on real maps.
 - M5 heuristics to revisit: research time = UGRD Time × 50/6 ticks (same
   6-units-per-second convention as UDTA build time); repair event pacing
   10 ticks (HP/cost per event is exact from DISPATCH.C, the cadence is

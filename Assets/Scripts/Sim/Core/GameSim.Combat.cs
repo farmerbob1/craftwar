@@ -215,8 +215,27 @@ namespace Craftwar.Sim
         {
             ref Unit target = ref State.Units[targetIndex];
             target.Hp -= damage;
+            NotifyUnderAttack(ref target, targetIndex);
             if (target.Hp <= 0)
                 State.DestroyUnit(new UnitId((ushort)targetIndex, target.Gen));
+        }
+
+        /// <summary>
+        /// One "under attack" line per player per window — every damage tick
+        /// would otherwise flood the feed. Stores Tick+1 so a zero entry still
+        /// means "never fired" on the very first tick. Emission only; nothing
+        /// here is hashed or read back by the sim.
+        /// </summary>
+        void NotifyUnderAttack(ref Unit target, int targetIndex)
+        {
+            if (target.Player >= SimConstants.MaxPlayers)
+                return;
+            int last = State.LastUnderAttackTick[target.Player];
+            if (last != 0 && State.Tick - (last - 1) < SimConstants.UnderAttackNotifyTicks)
+                return;
+            State.LastUnderAttackTick[target.Player] = State.Tick + 1;
+            Emit(SimEventKind.UnderAttack, target.Player, 0, target.TypeId,
+                new UnitId((ushort)targetIndex, target.Gen).Packed);
         }
 
         void TickProjectiles()

@@ -45,7 +45,20 @@ namespace Craftwar.Sim
         public const int ChopTicks = 450;       // ~9s per 100 lumber
         public const int CarryAmount = 100;     // per trip (GOLD/LUMBER_HARVEST)
         public const int WoodPerTile = 100;
-        public const ushort ChoppedTileId = 0x0057; // grass-with-stumps (verified in forest tileset)
+        // The real chopping art has NO map-tile (MTXM) id — the removed-tree
+        // stumps and single-tree column pieces are "special" megatiles only
+        // addressable by megatile number (121-123, 126 in every era; same
+        // trick Stratagus uses). The view's tile catalog registers those
+        // megatiles under these synthetic ids.
+        public const ushort ChoppedTileId = 0xFF7E;    // removed-tree stumps
+        public const ushort OneTreeTopTileId = 0xFF79; // lone column, top piece
+        public const ushort OneTreeMidTileId = 0xFF7A; // lone column, middle
+        public const ushort OneTreeBotTileId = 0xFF7B; // lone column, bottom
+        // A tree can be walled off (mines/buildings): after this long without
+        // path progress the peon retargets a tree near itself, then gives up
+        // (the original's find_new_tree -> ORDER_GUARD fallback).
+        public const int WoodStuckTicks = 75;
+        public const int WoodSearchRadius = 15; // tile_find_tree range
 
         // --- Repair (DISPATCH.C: REPAIR_HP=4 per event, RES_COST=1 gold+
         // 1 lumber every REPAIR_TIME=2 events; event pacing tuned to ~5/s
@@ -55,6 +68,10 @@ namespace Craftwar.Sim
         public const int RepairEventsPerCharge = 2;
         public const int RepairChargeGold = 1;
         public const int RepairChargeLumber = 1;
+
+        /// <summary>Minimum gap between "under attack" notifications per player
+        /// (10 s at 50 Hz). Presentation throttle only — never gates sim logic.</summary>
+        public const int UnderAttackNotifyTicks = 500;
 
         // --- Berserker regeneration research: +1 HP/s (heuristic rate) ---
         public const int RegenPeriodTicks = 50;

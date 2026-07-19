@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!-- The scrim IS pickable: a modal must swallow clicks aimed at the world
+         behind it, unlike the HUD's passthrough layers. -->
+    <ui:VisualElement name="scrim" class="screen-scrim">
+        <ui:VisualElement name="menu" class="menu">
+            <ui:Label class="menu__title" text="Paused" picking-mode="Ignore" />
+            <ui:Button name="resume" class="menu__button" text="Resume" />
+            <ui:Button name="options" class="menu__button" text="Options" />
+            <ui:Button name="save" class="menu__button" text="Save Game" />
+            <ui:Button name="quit" class="menu__button" text="Quit" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

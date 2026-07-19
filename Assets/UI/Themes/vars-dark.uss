@@ -1,0 +1,25 @@
+/* Placeholder dark theme: custom-property VALUES only.
+   The M8 WC2 skin is a sibling file (vars-wc2.uss) plus background-image rules
+   on the same BEM classes — structure USS and C# never change. */
+:root {
+    --cw-panel-bg: rgba(24, 26, 30, 0.92);
+    --cw-panel-bg-solid: rgb(24, 26, 30);
+    --cw-panel-border: rgb(70, 74, 82);
+    --cw-accent: rgb(212, 175, 55);
+
+    --cw-text: rgb(224, 224, 218);
+    --cw-text-dim: rgb(140, 140, 134);
+
+    --cw-gold: rgb(230, 194, 74);
+    --cw-lumber: rgb(126, 178, 96);
+    --cw-oil: rgb(120, 160, 210);
+
+    --cw-hp-high: rgb(46, 204, 87);
+    --cw-hp-mid: rgb(240, 196, 32);
+    --cw-hp-low: rgb(214, 58, 46);
+    --cw-warn: rgb(214, 58, 46);
+
+    --cw-btn-bg: rgb(38, 41, 47);
+    --cw-btn-bg-hover: rgb(52, 56, 64);
+    --cw-btn-bg-disabled: rgb(30, 32, 36);
+}

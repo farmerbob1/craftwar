@@ -30,6 +30,16 @@ namespace Craftwar.Sim
         public readonly System.Collections.Generic.List<(ushort x, ushort y, ushort tile)> TileChanges
             = new System.Collections.Generic.List<(ushort, ushort, ushort)>();
 
+        /// <summary>Presentation events this tick. Not hashed (derived from state
+        /// transitions); the sim writes but never reads them.</summary>
+        public readonly System.Collections.Generic.List<SimEvent> Events
+            = new System.Collections.Generic.List<SimEvent>();
+
+        /// <summary>Last tick an UnderAttack event fired, per player, so the feed
+        /// isn't spammed once per damage application. Not hashed: throttling only
+        /// gates event emission, never sim logic.</summary>
+        public readonly int[] LastUnderAttackTick = new int[SimConstants.MaxPlayers];
+
         /// <summary>Per-slot current path (packed tile indices); null when none.</summary>
         public readonly ushort[][] UnitPaths = new ushort[SimConstants.MaxUnits][];
 
@@ -142,6 +152,9 @@ namespace Craftwar.Sim
             if (!TryGetUnitIndex(id, out int index))
                 return;
             ref Unit u = ref Units[index];
+            // Mid-step units also hold their reserved destination tile.
+            if (u.StepRemaining > 0)
+                Vacate(id, u.TypeId, u.TileX + u.StepDX, u.TileY + u.StepDY);
             Vacate(id, u.TypeId, u.TileX, u.TileY);
             u.Flags &= ~UnitFlags.Alive;
             UnitPaths[index] = null;

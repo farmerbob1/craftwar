@@ -24,14 +24,26 @@ namespace Craftwar.App
 
         GameLoopRunner _runner;
         ITileResolver _tileResolver;
+        UIManager _ui;
 
         void LateUpdate()
         {
-            if (_runner == null || _runner.PendingTileChanges.Count == 0)
+            if (_runner == null)
                 return;
-            foreach (var (x, y, tile) in _runner.PendingTileChanges)
-                tilemapView.SetTile(x, y, tile, _tileResolver);
-            _runner.PendingTileChanges.Clear();
+
+            if (_runner.PendingTileChanges.Count > 0)
+            {
+                foreach (var (x, y, tile) in _runner.PendingTileChanges)
+                    tilemapView.SetTile(x, y, tile, _tileResolver);
+                _runner.PendingTileChanges.Clear();
+            }
+
+            if (_runner.PendingSimEvents.Count > 0)
+            {
+                if (_ui != null)
+                    _ui.HandleSimEvents(_runner.PendingSimEvents);
+                _runner.PendingSimEvents.Clear();
+            }
         }
 
         void Start()
@@ -81,13 +93,29 @@ namespace Craftwar.App
             var spriteBank = new UnitSpriteBank(archive, pud.Era);
             var poolGo = new GameObject("UnitViews");
             var pool = poolGo.AddComponent<UnitViewPool>();
-            pool.Init(runner, spriteBank, pud.Height);
-            var hud = gameObject.AddComponent<HudController>();
-            hud.Init(runner, pool);
-            var selection = gameObject.AddComponent<SelectionController>();
-            selection.Init(runner, pool, cameraRig.GetComponent<Camera>(), pud.Height, hud);
+            var uiState = new UIState();
+            pool.Init(runner, spriteBank, pud.Height, uiState.Selection);
+            var ui = gameObject.AddComponent<UIManager>();
+            ui.Init(runner, uiState);
+
+            var input = gameObject.AddComponent<InputRouter>();
+            input.Init(uiState, ui);
+            var world = gameObject.AddComponent<WorldInputController>();
+            world.Init(runner, uiState, cameraRig.GetComponent<Camera>(), pud.Height,
+                input, new DragSelectOverlayView(ui.OverlayLayer));
+            cameraRig.Init(input);
+
+            var ghost = poolGo.AddComponent<BuildPlacementGhost>();
+            ghost.Init(runner, spriteBank, cameraRig.GetComponent<Camera>(), pud.Height, uiState);
+            var debugOverlay = gameObject.AddComponent<DebugOverlay>();
+            debugOverlay.Init(runner, pool, cameraRig.GetComponent<Camera>(), pud.Height);
+
+            // Card hotkeys and the F3 overlay ride the same router as the world.
+            input.OnCardSlot += slot => ui.Hud?.Card?.Activate(slot);
+            input.OnToggleDebug += debugOverlay.Toggle;
             _runner = runner;
             _tileResolver = catalog;
+            _ui = ui;
 
             // Center the camera on player 0's start location.
             foreach (var e in pud.Units)

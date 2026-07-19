@@ -5,6 +5,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.Tilemaps;
+using UnityEngine.UIElements;
 
 namespace Craftwar.EditorTools
 {
@@ -26,9 +27,88 @@ namespace Craftwar.EditorTools
         public static void Run()
         {
             EnsureRenderer2D();
+            EnsureUiAssets();
             EnsureGameScene();
             AssetDatabase.SaveAssets();
             Debug.Log("[Craftwar] ProjectBootstrap complete.");
+        }
+
+        const string PanelSettingsPath = "Assets/UI/PanelSettings/CraftwarPanelSettings.asset";
+        const string ThemePath = "Assets/UI/Themes/ThemeDark.tss";
+        const string CatalogPath = "Assets/UI/Resources/UIAssetCatalog.asset";
+
+        /// <summary>
+        /// The UI Toolkit assets are generated, not committed, so a fresh clone
+        /// (or a wiped Library) would otherwise start with a HUD-less scene and
+        /// a Resources.Load failure at runtime. Generate them on reload when
+        /// the catalog is missing; the menu item stays for a forced refresh.
+        /// </summary>
+        [InitializeOnLoadMethod]
+        static void EnsureUiAssetsOnLoad()
+        {
+            if (AssetDatabase.LoadAssetAtPath<UIAssetCatalog>(CatalogPath) == null)
+                EditorApplication.delayCall += () => EnsureUiAssets();
+        }
+
+        /// <summary>
+        /// Creates the PanelSettings + UIAssetCatalog that back the UI Toolkit
+        /// layer and (re)binds the catalog to the UXML on disk. Idempotent:
+        /// existing assets are refreshed in place, never recreated.
+        /// </summary>
+        [MenuItem("Craftwar/Setup/Ensure UI Assets")]
+        public static void EnsureUiAssets()
+        {
+            foreach (var dir in new[] { "Assets/UI", "Assets/UI/PanelSettings", "Assets/UI/Resources" })
+                if (!AssetDatabase.IsValidFolder(dir))
+                    AssetDatabase.CreateFolder(
+                        System.IO.Path.GetDirectoryName(dir).Replace('\\', '/'),
+                        System.IO.Path.GetFileName(dir));
+
+            var theme = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(ThemePath);
+            if (theme == null)
+                Debug.LogWarning($"[Craftwar] Theme not found: {ThemePath}");
+
+            var panel = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelSettingsPath);
+            if (panel == null)
+            {
+                panel = ScriptableObject.CreateInstance<PanelSettings>();
+                AssetDatabase.CreateAsset(panel, PanelSettingsPath);
+                Debug.Log($"[Craftwar] Created {PanelSettingsPath}");
+            }
+            // Scale by height: the HUD keeps a constant fraction of screen
+            // height, so ultrawide gains battlefield instead of stretched chrome.
+            panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            panel.referenceResolution = new Vector2Int(1920, 1080);
+            panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+            panel.match = 1f;
+            if (theme != null)
+                panel.themeStyleSheet = theme;
+            EditorUtility.SetDirty(panel);
+
+            var catalog = AssetDatabase.LoadAssetAtPath<UIAssetCatalog>(CatalogPath);
+            if (catalog == null)
+            {
+                catalog = ScriptableObject.CreateInstance<UIAssetCatalog>();
+                AssetDatabase.CreateAsset(catalog, CatalogPath);
+                Debug.Log($"[Craftwar] Created {CatalogPath}");
+            }
+            catalog.panelSettings = panel;
+            catalog.hudScreen = LoadUxml("Assets/UI/UXML/HudScreen.uxml", required: true);
+            catalog.pauseMenuScreen = LoadUxml("Assets/UI/UXML/PauseMenuScreen.uxml", required: false);
+            catalog.commandButton = LoadUxml("Assets/UI/UXML/CommandButton.uxml", required: false);
+            catalog.unitTile = LoadUxml("Assets/UI/UXML/UnitTile.uxml", required: false);
+            EditorUtility.SetDirty(catalog);
+
+            AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>Optional templates are absent until the phase that adds them.</summary>
+        static VisualTreeAsset LoadUxml(string path, bool required)
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(path);
+            if (asset == null && required)
+                Debug.LogWarning($"[Craftwar] UXML not found: {path}");
+            return asset;
         }
 
         [MenuItem("Craftwar/Setup/Ensure 2D Renderer")]

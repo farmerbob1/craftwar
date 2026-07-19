@@ -28,7 +28,24 @@ namespace Craftwar.App
         public static RuntimeTileCatalog Build(War2Archive archive, PudEra era)
         {
             var catalog = new RuntimeTileCatalog();
-            var decoded = War2Tileset.Load(archive, era).DecodeAll();
+            var tileset = War2Tileset.Load(archive, era);
+            var decoded = tileset.DecodeAll();
+
+            // "Special" megatiles with no MTXM id — chopping art the sim
+            // references through synthetic ids (see SimConstants). Megatile
+            // numbers are identical in every era.
+            foreach (var (id, megatile) in new (ushort, int)[]
+            {
+                (Craftwar.Sim.SimConstants.OneTreeTopTileId, 121),
+                (Craftwar.Sim.SimConstants.OneTreeMidTileId, 122),
+                (Craftwar.Sim.SimConstants.OneTreeBotTileId, 123),
+                (Craftwar.Sim.SimConstants.ChoppedTileId, 126),
+            })
+            {
+                byte[] px = tileset.DecodeMegatile(megatile);
+                if (px != null)
+                    decoded.Add(new DecodedTile { TileId = id, Pixels = px });
+            }
 
             int rows = (decoded.Count + AtlasTilesPerRow - 1) / AtlasTilesPerRow;
             var atlas = new Texture2D(

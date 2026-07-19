@@ -86,8 +86,11 @@ namespace Craftwar.Sim
         public ushort Timer;         // generic stage timer (in-mine, chopping, deposit)
         public uint ResourceTarget;  // mine UnitId.Packed, or (0x8000_0000 | tileIndex) for wood
         public int ResourceAmount;   // mines/patches: remaining resources
-        public ushort BuildType;     // peasant: queued building type; building: training type
-                                     // (a building type here = self-upgrade in progress)
+        public ushort BuildType;     // 1-based: (typeId + 1), 0 = idle. Peasant:
+                                     // queued building; building: training type
+                                     // (a building type here = self-upgrade in
+                                     // progress). Offset by 1 like ResearchId so
+                                     // Footman (type 0x00) is distinct from idle.
         public ushort TrainTicks;    // building: ticks left on training/construction/research
         public byte ResearchId;      // building: UpgradeId + 1 being researched, 0 = none
         public ushort RallyX;

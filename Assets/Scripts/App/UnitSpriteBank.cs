@@ -56,6 +56,27 @@ namespace Craftwar.App
             return frames == null || frames.Length < 15 ? 0 : frames.Length / 5;
         }
 
+        public int BuildingFrameCount(ushort typeId, byte player)
+        {
+            var frames = GetFrames(typeId, player);
+            // Animated unit banks (>=15 frames) aren't buildings: report 0 so
+            // the view uses BlockCount instead. WC2 building GRPs carry 2:
+            // [0] completed, [1] half-built construction frame.
+            return frames == null || frames.Length >= 15 ? 0 : frames.Length;
+        }
+
+        public Sprite GetBuildingFrame(ushort typeId, byte player, int frameIndex, out bool flipX)
+        {
+            flipX = false;
+            var frames = GetFrames(typeId, player);
+            if (frames == null || frames.Length == 0)
+                return null;
+            int idx = frameIndex < 0 ? 0
+                : frameIndex >= frames.Length ? frames.Length - 1
+                : frameIndex;
+            return frames[idx];
+        }
+
         /// <summary>
         /// Cargo sprite bank overrides (worker carrying gold/wood). Falls back
         /// to the base bank if the entry doesn't decode as a unit bank.

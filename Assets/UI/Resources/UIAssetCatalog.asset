@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 609b613bc24658b4087864ba86993025, type: 3}
+  m_Name: UIAssetCatalog
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.UIAssetCatalog
+  panelSettings: {fileID: 11400000, guid: 1a006ad7331a6ec49be00179153676e6, type: 2}
+  hudScreen: {fileID: 9197481963319205126, guid: a933f1edb83a36e41bcba038202ea3d1, type: 3}
+  pauseMenuScreen: {fileID: 0}
+  commandButton: {fileID: 0}
+  unitTile: {fileID: 0}

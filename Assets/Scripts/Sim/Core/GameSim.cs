@@ -100,6 +100,7 @@ namespace Craftwar.Sim
         public void Advance(IReadOnlyList<GameCommand> commands)
         {
             State.TileChanges.Clear();
+            State.Events.Clear();
 
             if (commands != null)
             {
@@ -117,6 +118,19 @@ namespace Craftwar.Sim
             TickVictory();
 
             State.Tick++;
+        }
+
+        /// <summary>Queue a presentation event. Write-only channel — see SimEvent.</summary>
+        void Emit(SimEventKind kind, byte player, ushort a, ushort b, uint unit = 0)
+        {
+            State.Events.Add(new SimEvent
+            {
+                Kind = kind,
+                Player = player,
+                A = a,
+                B = b,
+                UnitPacked = unit,
+            });
         }
 
         unsafe void ApplyCommand(in GameCommand cmd)

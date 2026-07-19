@@ -159,6 +159,30 @@ namespace Craftwar.Sim.Tests
         }
 
         [Test]
+        public void TrainFootman_SpawnsFromBarracks()
+        {
+            // Regression: Footman is unit type 0x00, which collides with the
+            // BuildType==0 "idle" sentinel. Before the 1-based BuildType fix the
+            // gold was spent but TickProduction skipped the queue and nothing
+            // ever spawned. Guards the whole barracks->footman path.
+            var pud = BaseMap();
+            pud.Units.Add(new PudUnitEntry { X = 16, Y = 16, Type = (byte)UnitTypeId.Farm, Owner = 0 });
+            pud.Units.Add(new PudUnitEntry { X = 5, Y = 5, Type = (byte)UnitTypeId.HumanBarracks, Owner = 0 });
+            var sim = Boot(pud);
+            int barracks = SlotOf(sim, UnitTypeId.HumanBarracks);
+            int before = CountAlive(sim, UnitTypeId.Footman);
+
+            Run(sim, 20, Cmd(sim, CommandOp.Train, barracks, param: (ushort)UnitTypeId.Footman));
+            Assert.AreEqual(2000 - 600, sim.State.Players[0].Gold, "footman costs 600");
+            Assert.AreNotEqual(0, sim.State.Units[barracks].BuildType,
+                "barracks must hold the queued footman (1-based, non-zero)");
+            Assert.Greater(sim.State.Units[barracks].TrainTicks, 0, "training must be counting down");
+
+            Run(sim, 60 * 50 / 6 + 60);
+            Assert.AreEqual(before + 1, CountAlive(sim, UnitTypeId.Footman), "footman emerges");
+        }
+
+        [Test]
         public void TrainingBlockedAtFoodCap()
         {
             var sim = Boot(BaseMap()); // TH food 1, one peasant already uses it

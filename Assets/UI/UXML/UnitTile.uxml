@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!-- One entry in a multi-unit selection. Pooled to GameCommand.MaxSelection
+         and only ever shown/hidden. Clicking sub-selects that unit. -->
+    <ui:VisualElement class="unit-tile">
+        <ui:Label name="initials" class="unit-tile__initials" text="?" picking-mode="Ignore" />
+        <ui:VisualElement name="hp" class="unit-tile__hp bar" picking-mode="Ignore">
+            <ui:VisualElement name="hp-fill" class="unit-tile__hp-fill bar__fill" picking-mode="Ignore" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
