@@ -51,7 +51,9 @@ namespace Craftwar.View
             }
 
             // UI-only scenes have no listener; without one nothing is audible.
-            if (FindFirstObjectByType<AudioListener>() == null)
+            // FindAny, not FindFirst: we only care whether one exists, and
+            // FindFirst is deprecated for depending on instance-ID ordering.
+            if (FindAnyObjectByType<AudioListener>() == null)
                 gameObject.AddComponent<AudioListener>();
         }
 
