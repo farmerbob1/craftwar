@@ -7,10 +7,45 @@ namespace Craftwar.View
     /// View-only: never read by the sim, never serialized, never hashed.
     /// Replaces the old HudController handshake object.
     /// </summary>
+    /// <summary>
+    /// An order that has been chosen from the command card but still needs a
+    /// world click to resolve its target. Build is the original placement mode;
+    /// the rest arrived with the unit action card.
+    /// </summary>
+    public enum PendingOrderKind : byte
+    {
+        None = 0,
+        Build,
+        Move,
+        Attack,
+        Patrol,
+        Harvest,
+        Repair,
+    }
+
     public sealed class UIState
     {
-        /// <summary>Nonzero while the player is placing a building.</summary>
+        /// <summary>Set while the player is choosing a target for a card order.</summary>
+        public PendingOrderKind PendingOrder;
+
+        /// <summary>Which building to place; only meaningful while
+        /// <see cref="PendingOrder"/> is Build.</summary>
         public ushort PendingBuildType;
+
+        public bool HasPendingOrder => PendingOrder != PendingOrderKind.None;
+
+        public void BeginOrder(PendingOrderKind kind, ushort buildType = 0)
+        {
+            PendingOrder = kind;
+            PendingBuildType = kind == PendingOrderKind.Build ? buildType : (ushort)0;
+        }
+
+        /// <summary>Cancels targeting. Safe to call when nothing is pending.</summary>
+        public void ClearPendingOrder()
+        {
+            PendingOrder = PendingOrderKind.None;
+            PendingBuildType = 0;
+        }
 
         /// <summary>A modal screen is open; world and camera input are dead.</summary>
         public bool ModalOpen;

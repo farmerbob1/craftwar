@@ -4,51 +4,95 @@ using UnityEngine.UIElements;
 namespace Craftwar.View
 {
     /// <summary>
-    /// The sidebar's middle slot. Three modes driven by selection content:
-    /// a single unit's stat block, a single building's production readout, or
-    /// a grid of tiles for a multi-unit selection. Portraits are initials
-    /// boxes until the WC2 art lands at M8.
+    /// The sidebar's middle slot, laid out like the original: portrait and HP
+    /// on the left, name beside it, then a right-aligned stat block. Three
+    /// modes driven by selection content — a single unit's stat block, a single
+    /// building's production readout, or a tile grid for a multi-unit
+    /// selection. Portraits are initials boxes until the WC2 art lands at M8.
     /// </summary>
     public sealed class SelectionPanelView
     {
+        /// <summary>Fixed stat rows, created once and shown/hidden per unit.</summary>
+        enum Stat { Armor = 0, Damage, Range, Sight, Speed, Count }
+
+        static readonly string[] StatLabels = { "Armor:", "Damage:", "Range:", "Sight:", "Speed:" };
+
         readonly UIState _ui;
 
         readonly VisualElement _single;
-        readonly Label _name, _hpText, _stats, _progressLabel;
-        readonly VisualElement _hpFill, _progressBar, _progressFill;
+        readonly Label _portraitInitials, _name, _level, _hpText;
+        readonly VisualElement _hpFill;
+
+        readonly VisualElement[] _statRows = new VisualElement[(int)Stat.Count];
+        readonly Label[] _statValues = new Label[(int)Stat.Count];
+        readonly string[] _lastStatValue = new string[(int)Stat.Count];
+        readonly bool[] _statShown = new bool[(int)Stat.Count];
+
+        readonly Label _progressLabel;
+        readonly VisualElement _progressBar, _progressFill;
 
         readonly VisualElement _grid;
         readonly UnitTileView[] _tiles = new UnitTileView[GameCommand.MaxSelection];
 
-        string _lastName = null, _lastHpText = null, _lastStats = null, _lastProgress = null;
+        string _lastName, _lastLevel, _lastHpText, _lastProgress, _lastInitials;
+        bool _levelShown = true;
         int _lastHpPercent = -1;
         HpBand _lastBand = HpBand.None;
         int _lastProgressPercent = -1;
         // Seeded true so the constructor's initial hide is not swallowed by the
-        // no-op guard in SetSingleVisible/SetGridVisible.
+        // no-op guards below.
         bool _singleShown = true, _gridShown = true, _progressShown = true;
 
         public SelectionPanelView(VisualElement hudRoot, UIState ui, UIAssetCatalog assets)
         {
             _ui = ui;
-
             var panel = hudRoot.Q("selection-panel");
 
-            _single = new VisualElement { name = "selection-single", pickingMode = PickingMode.Ignore };
-            _name = AddLabel(_single, "selection__name");
-            _hpText = AddLabel(_single, "selection__hp-text");
+            _single = Column("selection-single");
 
-            var bar = new VisualElement { pickingMode = PickingMode.Ignore };
-            bar.AddToClassList("bar");
-            bar.AddToClassList("selection__bar");
+            // --- header: portrait + HP on the left, name on the right ---
+            var header = Row("sel-header");
+            var portraitCol = Column("sel-portrait-col");
+
+            var portrait = new VisualElement { pickingMode = PickingMode.Ignore };
+            portrait.AddToClassList("sel-portrait");
+            _portraitInitials = AddLabel(portrait, "sel-portrait__initials");
+            portraitCol.Add(portrait);
+
+            var hpBar = new VisualElement { pickingMode = PickingMode.Ignore };
+            hpBar.AddToClassList("bar");
+            hpBar.AddToClassList("sel-hp-bar");
             _hpFill = new VisualElement { pickingMode = PickingMode.Ignore };
             _hpFill.AddToClassList("bar__fill");
-            bar.Add(_hpFill);
-            _single.Add(bar);
+            hpBar.Add(_hpFill);
+            portraitCol.Add(hpBar);
 
-            _stats = AddLabel(_single, "selection__stat");
+            _hpText = AddLabel(portraitCol, "sel-hp-text");
+            header.Add(portraitCol);
+
+            var info = Column("sel-info");
+            _name = AddLabel(info, "sel-name");
+            _level = AddLabel(info, "sel-level");
+            header.Add(info);
+            _single.Add(header);
+
+            // --- stat block ---
+            var stats = Column("sel-stats");
+            for (int i = 0; i < (int)Stat.Count; i++)
+            {
+                var row = Row("sel-stat");
+                var label = AddLabel(row, "sel-stat__label");
+                label.text = StatLabels[i];
+                _statValues[i] = AddLabel(row, "sel-stat__value");
+                stats.Add(row);
+                _statRows[i] = row;
+                row.AddToClassList("selection__hidden");
+                _statShown[i] = false;
+            }
+            _single.Add(stats);
+
+            // --- production progress (buildings) ---
             _progressLabel = AddLabel(_single, "selection__progress-label");
-
             _progressBar = new VisualElement { pickingMode = PickingMode.Ignore };
             _progressBar.AddToClassList("bar");
             _progressFill = new VisualElement { pickingMode = PickingMode.Ignore };
@@ -58,7 +102,8 @@ namespace Craftwar.View
 
             panel.Add(_single);
 
-            _grid = new VisualElement { name = "selection-grid", pickingMode = PickingMode.Ignore };
+            // --- multi-unit tile grid ---
+            _grid = Column("selection-grid");
             _grid.AddToClassList("unit-grid");
             panel.Add(_grid);
 
@@ -83,11 +128,29 @@ namespace Craftwar.View
                     if (tile.Packed != 0)
                         _ui.Selection.SetSingle(tile.Packed);
                 });
-                tile.Hide();
             }
 
             SetSingleVisible(false);
             SetGridVisible(false);
+        }
+
+        static VisualElement Column(string cls)
+        {
+            var e = new VisualElement { name = cls, pickingMode = PickingMode.Ignore };
+            e.AddToClassList(cls);
+            return e;
+        }
+
+        /// <summary>Same as Column; the row direction comes from the class in USS
+        /// so a theme can restyle it without touching inline styles.</summary>
+        static VisualElement Row(string cls) => Column(cls);
+
+        static Label AddLabel(VisualElement parent, string cls)
+        {
+            var l = new Label { text = string.Empty, pickingMode = PickingMode.Ignore };
+            l.AddToClassList(cls);
+            parent.Add(l);
+            return l;
         }
 
         static VisualElement BuildFallbackTile()
@@ -106,14 +169,6 @@ namespace Craftwar.View
             root.Add(initials);
             root.Add(hp);
             return root;
-        }
-
-        static Label AddLabel(VisualElement parent, string cls)
-        {
-            var l = new Label { text = string.Empty, pickingMode = PickingMode.Ignore };
-            l.AddToClassList(cls);
-            parent.Add(l);
-            return l;
         }
 
         public void Tick(GameSim sim)
@@ -174,15 +229,40 @@ namespace Craftwar.View
         {
             ref var u = ref state.Units[idx];
             ref var row = ref state.Rules.Units[u.TypeId];
+            var type = (UnitTypeId)u.TypeId;
 
-            string name = UnitNames.Of((UnitTypeId)u.TypeId);
+            string initials = UnitNames.InitialsOf(type);
+            if (initials != _lastInitials)
+            {
+                _lastInitials = initials;
+                _portraitInitials.text = initials;
+            }
+
+            string name = UnitNames.Of(type);
             if (name != _lastName)
             {
                 _lastName = name;
                 _name.text = name;
             }
 
-            string hpText = u.Hp + " / " + row.Hp;
+            // Buildings have no upgrade lines, so no level.
+            bool showLevel = (u.Flags & UnitFlags.Building) == 0;
+            if (showLevel != _levelShown)
+            {
+                _levelShown = showLevel;
+                _level.EnableInClassList("selection__hidden", !showLevel);
+            }
+            if (showLevel)
+            {
+                string levelText = "Level " + sim.UnitLevel(ref u);
+                if (levelText != _lastLevel)
+                {
+                    _lastLevel = levelText;
+                    _level.text = levelText;
+                }
+            }
+
+            string hpText = u.Hp + "/" + row.Hp;
             if (hpText != _lastHpText)
             {
                 _lastHpText = hpText;
@@ -191,25 +271,58 @@ namespace Craftwar.View
             HpBarUtil.Apply(_hpFill, u.Hp, row.Hp, ref _lastHpPercent, ref _lastBand);
 
             bool isBuilding = (u.Flags & UnitFlags.Building) != 0;
-            string stats = isBuilding
-                ? "Armor " + sim.EffectiveArmor(ref u) + "   Sight " + sim.EffectiveSight(ref u)
-                : "Armor " + sim.EffectiveArmor(ref u)
-                    + "   Dmg " + sim.EffectiveStrength(ref u) + "+" + sim.EffectivePierce(ref u)
-                    + "   Rng " + sim.EffectiveRange(ref u)
-                    + "   Sight " + sim.EffectiveSight(ref u)
-                    + (u.Carry != CarryType.None ? "   Carrying " + u.Carry : string.Empty);
-            if (stats != _lastStats)
-            {
-                _lastStats = stats;
-                _stats.text = stats;
-            }
+            bool canAttack = row.Is(UnitTypeFlags.CanAttack);
+            int speed = UnitSpeeds.Get(u.TypeId);
+
+            SetStat(Stat.Armor, true, WithBonus(row.Armor, sim.EffectiveArmor(ref u)));
+            SetStat(Stat.Damage, canAttack, DamageText(sim, ref u, ref row));
+            SetStat(Stat.Range, canAttack, WithBonus(row.AttackRange, sim.EffectiveRange(ref u)));
+            SetStat(Stat.Sight, true, WithBonus(row.Sight, sim.EffectiveSight(ref u)));
+            SetStat(Stat.Speed, speed > 0, speed.ToString());
 
             RenderProgress(state, ref u, ref row, isBuilding);
         }
 
+        /// <summary>"2" when unupgraded, "2+4" when upgrades are in play.</summary>
+        static string WithBonus(int baseValue, int effective)
+        {
+            int bonus = effective - baseValue;
+            return bonus > 0 ? baseValue + "+" + bonus : baseValue.ToString();
+        }
+
+        /// <summary>
+        /// The damage roll is 50-100% of (strength - armor + pierce), so the
+        /// honest spread against an unarmoured target is [half, 2*half]. That is
+        /// this sim's formula rather than the original's display convention, so
+        /// the numbers will not always match a WC2 screenshot.
+        /// </summary>
+        static string DamageText(GameSim sim, ref Unit u, ref UnitTypeData row)
+        {
+            int baseDamage = row.BasicDamage + row.PiercingDamage;
+            int effective = sim.EffectiveStrength(ref u) + sim.EffectivePierce(ref u);
+            int half = (baseDamage + 1) / 2;
+            string span = half + "-" + (half * 2);
+            int bonus = effective - baseDamage;
+            return bonus > 0 ? span + "+" + bonus : span;
+        }
+
+        void SetStat(Stat stat, bool visible, string value)
+        {
+            int i = (int)stat;
+            if (visible != _statShown[i])
+            {
+                _statShown[i] = visible;
+                _statRows[i].EnableInClassList("selection__hidden", !visible);
+            }
+            if (!visible || value == _lastStatValue[i])
+                return;
+            _lastStatValue[i] = value;
+            _statValues[i].text = value;
+        }
+
         /// <summary>
         /// TrainTicks is a countdown, so progress runs 1 - remaining/total.
-        /// Total comes from the sim's own BuildTicksFor so the bar can't drift
+        /// Total comes from the sim's own BuildTicksFor so the bar cannot drift
         /// from the rule that actually drives the countdown.
         /// </summary>
         void RenderProgress(GameState state, ref Unit u, ref UnitTypeData row, bool isBuilding)
@@ -240,6 +353,10 @@ namespace Craftwar.View
                 {
                     label = "Rally " + u.RallyX + ", " + u.RallyY;
                 }
+            }
+            else if (u.Carry != CarryType.None)
+            {
+                label = "Carrying " + u.Carry;
             }
 
             if (label == null)

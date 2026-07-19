@@ -130,9 +130,9 @@ namespace Craftwar.View
         /// </summary>
         public bool CloseAdvancedPage()
         {
-            if (!_model.IsBuildMenu || !_model.AdvancedPage)
+            if (_model.Page == CardPage.Actions)
                 return false;
-            _model.AdvancedPage = false;
+            _model.Page = CardPage.Actions;
             _built = false;
             return true;
         }
@@ -148,14 +148,42 @@ namespace Craftwar.View
                 case CommandSlotKind.None:
                     return;
 
-                case CommandSlotKind.BuildMenuToggle:
-                    _model.AdvancedPage = !_model.AdvancedPage;
-                    _built = false; // force a rebuild next tick
+                case CommandSlotKind.BuildBasicMenu:
+                    SetPage(CardPage.BuildBasic);
+                    return;
+                case CommandSlotKind.BuildAdvancedMenu:
+                    SetPage(CardPage.BuildAdvanced);
+                    return;
+                case CommandSlotKind.BackToActions:
+                    SetPage(CardPage.Actions);
                     return;
 
                 case CommandSlotKind.Build:
                     // Hands off to the placement ghost + world click.
-                    _ui.PendingBuildType = s.Param;
+                    _ui.BeginOrder(PendingOrderKind.Build, s.Param);
+                    return;
+
+                // Targeted actions: arm the order and wait for a world click.
+                case CommandSlotKind.Move:
+                    _ui.BeginOrder(PendingOrderKind.Move);
+                    return;
+                case CommandSlotKind.Attack:
+                    _ui.BeginOrder(PendingOrderKind.Attack);
+                    return;
+                case CommandSlotKind.Patrol:
+                    _ui.BeginOrder(PendingOrderKind.Patrol);
+                    return;
+                case CommandSlotKind.Harvest:
+                    _ui.BeginOrder(PendingOrderKind.Harvest);
+                    return;
+                case CommandSlotKind.Repair:
+                    _ui.BeginOrder(PendingOrderKind.Repair);
+                    return;
+
+                // Stop needs no target.
+                case CommandSlotKind.Stop:
+                    _ui.ClearPendingOrder();
+                    SubmitSelection(CommandOp.Stop);
                     return;
 
                 case CommandSlotKind.Train:
@@ -171,6 +199,26 @@ namespace Craftwar.View
                     Submit(CommandOp.Cancel, 0, s.BuildingSlot);
                     return;
             }
+        }
+
+        void SetPage(CardPage page)
+        {
+            _model.Page = page;
+            _built = false; // force a rebuild next tick
+        }
+
+        /// <summary>Order applying to the whole selection (Stop).</summary>
+        unsafe void SubmitSelection(CommandOp op)
+        {
+            var cmd = new GameCommand { Op = op, Player = _player };
+            foreach (uint packed in _ui.Selection)
+            {
+                if (cmd.SelectionCount >= GameCommand.MaxSelection)
+                    break;
+                cmd.Selection.Ids[cmd.SelectionCount++] = packed;
+            }
+            if (cmd.SelectionCount > 0)
+                _host.SubmitCommand(cmd);
         }
 
         /// <summary>Single-building command, same shape as the old HudController.Submit.</summary>
@@ -204,7 +252,7 @@ namespace Craftwar.View
                     continue;
 
                 if (_icons[i] != null)
-                    _icons[i].text = s.Initials;
+                    _icons[i].text = s.Label;
                 if (_costs[i] != null)
                     _costs[i].text = CostText(ref s);
                 _buttons[i].tooltip = s.Label;
@@ -242,6 +290,24 @@ namespace Craftwar.View
 
         void UpdateStatus(GameState state)
         {
+            // An armed order takes the line: without a cursor change it is the
+            // only feedback that the next click will be consumed as a target.
+            if (_ui.HasPendingOrder)
+            {
+                string prompt = _ui.PendingOrder switch
+                {
+                    PendingOrderKind.Build => "Select a build site",
+                    PendingOrderKind.Move => "Select a destination",
+                    PendingOrderKind.Attack => "Select a target",
+                    PendingOrderKind.Patrol => "Select a patrol point",
+                    PendingOrderKind.Harvest => "Select a mine or forest",
+                    PendingOrderKind.Repair => "Select a building to repair",
+                    _ => string.Empty,
+                };
+                SetStatus(prompt);
+                return;
+            }
+
             string text = string.Empty;
             for (int i = 0; i < CommandCardModel.SlotCount; i++)
             {
@@ -259,6 +325,11 @@ namespace Craftwar.View
                     text = "Training " + UnitNames.Of((UnitTypeId)(bld.BuildType - 1));
                 break;
             }
+            SetStatus(text);
+        }
+
+        void SetStatus(string text)
+        {
             if (text == _lastStatus)
                 return;
             _lastStatus = text;

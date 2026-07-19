@@ -36,6 +36,7 @@ namespace Craftwar.Sim
         Harvest = 4,     // gold/wood cycle (Unit.Harvest holds the stage)
         Build = 5,       // walk to site, erect Unit.BuildType
         Repair = 6,      // walk to building (ResourceTarget), hammer HP back
+        Patrol = 7,      // march between OrderX/Y and GoalX/Y, engaging on the way
     }
 
     /// <summary>
@@ -77,8 +78,9 @@ namespace Craftwar.Sim
         public byte Cooldown;        // ticks until next attack
         public ushort ChaseX;        // target's tile when we last pathed to it
         public ushort ChaseY;
-        public ushort GoalX;         // attack-move final destination (resumed after kills)
-        public ushort GoalY;
+        public ushort GoalX;         // attack-move final destination (resumed after
+        public ushort GoalY;         // kills); patrol: the far end of the beat,
+                                     // swapped with OrderX/Y on each arrival
 
         // Economy
         public HarvestStage Harvest;

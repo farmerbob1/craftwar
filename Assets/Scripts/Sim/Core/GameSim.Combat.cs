@@ -39,12 +39,21 @@ namespace Craftwar.Sim
                         u.PathLength = 0;
                         u.PathCursor = 0;
                     }
+                    else if (u.Order == OrderType.Patrol)
+                    {
+                        // Resume the leg in progress. Unlike attack-move,
+                        // GoalX/Y is the far end of the beat, not a destination
+                        // to restore — OrderX/Y is already correct.
+                        u.PathLength = 0;
+                        u.PathCursor = 0;
+                    }
                 }
 
-                // Periodic auto-acquisition (idle or attack-moving), staggered
-                // by slot so the scan cost spreads across ticks.
+                // Periodic auto-acquisition (idle, attack-moving or patrolling),
+                // staggered by slot so the scan cost spreads across ticks.
                 if (u.AttackTarget == 0
-                    && (u.Order == OrderType.None || u.Order == OrderType.AttackMove)
+                    && (u.Order == OrderType.None || u.Order == OrderType.AttackMove
+                        || u.Order == OrderType.Patrol)
                     && (State.Tick + i) % SimConstants.AcquisitionPeriod == 0)
                 {
                     u.AttackTarget = FindTargetInRange(ref u, row.ReactRangeHuman);

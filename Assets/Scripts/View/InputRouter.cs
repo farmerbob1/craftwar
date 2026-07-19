@@ -106,9 +106,9 @@ namespace Craftwar.View
         void HandleEscape()
         {
             OnEscape?.Invoke();
-            if (_ui.PendingBuildType != 0)
+            if (_ui.HasPendingOrder)
             {
-                _ui.PendingBuildType = 0;
+                _ui.ClearPendingOrder();
                 return;
             }
             if (_manager == null)

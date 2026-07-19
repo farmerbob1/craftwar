@@ -334,6 +334,51 @@ namespace Craftwar.Sim
         static bool IsSiegeUnit(ushort t) =>
             (UnitTypeId)t is UnitTypeId.Ballista or UnitTypeId.Catapult;
 
+        /// <summary>
+        /// Displayed unit level: one per researched upgrade that applies to this
+        /// unit, on top of a base of 1. Counts tiers, never magnitudes — the
+        /// per-line steps differ (arrows +1, swords +2, ballista +15) but each
+        /// researched tier is worth exactly one level.
+        /// </summary>
+        public int UnitLevel(ref Unit u)
+        {
+            int level = 1;
+            if (u.Player >= SimConstants.MaxPlayers)
+                return level;
+            ref PlayerState p = ref State.Players[u.Player];
+            ref UnitTypeData row = ref State.Rules.Units[u.TypeId];
+
+            // Weapon line — the same selection EffectiveStrength/Pierce make.
+            if (IsBowUnit(u.TypeId))
+                level += p.UpgradeLevel(UpgradeId.Arrow1, UpgradeId.Arrow2)
+                    + p.UpgradeLevel(UpgradeId.Spear1, UpgradeId.Spear2);
+            else if (row.WeaponsUpgradable)
+            {
+                if (IsSiegeUnit(u.TypeId))
+                    level += p.UpgradeLevel(UpgradeId.Ballista1, UpgradeId.Ballista2)
+                        + p.UpgradeLevel(UpgradeId.Catapult1, UpgradeId.Catapult2);
+                else if (row.MoveDomain == 2)
+                    level += p.UpgradeLevel(UpgradeId.HumanShipCannon1, UpgradeId.HumanShipCannon2)
+                        + p.UpgradeLevel(UpgradeId.OrcShipCannon1, UpgradeId.OrcShipCannon2);
+                else
+                    level += p.UpgradeLevel(UpgradeId.Sword1, UpgradeId.Sword2)
+                        + p.UpgradeLevel(UpgradeId.Axe1, UpgradeId.Axe2);
+            }
+
+            // Armor line.
+            if (row.ArmorUpgradable)
+            {
+                if (row.MoveDomain == 2)
+                    level += p.UpgradeLevel(UpgradeId.HumanShipArmor1, UpgradeId.HumanShipArmor2)
+                        + p.UpgradeLevel(UpgradeId.OrcShipArmor1, UpgradeId.OrcShipArmor2);
+                else
+                    level += p.UpgradeLevel(UpgradeId.HumanShield1, UpgradeId.HumanShield2)
+                        + p.UpgradeLevel(UpgradeId.OrcShield1, UpgradeId.OrcShield2);
+            }
+
+            return level;
+        }
+
         public int EffectiveStrength(ref Unit u)
         {
             ref UnitTypeData row = ref State.Rules.Units[u.TypeId];

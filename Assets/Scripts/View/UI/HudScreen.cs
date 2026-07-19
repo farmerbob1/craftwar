@@ -82,9 +82,9 @@ namespace Craftwar.View
         /// </summary>
         public override bool HandleEscape()
         {
-            if (_ui.PendingBuildType != 0)
+            if (_ui.HasPendingOrder)
             {
-                _ui.PendingBuildType = 0;
+                _ui.ClearPendingOrder();
                 return true;
             }
             return _card != null && _card.CloseAdvancedPage();

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Craftwar.Sim;
 using UnityEngine;
 
@@ -55,11 +56,11 @@ namespace Craftwar.View
             if (_host?.Sim == null)
                 return;
 
-            // Placement mode swallows the click entirely.
-            if (_ui.PendingBuildType != 0)
+            // An armed card order swallows the click entirely.
+            if (_ui.HasPendingOrder)
             {
                 if (!_ui.PointerOverUI)
-                    PlaceBuilding(_input.PointerPosition);
+                    ResolvePendingOrder(_input.PointerPosition);
                 return;
             }
 
@@ -93,9 +94,9 @@ namespace Craftwar.View
             if (_host?.Sim == null)
                 return;
 
-            if (_ui.PendingBuildType != 0)
+            if (_ui.HasPendingOrder)
             {
-                _ui.PendingBuildType = 0; // right-click cancels placement
+                _ui.ClearPendingOrder(); // right-click cancels a card order
                 return;
             }
             if (_ui.PointerOverUI || _selection.Count == 0)
@@ -110,6 +111,106 @@ namespace Craftwar.View
         {
             if (_dragging)
                 _dragView?.Show(_dragStartScreen, _input.PointerPosition);
+        }
+
+        /// <summary>
+        /// Resolve an order armed from the command card against the clicked
+        /// tile. Move/Patrol take a destination; Attack, Harvest and Repair take
+        /// whatever is under the cursor and fall back sensibly when it is empty.
+        /// The order is cleared either way — a click always ends targeting.
+        /// </summary>
+        unsafe void ResolvePendingOrder(Vector2 screenPos)
+        {
+            if (_ui.PendingOrder == PendingOrderKind.Build)
+            {
+                PlaceBuilding(screenPos); // clears the pending order itself
+                return;
+            }
+
+            var state = _host.Sim.State;
+            Vector2 world = _camera.ScreenToWorldPoint(screenPos);
+            int tileX = Mathf.FloorToInt(world.x);
+            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y);
+            if (state.Terrain == null || !state.Terrain.InBounds(tileX, tileY))
+            {
+                _ui.ClearPendingOrder();
+                return;
+            }
+
+            uint occ = state.OccupancySurface[tileY * state.Terrain.Width + tileX];
+            if (occ == 0)
+                occ = state.OccupancyAir[tileY * state.Terrain.Width + tileX];
+
+            var op = CommandOp.Move;
+            uint targetPacked = 0;
+            switch (_ui.PendingOrder)
+            {
+                case PendingOrderKind.Move:
+                    op = CommandOp.Move;
+                    break;
+
+                case PendingOrderKind.Patrol:
+                    op = CommandOp.Patrol;
+                    break;
+
+                case PendingOrderKind.Attack:
+                    // On a unit: explicit attack. On empty ground: attack-move,
+                    // which is what a ground-targeted attack means in WC2.
+                    if (occ != 0)
+                    {
+                        op = CommandOp.Attack;
+                        targetPacked = occ;
+                    }
+                    else
+                    {
+                        op = CommandOp.AttackMove;
+                    }
+                    break;
+
+                case PendingOrderKind.Harvest:
+                    op = CommandOp.Harvest;
+                    // A mine under the cursor is the target; bare ground with
+                    // wood harvests wood (TargetUnit stays 0).
+                    if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int mi)
+                        && state.Rules.Units[state.Units[mi].TypeId].Is(UnitTypeFlags.GoldMine))
+                        targetPacked = occ;
+                    else if (!state.Terrain.HasWood(tileX, tileY))
+                    {
+                        _ui.ClearPendingOrder(); // nothing harvestable there
+                        return;
+                    }
+                    break;
+
+                case PendingOrderKind.Repair:
+                    if (occ == 0 || !state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi)
+                        || state.Units[bi].Player != LocalPlayer
+                        || (state.Units[bi].Flags & UnitFlags.Building) == 0)
+                    {
+                        _ui.ClearPendingOrder(); // not one of our buildings
+                        return;
+                    }
+                    op = CommandOp.Repair;
+                    targetPacked = occ;
+                    break;
+            }
+
+            var cmd = new GameCommand
+            {
+                Op = op,
+                Player = LocalPlayer,
+                TargetX = (ushort)tileX,
+                TargetY = (ushort)tileY,
+                TargetUnit = targetPacked,
+            };
+            foreach (uint packed in _selection)
+            {
+                if (cmd.SelectionCount >= GameCommand.MaxSelection)
+                    break;
+                cmd.Selection.Ids[cmd.SelectionCount++] = packed;
+            }
+            if (cmd.SelectionCount > 0)
+                _host.SubmitCommand(cmd);
+            _ui.ClearPendingOrder();
         }
 
         /// <summary>
@@ -262,7 +363,10 @@ namespace Craftwar.View
                 }
             }
 
-            // Click with no mobile units hit: select the building under the cursor.
+            // Click with no mobile units hit: select the building under the
+            // cursor. A building selection is always exclusive — the original
+            // never mixes buildings with units, and the command card has no
+            // sensible card for a mixed selection.
             if (_selection.Count == 0)
             {
                 int tileX = Mathf.FloorToInt(rect.center.x);
@@ -273,9 +377,27 @@ namespace Craftwar.View
                     if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi)
                         && state.Units[bi].Player == LocalPlayer
                         && (state.Units[bi].Flags & UnitFlags.Building) != 0)
-                        _selection.Add(occ);
+                        _selection.SetSingle(occ);
                 }
+                return;
             }
+
+            // Units were selected: evict any building a previous shift-click
+            // left in the set, so the two can never coexist.
+            DropBuildings(state);
+        }
+
+        readonly List<uint> _evict = new List<uint>();
+
+        void DropBuildings(GameState state)
+        {
+            _evict.Clear();
+            foreach (uint packed in _selection)
+                if (state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
+                    && (state.Units[idx].Flags & UnitFlags.Building) != 0)
+                    _evict.Add(packed);
+            for (int i = 0; i < _evict.Count; i++)
+                _selection.Remove(_evict[i]);
         }
 
         unsafe void PlaceBuilding(Vector2 screenPos)
@@ -307,7 +429,7 @@ namespace Craftwar.View
             }
             if (cmd.SelectionCount > 0)
                 _host.SubmitCommand(cmd);
-            _ui.PendingBuildType = 0;
+            _ui.ClearPendingOrder();
         }
     }
 }

@@ -15,6 +15,10 @@ namespace Craftwar.Sim
         // ------------------------------------------------------------------
         // Worker build menus (basic entries have no prereqs; advanced ones
         // gate through Prereqs()).
+        //
+        // Ordered basic-first: the original's peasant card splits these across
+        // "Build Basic Structure" and "Build Advanced Structure", and the first
+        // BasicBuildingCount entries are the basic page for both races.
         // ------------------------------------------------------------------
         public static readonly UnitTypeId[] HumanBuildings =
         {
@@ -30,6 +34,23 @@ namespace Craftwar.Sim
             UnitTypeId.OgreMound, UnitTypeId.AltarOfStorms, UnitTypeId.TempleOfTheDamned,
             UnitTypeId.GoblinAlchemist,
         };
+
+        /// <summary>
+        /// Where the basic/advanced boundary falls in the arrays above.
+        /// Basic: farm, barracks, hall, lumber mill, blacksmith, scout tower.
+        /// Advanced: stables/mound, church/altar, mage tower/temple, inventor/alchemist.
+        /// </summary>
+        public const int BasicBuildingCount = 6;
+
+        /// <summary>True if `type` sits on the worker's basic build page.</summary>
+        public static bool IsBasicBuilding(Race race, UnitTypeId type)
+        {
+            var menu = WorkerBuildings(race);
+            for (int i = 0; i < menu.Length && i < BasicBuildingCount; i++)
+                if (menu[i] == type)
+                    return true;
+            return false;
+        }
 
         public static UnitTypeId[] WorkerBuildings(Race race) =>
             race == Race.Orc ? OrcBuildings : HumanBuildings;

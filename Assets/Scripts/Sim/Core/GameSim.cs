@@ -196,6 +196,30 @@ namespace Craftwar.Sim
                     }
                     break;
 
+                case CommandOp.Patrol:
+                    for (int i = 0; i < cmd.SelectionCount; i++)
+                    {
+                        var id = UnitId.FromPacked(cmd.Selection.Ids[i]);
+                        if (!State.TryGetUnitIndex(id, out int idx))
+                            continue;
+                        ref Unit u = ref State.Units[idx];
+                        if (u.Player != cmd.Player || UnitSpeeds.Get(u.TypeId) == 0)
+                            continue;
+                        // The beat runs between where the unit stands now and
+                        // the clicked tile; arrival swaps the two ends.
+                        u.Order = OrderType.Patrol;
+                        u.OrderX = cmd.TargetX;
+                        u.OrderY = cmd.TargetY;
+                        u.GoalX = u.TileX;
+                        u.GoalY = u.TileY;
+                        u.AttackTarget = 0;
+                        u.Harvest = HarvestStage.None;
+                        u.PathLength = 0;
+                        u.PathCursor = 0;
+                        u.WaitTicks = 0;
+                    }
+                    break;
+
                 case CommandOp.Stop:
                     for (int i = 0; i < cmd.SelectionCount; i++)
                     {
@@ -233,6 +257,19 @@ namespace Craftwar.Sim
             }
         }
 
+        /// <summary>
+        /// Flip a patrolling unit to the other end of its beat. GoalX/Y holds
+        /// the far end while OrderX/Y holds the leg in progress, so the march
+        /// is a single swap with a forced repath.
+        /// </summary>
+        static void SwapPatrolLegs(ref Unit u)
+        {
+            (u.OrderX, u.GoalX) = (u.GoalX, u.OrderX);
+            (u.OrderY, u.GoalY) = (u.GoalY, u.OrderY);
+            u.PathLength = 0;
+            u.PathCursor = 0;
+        }
+
         void TickMovement()
         {
             int w = State.Terrain?.Width ?? 0;
@@ -255,9 +292,12 @@ namespace Craftwar.Sim
                 if (u.TileX == u.OrderX && u.TileY == u.OrderY)
                 {
                     // Arrival completes Move/AttackMove only; Attack keeps
-                    // chasing and Harvest/Build have their own stage logic.
+                    // chasing, Patrol turns around, and Harvest/Build have
+                    // their own stage logic.
                     if (u.Order == OrderType.Move || u.Order == OrderType.AttackMove)
                         u.Order = OrderType.None;
+                    else if (u.Order == OrderType.Patrol)
+                        SwapPatrolLegs(ref u);
                     u.PathLength = 0;
                     continue;
                 }
@@ -293,6 +333,8 @@ namespace Craftwar.Sim
                         // (target, mine, depot); stay put, stage logic decides.
                         if (u.Order == OrderType.Move || u.Order == OrderType.AttackMove)
                             u.Order = OrderType.None;
+                        else if (u.Order == OrderType.Patrol)
+                            SwapPatrolLegs(ref u); // blocked end: turn around
                         u.PathLength = 0;
                         continue;
                     }

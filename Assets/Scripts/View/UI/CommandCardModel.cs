@@ -10,8 +10,24 @@ namespace Craftwar.View
         UpgradeTo,        // building swaps to its next tier; Param = UnitTypeId
         Research,         // building researches; Param = UpgradeId
         Cancel,           // busy building aborts with a full refund
-        BuildMenuToggle,  // worker Basic <-> Advanced page
+
+        // Unit actions. Move/Attack/Patrol/Harvest/Repair need a world click;
+        // Stop fires immediately.
+        Move,
+        Stop,
+        Attack,
+        Patrol,
+        Harvest,
+        Repair,
+
+        // Page navigation on a worker's card.
+        BuildBasicMenu,
+        BuildAdvancedMenu,
+        BackToActions,
     }
+
+    /// <summary>Which face of the card a mobile selection is showing.</summary>
+    public enum CardPage : byte { Actions = 0, BuildBasic, BuildAdvanced }
 
     public struct CommandSlot
     {
@@ -20,8 +36,7 @@ namespace Craftwar.View
         public int Gold, Lumber, Oil;
         public bool Enabled;            // affordability; recomputed every frame
         public int BuildingSlot;        // unit index that receives the command (-1 = worker placement)
-        public string Label;            // display name, baked at rebuild
-        public string Initials;         // placeholder icon text, baked at rebuild
+        public string Label;            // button text + tooltip, baked at rebuild
     }
 
     /// <summary>
@@ -34,19 +49,15 @@ namespace Craftwar.View
     public sealed class CommandCardModel
     {
         public const int SlotCount = 9;
-        /// <summary>Slot 8 becomes the page toggle when the menu overflows.</summary>
+        /// <summary>Slot 8 is the Back button on the build sub-pages.</summary>
         const int ToggleSlot = SlotCount - 1;
 
         public readonly CommandSlot[] Slots = new CommandSlot[SlotCount];
 
-        /// <summary>Worker build menu is paged; WC2 splits Basic/Advanced too.</summary>
-        public bool AdvancedPage;
+        /// <summary>Which face a mobile selection shows; reset on selection change.</summary>
+        public CardPage Page;
 
-        /// <summary>True while the current card is a worker's build menu.</summary>
-        public bool IsBuildMenu { get; private set; }
-
-        /// <summary>Set when the menu needs a second page.</summary>
-        public bool HasSecondPage { get; private set; }
+        int _lastSelectionVersion = -1;
 
         /// <summary>
         /// Everything that changes the card's *shape*. Deliberately excludes
@@ -60,7 +71,7 @@ namespace Craftwar.View
         {
             ulong h = (ulong)sel.Version * 0x9E3779B97F4A7C15ul;
             h ^= state.Players[player].Researched;
-            h = h * 31 + (AdvancedPage ? 1ul : 0ul);
+            h = h * 31 + (ulong)Page;
             foreach (uint packed in sel)
             {
                 if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx))
@@ -78,59 +89,125 @@ namespace Craftwar.View
 
         public void Rebuild(GameSim sim, GameState state, SelectionState sel, byte player)
         {
+            // A new selection always lands on the action page — leaving a build
+            // sub-page open across a selection change is disorienting.
+            if (sel.Version != _lastSelectionVersion)
+            {
+                _lastSelectionVersion = sel.Version;
+                Page = CardPage.Actions;
+            }
+
             StructureHash = ComputeStructureHash(state, sel, player);
             for (int i = 0; i < SlotCount; i++)
+            {
                 Slots[i] = default;
-            for (int i = 0; i < SlotCount; i++)
                 Slots[i].BuildingSlot = -1;
-            IsBuildMenu = false;
-            HasSecondPage = false;
+            }
 
-            bool hasWorker = false;
+            bool hasWorker = false, hasMobile = false, canAttack = false;
             int building = -1;
             foreach (uint packed in sel)
             {
                 if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx))
                     continue;
                 ref var u = ref state.Units[idx];
-                if (state.Rules.Units[u.TypeId].Is(UnitTypeFlags.Peon))
-                    hasWorker = true;
+                ref var row = ref state.Rules.Units[u.TypeId];
                 if ((u.Flags & UnitFlags.Building) != 0)
+                {
                     building = idx;
+                    continue;
+                }
+                if (u.Player != player)
+                    continue;
+                hasMobile = true;
+                if (row.Is(UnitTypeFlags.Peon))
+                    hasWorker = true;
+                if (row.Is(UnitTypeFlags.CanAttack))
+                    canAttack = true;
             }
 
-            if (hasWorker)
+            // Selection keeps buildings and units apart (see
+            // WorldInputController.DropBuildings), so this is a guard against a
+            // state that should not arise rather than a real tie-break.
+            if (hasMobile)
             {
-                BuildWorkerMenu(sim, state, player);
+                if (Page != CardPage.Actions && hasWorker)
+                    BuildWorkerMenu(sim, state, player);
+                else
+                    BuildActionMenu(hasWorker, canAttack, sim, state, player);
                 return;
             }
             if (building >= 0)
                 BuildBuildingMenu(sim, state, building, player);
         }
 
+        /// <summary>
+        /// Fixed slot positions so the grid hotkeys stay stable per unit kind:
+        /// Move/Stop/Attack/Patrol on the top rows, worker jobs below.
+        /// </summary>
+        void BuildActionMenu(bool hasWorker, bool canAttack,
+            GameSim sim, GameState state, byte player)
+        {
+            Slots[0] = Action(CommandSlotKind.Move, "Move");
+            Slots[1] = Action(CommandSlotKind.Stop, "Stop");
+            if (canAttack)
+                Slots[2] = Action(CommandSlotKind.Attack, "Attack");
+            Slots[3] = Action(CommandSlotKind.Patrol, "Patrol");
+
+            if (!hasWorker)
+                return;
+            Slots[4] = Action(CommandSlotKind.Harvest, "Harvest");
+            Slots[5] = Action(CommandSlotKind.Repair, "Repair");
+            // Hide a page button with nothing behind it — early game the
+            // advanced structures are all still gated.
+            if (CountBuildable(sim, state, player, basic: true) > 0)
+                Slots[6] = Action(CommandSlotKind.BuildBasicMenu, "Build");
+            if (CountBuildable(sim, state, player, basic: false) > 0)
+                Slots[7] = Action(CommandSlotKind.BuildAdvancedMenu, "Advanced");
+        }
+
+        static int CountBuildable(GameSim sim, GameState state, byte player, bool basic)
+        {
+            var menu = TechTree.WorkerBuildings(state.Players[player].Race);
+            int lo = basic ? 0 : TechTree.BasicBuildingCount;
+            int hi = basic ? TechTree.BasicBuildingCount : menu.Length;
+            int n = 0;
+            for (int i = lo; i < hi && i < menu.Length; i++)
+                if (sim.CanProduce(player, menu[i]))
+                    n++;
+            return n;
+        }
+
+        static CommandSlot Action(CommandSlotKind kind, string label) =>
+            new CommandSlot
+            {
+                Kind = kind,
+                BuildingSlot = -1,
+                Label = label,
+                Enabled = true,
+            };
+
         void BuildWorkerMenu(GameSim sim, GameState state, byte player)
         {
-            IsBuildMenu = true;
+            // Basic vs Advanced is the original's split, not a page-size
+            // artifact: TechTree orders the menu basic-first and marks the
+            // boundary. Each page holds at most 8, leaving slot 8 for Back.
             var menu = TechTree.WorkerBuildings(state.Players[player].Race);
+            bool advanced = Page == CardPage.BuildAdvanced;
+            int lo = advanced ? TechTree.BasicBuildingCount : 0;
+            int hi = advanced ? menu.Length : TechTree.BasicBuildingCount;
+
             int n = 0;
-            for (int i = 0; i < menu.Length && n < _menuScratch.Length; i++)
+            for (int i = lo; i < hi && i < menu.Length && n < _menuScratch.Length; i++)
                 if (sim.CanProduce(player, menu[i]))
                     _menuScratch[n++] = menu[i];
 
-            // Everything fits: one page, no toggle. Otherwise 8 per page with
-            // the toggle parked in the last slot.
-            int perPage = n > SlotCount ? SlotCount - 1 : SlotCount;
-            HasSecondPage = n > SlotCount;
-            if (!HasSecondPage)
-                AdvancedPage = false;
-
-            int start = AdvancedPage ? perPage : 0;
-            for (int s = 0; s < perPage; s++)
+            const int PerPage = SlotCount - 1;
+            for (int s = 0; s < PerPage; s++)
             {
-                int src = start + s;
-                if (src >= n)
+                if (s >= n)
                     break;
-                var type = _menuScratch[src];
+                var type = _menuScratch[s];
                 ref var row = ref state.Rules.Units[(int)type];
                 Slots[s] = new CommandSlot
                 {
@@ -141,19 +218,10 @@ namespace Craftwar.View
                     Oil = row.OilCost,
                     BuildingSlot = -1,
                     Label = UnitNames.Of(type),
-                    Initials = UnitNames.InitialsOf(type),
                 };
             }
 
-            if (HasSecondPage)
-                Slots[ToggleSlot] = new CommandSlot
-                {
-                    Kind = CommandSlotKind.BuildMenuToggle,
-                    BuildingSlot = -1,
-                    Label = AdvancedPage ? "Basic" : "Advanced",
-                    Initials = AdvancedPage ? "<<" : ">>",
-                    Enabled = true,
-                };
+            Slots[ToggleSlot] = Action(CommandSlotKind.BackToActions, "Back");
         }
 
         void BuildBuildingMenu(GameSim sim, GameState state, int building, byte player)
@@ -170,7 +238,6 @@ namespace Craftwar.View
                     Kind = CommandSlotKind.Cancel,
                     BuildingSlot = building,
                     Label = "Cancel",
-                    Initials = "X",
                     Enabled = true,
                 };
                 return;
@@ -196,7 +263,6 @@ namespace Craftwar.View
                     Oil = row.OilCost,
                     BuildingSlot = building,
                     Label = UnitNames.Of(t),
-                    Initials = UnitNames.InitialsOf(t),
                 };
             }
 
@@ -216,7 +282,6 @@ namespace Craftwar.View
                     Oil = row.OilCost,
                     BuildingSlot = building,
                     Label = UnitNames.Of(target),
-                    Initials = UnitNames.InitialsOf(target),
                 };
             }
 
@@ -236,7 +301,6 @@ namespace Craftwar.View
                     Oil = row.Oil,
                     BuildingSlot = building,
                     Label = UnitNames.Of(up),
-                    Initials = UnitNames.InitialsOf(up),
                 };
             }
         }
@@ -250,9 +314,19 @@ namespace Craftwar.View
                 ref var slot = ref Slots[i];
                 switch (slot.Kind)
                 {
+                    // Free actions and navigation are always available; the sim
+                    // has the final say on whether an order is legal.
                     case CommandSlotKind.None:
                     case CommandSlotKind.Cancel:
-                    case CommandSlotKind.BuildMenuToggle:
+                    case CommandSlotKind.Move:
+                    case CommandSlotKind.Stop:
+                    case CommandSlotKind.Attack:
+                    case CommandSlotKind.Patrol:
+                    case CommandSlotKind.Harvest:
+                    case CommandSlotKind.Repair:
+                    case CommandSlotKind.BuildBasicMenu:
+                    case CommandSlotKind.BuildAdvancedMenu:
+                    case CommandSlotKind.BackToActions:
                         continue;
                     case CommandSlotKind.Train:
                         // Buildings train into the food cap; tier upgrades don't.
