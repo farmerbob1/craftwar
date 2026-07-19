@@ -22,6 +22,14 @@ namespace Craftwar.View
         int _mapHeight;
         InputRouter _input;
         DragSelectOverlayView _dragView;
+        AudioDirector _audio;
+
+        /// <summary>
+        /// Order acknowledgements are a local-client reaction to a click, not a
+        /// sim event: in lockstep, sim-driven acks would play every player's
+        /// clicks on every machine.
+        /// </summary>
+        public void SetAudio(AudioDirector audio) => _audio = audio;
 
         Vector2 _dragStartScreen;
         bool _dragging;
@@ -260,12 +268,22 @@ namespace Craftwar.View
         /// Context order: enemy -> Attack, gold mine -> Harvest, tree ->
         /// Harvest wood, otherwise Move/AttackMove.
         /// </summary>
-        unsafe void IssueSmartOrder(Vector2 screenPos, bool attackMove)
+        void IssueSmartOrder(Vector2 screenPos, bool attackMove)
+        {
+            Vector2 world = _camera.ScreenToWorldPoint(screenPos);
+            IssueSmartOrderAtTile(
+                Mathf.FloorToInt(world.x),
+                _mapHeight - 1 - Mathf.FloorToInt(world.y),
+                attackMove);
+        }
+
+        /// <summary>
+        /// The smart right-click, addressed by tile so the minimap can command
+        /// through exactly the same path as the battlefield.
+        /// </summary>
+        public unsafe void IssueSmartOrderAtTile(int tileX, int tileY, bool attackMove)
         {
             var state = _host.Sim.State;
-            Vector2 world = _camera.ScreenToWorldPoint(screenPos);
-            int tileX = Mathf.FloorToInt(world.x);
-            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y);
             if (state.Terrain == null || !state.Terrain.InBounds(tileX, tileY))
                 return;
 
@@ -276,7 +294,12 @@ namespace Craftwar.View
                 uint occ = state.OccupancySurface[tileY * state.Terrain.Width + tileX];
                 if (occ == 0)
                     occ = state.OccupancyAir[tileY * state.Terrain.Width + tileX];
-                if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int ti))
+                if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int ti)
+                    // Fog: you cannot right-click what you cannot see, or the
+                    // cursor becomes a probe for hidden units. Own units always
+                    // resolve. Falls through to a plain Move.
+                    && (state.Units[ti].Player == LocalPlayer
+                        || _host.Sim.IsUnitVisible(LocalPlayer, ref state.Units[ti])))
                 {
                     ref var target = ref state.Units[ti];
                     if (state.Rules.Units[target.TypeId].Is(UnitTypeFlags.GoldMine))
@@ -319,6 +342,10 @@ namespace Craftwar.View
                     break;
                 cmd.Selection.Ids[cmd.SelectionCount++] = packed;
             }
+            if (cmd.SelectionCount > 0)
+                _audio?.Play(op == CommandOp.Attack || op == CommandOp.AttackMove
+                    ? SoundId.OrderAttack
+                    : SoundId.OrderMove);
             _host.SubmitCommand(cmd);
         }
 
@@ -385,6 +412,8 @@ namespace Craftwar.View
             // Units were selected: evict any building a previous shift-click
             // left in the set, so the two can never coexist.
             DropBuildings(state);
+            if (_selection.Count > 0)
+                _audio?.Play(SoundId.OrderSelect);
         }
 
         readonly List<uint> _evict = new List<uint>();

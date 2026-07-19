@@ -50,6 +50,16 @@ namespace Craftwar.Sim
         public uint[] OccupancySurface;
         public uint[] OccupancyAir;
 
+        /// <summary>Per-player sight this tick: [player][y*Width+x], 1 = in sight.
+        /// Recomputed from scratch every tick by TickFog, so it is a pure
+        /// function of unit positions — hashed anyway so a fog divergence shows
+        /// up as a desync instead of a silent rendering difference.</summary>
+        public byte[][] Visible;
+
+        /// <summary>Per-player "has ever been seen": [player][y*Width+x].
+        /// Accumulated state (never cleared), so it genuinely must be hashed.</summary>
+        public byte[][] Explored;
+
         public GameState(ulong seed)
         {
             // Fixed stream selector: one RNG stream, seeded per match.
@@ -170,6 +180,17 @@ namespace Craftwar.Sim
                 && Units[id.Index].IsAlive;
         }
 
+        static void HashGrid(ref StateHash h, byte[][] grids, int player)
+        {
+            if (grids == null)
+                return;
+            byte[] g = grids[player];
+            if (g == null)
+                return;
+            for (int i = 0; i < g.Length; i++)
+                h.Add(g[i]);
+        }
+
         public uint ComputeHash()
         {
             var h = StateHash.Begin();
@@ -190,6 +211,15 @@ namespace Craftwar.Sim
                     h.Add(i);
                     Projectiles[i].HashInto(ref h);
                 }
+            // Fog. Null before Setup (tests build a sim with no map at all), and
+            // only in-game slots carry grids, so both guards are load-bearing.
+            for (int p = 0; p < Players.Length; p++)
+            {
+                if (!Players[p].InGame)
+                    continue;
+                HashGrid(ref h, Visible, p);
+                HashGrid(ref h, Explored, p);
+            }
             return h.Value;
         }
     }

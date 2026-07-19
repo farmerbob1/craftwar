@@ -55,6 +55,30 @@ namespace Craftwar.View
         readonly Dictionary<int, SpriteRenderer> _selBoxes = new Dictionary<int, SpriteRenderer>();
         readonly HashSet<int> _live = new HashSet<int>();
         readonly List<int> _toRemove = new List<int>();
+
+        /// <summary>The local player, until multiplayer picks a slot at M10.</summary>
+        const byte LocalPlayer = 0;
+
+        /// <summary>
+        /// Last-seen appearance of an enemy building, keyed by the tile index of
+        /// its top-left corner. The original keeps showing buildings you have
+        /// scouted, so a building destroyed (or newly raised) inside fog must
+        /// not update until you look again — which is exactly why this is a
+        /// snapshot rather than "keep drawing the live unit".
+        /// </summary>
+        struct BuildingMemory
+        {
+            public Sprite Sprite;
+            public bool FlipX;
+            public Vector3 Position;
+            public int SortingOrder;
+        }
+
+        readonly Dictionary<int, BuildingMemory> _memory = new Dictionary<int, BuildingMemory>();
+        readonly Dictionary<int, SpriteRenderer> _ghosts = new Dictionary<int, SpriteRenderer>();
+        readonly HashSet<int> _seenOrigins = new HashSet<int>();
+        readonly List<int> _memoryToRemove = new List<int>();
+        static readonly Color GhostTint = new Color(1f, 1f, 1f, 0.85f);
         Sprite _fallback;
         Sprite _selBoxSprite;
         static readonly Color SelectionGreen = new Color(0.16f, 0.9f, 0.22f, 1f);
@@ -187,6 +211,7 @@ namespace Craftwar.View
             var state = _host.Sim.State;
             float alpha = _host.Alpha;
             _live.Clear();
+            _seenOrigins.Clear();
             UpdateProjectiles(state);
             UpdateCorpses();
 
@@ -236,9 +261,32 @@ namespace Craftwar.View
                 sr.color = baseColor;
                 _lastPose[i] = (u.TypeId, u.Player, u.Facing);
 
+                // Fog: own units are always drawn; everyone else only while in
+                // sight. Buildings additionally leave a remembered ghost behind.
+                bool inSight = u.Player == LocalPlayer || _host.Sim.IsUnitVisible(LocalPlayer, ref u);
+                sr.enabled = inSight;
+
+                if (u.Player != LocalPlayer && (u.Flags & UnitFlags.Building) != 0)
+                {
+                    int origin = OriginIndex(state, ref u);
+                    if (origin >= 0 && inSight)
+                    {
+                        _seenOrigins.Add(origin);
+                        _memory[origin] = new BuildingMemory
+                        {
+                            Sprite = sr.sprite,
+                            FlipX = flipX,
+                            Position = sr.transform.position,
+                            SortingOrder = sr.sortingOrder,
+                        };
+                    }
+                }
+
                 UpdateSelectionBox(i, sr, footprint,
-                    Selected.Contains(packed) && (u.Flags & UnitFlags.Hidden) == 0);
+                    inSight && Selected.Contains(packed) && (u.Flags & UnitFlags.Hidden) == 0);
             }
+
+            UpdateRememberedBuildings(state);
 
             _toRemove.Clear();
             foreach (var kv in _views)
@@ -261,6 +309,77 @@ namespace Craftwar.View
                 var pose = _lastPose.TryGetValue(key, out var p) ? p : ((ushort)0, (byte)0, (byte)0);
                 _lastPose.Remove(key);
                 _corpses.Add((sr, Time.time, pose.Item1, pose.Item2, pose.Item3));
+            }
+        }
+
+        /// <summary>Tile index of a unit's top-left corner, or -1 without a map.</summary>
+        static int OriginIndex(GameState state, ref Unit u)
+        {
+            if (state.Terrain == null)
+                return -1;
+            return u.TileY * state.Terrain.Width + u.TileX;
+        }
+
+        /// <summary>
+        /// Draws the last-seen sprite of enemy buildings on explored-but-fogged
+        /// ground, and forgets a building the moment we look at its tile again
+        /// and find it gone.
+        /// </summary>
+        void UpdateRememberedBuildings(GameState state)
+        {
+            if (state.Terrain == null)
+                return;
+            var sim = _host.Sim;
+            int width = state.Terrain.Width;
+
+            _memoryToRemove.Clear();
+            foreach (var kv in _memory)
+            {
+                int origin = kv.Key;
+                int tx = origin % width;
+                int ty = origin / width;
+                bool visible = sim.IsVisible(LocalPlayer, tx, ty);
+
+                // We can see that tile and no building reported itself there
+                // this frame: whatever we remembered is gone.
+                if (visible && !_seenOrigins.Contains(origin))
+                {
+                    _memoryToRemove.Add(origin);
+                    continue;
+                }
+
+                // The real renderer takes over while the building is in sight.
+                bool showGhost = !visible && sim.IsExplored(LocalPlayer, tx, ty);
+                if (!_ghosts.TryGetValue(origin, out var ghost) || ghost == null)
+                {
+                    if (!showGhost)
+                        continue;
+                    var go = new GameObject("remembered_building");
+                    go.transform.SetParent(transform, false);
+                    ghost = go.AddComponent<SpriteRenderer>();
+                    _ghosts[origin] = ghost;
+                }
+
+                ghost.enabled = showGhost;
+                if (!showGhost)
+                    continue;
+                var mem = kv.Value;
+                ghost.sprite = mem.Sprite;
+                ghost.flipX = mem.FlipX;
+                ghost.transform.position = mem.Position;
+                ghost.sortingOrder = mem.SortingOrder;
+                ghost.color = GhostTint;
+            }
+
+            foreach (int origin in _memoryToRemove)
+            {
+                _memory.Remove(origin);
+                if (_ghosts.TryGetValue(origin, out var ghost))
+                {
+                    if (ghost != null)
+                        Destroy(ghost.gameObject);
+                    _ghosts.Remove(origin);
+                }
             }
         }
 

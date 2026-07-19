@@ -14,12 +14,14 @@ namespace Craftwar.App
     /// Unknown ids resolve to a magenta placeholder (the fallback chain's
     /// last rung). Later a CustomCatalog can shadow ids with replacement art.
     /// </summary>
-    public sealed class RuntimeTileCatalog : ITileResolver
+    public sealed class RuntimeTileCatalog : ITileResolver, IMinimapPalette
     {
         const int TileSize = War2Tileset.TileSize;
         const int AtlasTilesPerRow = 32; // 32*32 tiles = 1024px square atlas
 
         readonly Dictionary<ushort, Tile> _tiles = new Dictionary<ushort, Tile>();
+        readonly Dictionary<ushort, Color32> _minimapColors = new Dictionary<ushort, Color32>();
+        static readonly Color32 UnknownTileColor = new Color32(255, 0, 255, 255);
         Tile _placeholder;
 
         public Texture2D Atlas { get; private set; }
@@ -74,6 +76,19 @@ namespace Craftwar.App
                     }
                 }
                 atlas.SetPixels32(cellX, (i / AtlasTilesPerRow) * TileSize, TileSize, TileSize, pixels);
+
+                // Average the tile down to one colour now, while its pixels are
+                // already decoded: that is the minimap's whole terrain layer.
+                uint r = 0, g = 0, b = 0;
+                for (int p = 0; p < pixels.Length; p++)
+                {
+                    r += pixels[p].r;
+                    g += pixels[p].g;
+                    b += pixels[p].b;
+                }
+                int count = pixels.Length;
+                catalog._minimapColors[decoded[i].TileId] =
+                    new Color32((byte)(r / count), (byte)(g / count), (byte)(b / count), 255);
             }
             atlas.Apply(updateMipmaps: false, makeNoLongerReadable: false);
             catalog.Atlas = atlas;
@@ -119,5 +134,8 @@ namespace Craftwar.App
 
         public TileBase Resolve(ushort pudTileId) =>
             _tiles.TryGetValue(pudTileId, out var tile) ? tile : _placeholder;
+
+        public Color32 ColorFor(ushort pudTileId) =>
+            _minimapColors.TryGetValue(pudTileId, out var c) ? c : UnknownTileColor;
     }
 }

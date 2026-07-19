@@ -34,6 +34,8 @@ namespace Craftwar.Sim
             State.Tiles = (ushort[])pud.Tiles.Clone();
             State.OccupancySurface = new uint[pud.Width * pud.Height];
             State.OccupancyAir = new uint[pud.Width * pud.Height];
+            State.Visible = new byte[SimConstants.MaxPlayers][];
+            State.Explored = new byte[SimConstants.MaxPlayers][];
             _pathfinder = new Pathfinder(State.Terrain, State);
             _pathScratch = new ushort[pud.Width * pud.Height];
 
@@ -54,6 +56,14 @@ namespace Craftwar.Sim
                     AllowedUpgrades = pud.AllowUpgrades?[p] ?? ~0u,
                     AllowedSpells = pud.AllowSpellResearch?[p] ?? ~0u,
                 };
+
+                // Fog grids only exist for slots that are actually playing;
+                // ComputeHash and TickFog both skip the rest.
+                if (inGame)
+                {
+                    State.Visible[p] = new byte[pud.Width * pud.Height];
+                    State.Explored[p] = new byte[pud.Width * pud.Height];
+                }
 
                 // ALOW start-spells arrive pre-researched.
                 if (pud.AllowSpellStart != null)
@@ -90,6 +100,7 @@ namespace Craftwar.Sim
             }
 
             RecountFood(); // food gates must be valid before the first command
+            TickFog();     // starting bases are visible before the first tick
         }
 
         /// <summary>
@@ -440,7 +451,6 @@ namespace Craftwar.Sim
         }
 
         void TickConstruction() { }
-        void TickFog() { }
         void TickVictory() { }
     }
 }

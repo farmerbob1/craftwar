@@ -87,8 +87,28 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   (exits, spawns) snap interpolation instead of sliding across the map;
   selection is a 9-sliced green rectangle under the sprite, not a tint.
 
+- **UI framework** (83b1228, 4cf70bd): UI Toolkit HUD (UXML/USS in `Assets/UI`),
+  `UIManager` + screen stack + four layers, InputRouter owning both action maps
+  (built in code, not a .inputactions asset), sim→UI event channel drained via
+  `GameLoopRunner.PendingSimEvents`, patrol order, unit action card, WC2-style
+  selection panel.
+- **M6** fog/minimap/groups/sound: per-player `Visible`/`Explored` byte grids on
+  `GameState`, allocated in `Setup` for in-game slots only and hashed in
+  `ComputeHash`; `GameSim.Fog.cs` recomputes sight every tick (footprint-aware
+  squared-distance disc, no sqrt — `SimPurityTests` bans it), skipping Hidden
+  and neutral units. `FogOfWar.shader` (the project's first) + `FogOfWarView`
+  upload an RG mask, one texel per tile, bilinear so edges are soft. Enemies
+  are hidden while fogged, enemy buildings leave a last-seen ghost, and the
+  smart right-click refuses to resolve targets you cannot see (fog probing).
+  `MinimapView` bakes terrain from per-tile average colours (`IMinimapPalette`,
+  implemented by `RuntimeTileCatalog`), redraws dots + fog at 8 Hz, draws a
+  viewport rect, click/drag to pan, right-click to command.
+  `ControlGroups` (Ctrl+N assign, N recall, double-tap centre).
+  `AudioDirector` + `IAudioProvider` + `PlaceholderAudioBank` (synthesized
+  tones, no Blizzard data) wired to sim events and local order acks.
+
 ## In flight
-Nothing — M5 just landed; next milestone not started.
+Nothing — M6 just landed; M7 not started.
 
 ## Known gaps / decisions
 - Sim system order: commands → production → movement → combat → harvest →
@@ -114,9 +134,30 @@ Nothing — M5 just landed; next milestone not started.
   later milestone; hall upgrades keep working sprites only if the sprite
   table has Keep/Castle art (it does, per-era building table from M3).
 
+- M6 decisions to revisit:
+  - **Fog is recomputed in full every tick, not incrementally.** The plan called
+    for reference-counted counters updated on move/spawn/death; a full
+    recompute is O(units x r^2) (a few thousand int ops) and, unlike counters,
+    cannot desync — counters would have to be adjusted correctly at every
+    spawn, death, hide/unhide and mid-step tile swap, where one miss is a
+    desync rather than a graphical glitch. Revisit only if profiling says so.
+  - **Fog gates rendering only.** It is hashed state, but no sim system reads
+    it, so combat acquisition is unchanged and fog's position after TickCombat
+    in the fixed order is harmless. Gating targeting on sight would mean moving
+    TickFog before TickCombat and re-tuning M3-M5 fight behaviour.
+  - `ComputeHash` now walks 2 grids x W*H per in-game player (~262 KB on a
+    128x128 8-player map). Free today — it is only called from tests — but M10
+    desync checks will run it per turn; hash a rolling checksum then.
+  - Attack-move stays on **Ctrl+click**, not the original's A+click: 'a' is
+    command-card slot 3. Ctrl+click and Ctrl+number do not collide.
+  - No team vision (M11), no sight-blocking terrain (WC2 has none either).
+  - Audio is placeholder tones behind `IAudioProvider`; M8 swaps in a real
+    War2 sound decoder. No sound decoder exists anywhere yet — war2tools never
+    implemented one, so the entry ids must be found empirically (the
+    `DebugDump` sweep is the template) or via Wargus `wartool.exe`.
+
 ## Next milestones (per plan)
-- **M6**: fog of war (sim visibility counters + shader — EffectiveSight
-  helper already exists for scouting bonuses), minimap, control groups,
-  sounds. M7 sea/air/oil (ship/tanker ALOW+upgrade plumbing already in
-  place). M8 real HUD + menus + first-run import. M9 AI. M10 LAN
-  lockstep. M11 online. (Details in plan file.)
+- **M7** sea/air/oil (ship/tanker ALOW+upgrade plumbing already in place;
+  fog keys off unit sight only, so air units need no fog rework). M8 real HUD
+  + menus + music + first-run import (and the real sound decoder). M9 AI.
+  M10 LAN lockstep. M11 online + team vision. (Details in plan file.)

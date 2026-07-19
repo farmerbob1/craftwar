@@ -29,14 +29,21 @@ namespace Craftwar.View
         static readonly string[] SlotKeys =
             { "q", "w", "e", "a", "s", "d", "z", "x", "c" };
 
+        /// <summary>Control groups 1-9 then 0, in key order.</summary>
+        public const int GroupCount = 10;
+        static readonly string[] GroupKeys =
+            { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
+
         UIState _ui;
         UIManager _manager;
 
         InputActionAsset _asset;
         InputActionMap _gameplay, _camera;
         InputAction _point, _select, _order, _additive, _attackMove, _cancel, _toggleDebug;
+        InputAction _groupModifier;
         InputAction _pan, _zoom;
         readonly InputAction[] _cardSlots = new InputAction[CardSlots];
+        readonly InputAction[] _groups = new InputAction[GroupCount];
 
         public event Action OnSelectPressed;
         public event Action OnSelectReleased;
@@ -45,11 +52,15 @@ namespace Craftwar.View
         public event Action OnEscape;
         public event Action OnToggleDebug;
 
+        /// <summary>Control group key pressed: (group index, ctrl held).</summary>
+        public event Action<int, bool> OnGroupKey;
+
         public Vector2 PointerPosition => _point?.ReadValue<Vector2>() ?? Vector2.zero;
         public Vector2 Pan => _pan?.ReadValue<Vector2>() ?? Vector2.zero;
         public float Zoom => _zoom?.ReadValue<float>() ?? 0f;
         public bool Additive => _additive != null && _additive.IsPressed();
         public bool AttackMove => _attackMove != null && _attackMove.IsPressed();
+        public bool GroupModifier => _groupModifier != null && _groupModifier.IsPressed();
 
         public void Init(UIState ui, UIManager manager)
         {
@@ -69,7 +80,13 @@ namespace Craftwar.View
             _select = _gameplay.AddAction("Select", InputActionType.Button, "<Mouse>/leftButton");
             _order = _gameplay.AddAction("Order", InputActionType.Button, "<Mouse>/rightButton");
             _additive = _gameplay.AddAction("AdditiveModifier", InputActionType.Button, "<Keyboard>/shift");
-            _attackMove = _gameplay.AddAction("AttackMoveModifier", InputActionType.Button, "<Keyboard>/leftCtrl");
+            _attackMove = _gameplay.AddAction("AttackMoveModifier", InputActionType.Button, "<Keyboard>/ctrl");
+            // Control groups share the Ctrl modifier with attack-move and do
+            // not collide: attack-move needs Ctrl + a mouse click, a group
+            // assignment needs Ctrl + a number key. Ctrl (not leftCtrl) so the
+            // right-hand key works too. Rebinding attack-move to the original's
+            // A is deliberately NOT done here — 'a' is command-card slot 3.
+            _groupModifier = _gameplay.AddAction("GroupModifier", InputActionType.Button, "<Keyboard>/ctrl");
             _cancel = _gameplay.AddAction("CancelOrMenu", InputActionType.Button, "<Keyboard>/escape");
             _toggleDebug = _gameplay.AddAction("ToggleDebug", InputActionType.Button, "<Keyboard>/f3");
 
@@ -80,6 +97,15 @@ namespace Craftwar.View
                 int slot = i; // capture
                 action.performed += _ => OnCardSlot?.Invoke(slot);
                 _cardSlots[i] = action;
+            }
+
+            for (int i = 0; i < GroupCount; i++)
+            {
+                var action = _gameplay.AddAction("Group" + i, InputActionType.Button,
+                    "<Keyboard>/" + GroupKeys[i]);
+                int group = i; // capture
+                action.performed += _ => OnGroupKey?.Invoke(group, GroupModifier);
+                _groups[i] = action;
             }
 
             _camera = _asset.AddActionMap("Camera");
@@ -135,6 +161,8 @@ namespace Craftwar.View
                 {
                     _camera.Disable();
                     foreach (var a in _cardSlots)
+                        a.Disable();
+                    foreach (var a in _groups)
                         a.Disable();
                     _select.Disable();
                     _order.Disable();

@@ -11,6 +11,16 @@ namespace Craftwar.View
     }
 
     /// <summary>
+    /// One representative colour per terrain tile id, for the minimap. Kept
+    /// separate from ITileResolver so the View never has to reach into the
+    /// asset layer — the catalog in Craftwar.App implements both.
+    /// </summary>
+    public interface IMinimapPalette
+    {
+        Color32 ColorFor(ushort pudTileId);
+    }
+
+    /// <summary>
     /// Renders the terrain layer (MTXM) of a map onto a Unity Tilemap.
     /// Pure projection: bulk-set on load, patched per TileChanged event later
     /// (tree chopped, wall destroyed). Unity Y axis points up, PUD rows go

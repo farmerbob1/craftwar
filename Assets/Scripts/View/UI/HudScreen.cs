@@ -28,6 +28,14 @@ namespace Craftwar.View
 
         public MinimapFrameView Minimap { get; private set; }
 
+        MinimapView _minimapView;
+
+        /// <summary>
+        /// Handed over by GameBootstrap once the camera, palette and world
+        /// input all exist — the HUD is built before any of them.
+        /// </summary>
+        public void SetMinimap(MinimapView view) => _minimapView = view;
+
         public HudScreen(ISimHost host, UIState ui, VisualElement notifyLayer)
         {
             _host = host;
@@ -72,6 +80,7 @@ namespace Craftwar.View
             _resources.Tick(sim.State, LocalPlayer);
             _selection.Tick(sim);
             _card.Tick(sim);
+            _minimapView?.Tick();
         }
 
         /// <summary>

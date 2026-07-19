@@ -25,6 +25,8 @@ namespace Craftwar.App
         GameLoopRunner _runner;
         ITileResolver _tileResolver;
         UIManager _ui;
+        MinimapView _minimap;
+        AudioDirector _audio;
 
         void LateUpdate()
         {
@@ -35,6 +37,7 @@ namespace Craftwar.App
             {
                 foreach (var (x, y, tile) in _runner.PendingTileChanges)
                     tilemapView.SetTile(x, y, tile, _tileResolver);
+                _minimap?.ApplyTileChanges(_runner.PendingTileChanges);
                 _runner.PendingTileChanges.Clear();
             }
 
@@ -42,6 +45,7 @@ namespace Craftwar.App
             {
                 if (_ui != null)
                     _ui.HandleSimEvents(_runner.PendingSimEvents);
+                _audio?.HandleSimEvents(_runner.PendingSimEvents);
                 _runner.PendingSimEvents.Clear();
             }
         }
@@ -105,13 +109,35 @@ namespace Craftwar.App
                 input, new DragSelectOverlayView(ui.OverlayLayer));
             cameraRig.Init(input);
 
+            var fogGo = new GameObject("FogOfWar");
+            var fog = fogGo.AddComponent<FogOfWarView>();
+            fog.Init(runner, HudScreen.LocalPlayer, pud.Width, pud.Height);
+
             var ghost = poolGo.AddComponent<BuildPlacementGhost>();
             ghost.Init(runner, spriteBank, cameraRig.GetComponent<Camera>(), pud.Height, uiState);
             var debugOverlay = gameObject.AddComponent<DebugOverlay>();
             debugOverlay.Init(runner, pool, cameraRig.GetComponent<Camera>(), pud.Height);
 
+            // The minimap needs the camera, the tile palette and world input,
+            // none of which exist when the HUD is built.
+            if (ui.Hud?.Minimap?.Content != null)
+            {
+                _minimap = new MinimapView(ui.Hud.Minimap, runner, cameraRig, world, catalog,
+                    HudScreen.LocalPlayer, pud.Width, pud.Height);
+                ui.Hud.SetMinimap(_minimap);
+            }
+
+            var groups = new ControlGroups(runner, uiState.Selection, cameraRig, pud.Height,
+                InputRouter.GroupCount);
+
+            var audio = gameObject.AddComponent<AudioDirector>();
+            audio.Init(new PlaceholderAudioBank(), HudScreen.LocalPlayer);
+            world.SetAudio(audio);
+            _audio = audio;
+
             // Card hotkeys and the F3 overlay ride the same router as the world.
             input.OnCardSlot += slot => ui.Hud?.Card?.Activate(slot);
+            input.OnGroupKey += groups.HandleKey;
             input.OnToggleDebug += debugOverlay.Toggle;
             _runner = runner;
             _tileResolver = catalog;

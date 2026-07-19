@@ -79,6 +79,25 @@ namespace Craftwar.View
             ClampToBounds();
         }
 
+        /// <summary>
+        /// Jump the camera so (worldX, worldY) is centered, clamped to the map.
+        /// Used by the minimap; the initial start-location centering in
+        /// GameBootstrap does the same thing by hand.
+        /// </summary>
+        public void CenterOn(float worldX, float worldY)
+        {
+            var p = transform.position;
+            transform.position = new Vector3(worldX, worldY, p.z);
+            ClampToBounds();
+        }
+
+        /// <summary>Half-height of the view in world units (= tiles).</summary>
+        public float HalfHeightWorld => _camera != null ? _camera.orthographicSize : 0f;
+
+        /// <summary>Half-width of the view in world units (= tiles).</summary>
+        public float HalfWidthWorld =>
+            _camera != null ? _camera.orthographicSize * _camera.aspect : 0f;
+
         void ClampToBounds()
         {
             float halfH = _camera.orthographicSize;
