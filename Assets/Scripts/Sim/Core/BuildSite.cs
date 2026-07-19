@@ -72,19 +72,17 @@ namespace Craftwar.Sim
 
                     uint occ = state.OccupancySurface[y * terrain.Width + x];
                     if (occ == 0 || occ == builderPacked) continue;
-
-                    // An oil platform is raised *on* its patch, so the patch is the
-                    // one occupant that does not block — every other unit does.
-                    if (kind == SiteKind.OilPlatform && IsOilPatch(state, occ))
-                    {
-                        patchPacked = occ;
-                        continue;
-                    }
                     return SiteBlock.Occupied;
                 }
 
-            if (kind == SiteKind.OilPlatform && patchPacked == 0)
-                result = SiteBlock.NoOilPatch;
+            // Patches are deliberately absent from the occupancy layer (they do
+            // not block ships), so find the one under this site by unit scan.
+            if (kind == SiteKind.OilPlatform)
+            {
+                patchPacked = FindPatchAt(state, tileX, tileY, size);
+                if (patchPacked == 0)
+                    result = SiteBlock.NoOilPatch;
+            }
             return result;
         }
 
@@ -98,12 +96,50 @@ namespace Craftwar.Sim
             _ => terrain.IsPassable(MoveDomain.Land, x, y),
         };
 
-        static bool IsOilPatch(GameState state, uint packed)
+        /// <summary>
+        /// The oil patch a platform at this site would consume, or 0. Requires
+        /// exact alignment: the platform replaces the patch tile-for-tile, as in
+        /// the original, so a half-overlapping site is not a valid rig.
+        /// </summary>
+        public static uint FindPatchAt(GameState state, int tileX, int tileY, int size)
         {
-            var id = UnitId.FromPacked(packed);
-            if (!state.TryGetUnitIndex(id, out int i)) return false;
-            ref Unit u = ref state.Units[i];
-            return u.IsAlive && state.Rules.Units[u.TypeId].Is(UnitTypeFlags.OilPatch);
+            for (int i = 0; i < state.HighestUnitIndex; i++)
+            {
+                ref Unit u = ref state.Units[i];
+                if (!u.IsAlive || !state.Rules.Units[u.TypeId].Is(UnitTypeFlags.OilPatch))
+                    continue;
+                if (u.TileX != tileX || u.TileY != tileY)
+                    continue;
+                if (state.Footprint(u.TypeId) != size)
+                    continue;
+                return new UnitId((ushort)i, u.Gen).Packed;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Snap a click to the patch it lands on, so the player does not have to
+        /// pixel-align a 3x3 rig by hand. Returns false if no patch is under it.
+        /// </summary>
+        public static bool TrySnapToPatch(GameState state, int tileX, int tileY,
+            int size, out int snappedX, out int snappedY)
+        {
+            snappedX = tileX;
+            snappedY = tileY;
+            for (int i = 0; i < state.HighestUnitIndex; i++)
+            {
+                ref Unit u = ref state.Units[i];
+                if (!u.IsAlive || !state.Rules.Units[u.TypeId].Is(UnitTypeFlags.OilPatch))
+                    continue;
+                int ps = state.Footprint(u.TypeId);
+                // Does the proposed footprint touch this patch at all?
+                if (tileX + size <= u.TileX || u.TileX + ps <= tileX) continue;
+                if (tileY + size <= u.TileY || u.TileY + ps <= tileY) continue;
+                snappedX = u.TileX;
+                snappedY = u.TileY;
+                return true;
+            }
+            return false;
         }
     }
 }

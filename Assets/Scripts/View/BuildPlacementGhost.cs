@@ -76,10 +76,11 @@ namespace Craftwar.View
             var state = _host.Sim.State;
             int size = state.Footprint(type);
             Vector2 world = _camera.ScreenToWorldPoint(mouse.position.ReadValue());
-            // Footprint center under the cursor -> top-left tile (mirrors
-            // WorldInputController.PlaceBuilding, including the map Y flip).
-            int tileX = Mathf.FloorToInt(world.x) - (size - 1) / 2;
-            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y) - (size - 1) / 2;
+            // Exactly the placement the Build command will use — same helper, so
+            // the preview can never sit somewhere other than the real site.
+            if (!WorldInputController.BuildTileUnderCursor(
+                    state, _mapHeight, world, type, out int tileX, out int tileY))
+                return;
 
             // Building sprite (completed frame). Fall back to a solid quad so
             // the footprint is always visible even if art fails to resolve.

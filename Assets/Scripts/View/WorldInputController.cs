@@ -471,15 +471,35 @@ namespace Craftwar.View
                 _selection.Remove(_evict[i]);
         }
 
+        /// <summary>
+        /// Where a building would go for a cursor at `world`: the footprint is
+        /// centred on the cursor, then an oil platform snaps onto whichever
+        /// patch it overlaps. The placement ghost and the Build command MUST
+        /// call this same helper — when they each did their own arithmetic the
+        /// preview sat off the site it was previewing.
+        /// </summary>
+        public static bool BuildTileUnderCursor(GameState state, int mapHeight,
+            Vector2 world, ushort buildType, out int tileX, out int tileY)
+        {
+            int size = state.Footprint(buildType);
+            tileX = Mathf.FloorToInt(world.x) - (size - 1) / 2;
+            tileY = mapHeight - 1 - Mathf.FloorToInt(world.y) - (size - 1) / 2;
+
+            if (state.Rules.Units[buildType].Is(UnitTypeFlags.OilSource)
+                && BuildSite.TrySnapToPatch(state, tileX, tileY, size, out int sx, out int sy))
+            {
+                tileX = sx;
+                tileY = sy;
+            }
+            return state.Terrain != null && state.Terrain.InBounds(tileX, tileY);
+        }
+
         unsafe void PlaceBuilding(Vector2 screenPos)
         {
             var state = _host.Sim.State;
             Vector2 world = _camera.ScreenToWorldPoint(screenPos);
-            int size = state.Footprint(_ui.PendingBuildType);
-            // Click points at the footprint center; convert to top-left tile.
-            int tileX = Mathf.FloorToInt(world.x) - (size - 1) / 2;
-            int tileY = _mapHeight - 1 - Mathf.FloorToInt(world.y) - (size - 1) / 2;
-            if (state.Terrain == null || !state.Terrain.InBounds(tileX, tileY))
+            if (!BuildTileUnderCursor(state, _mapHeight, world, _ui.PendingBuildType,
+                    out int tileX, out int tileY))
                 return;
 
             var cmd = new GameCommand
@@ -490,10 +510,15 @@ namespace Craftwar.View
                 TargetY = (ushort)tileY,
                 Param = _ui.PendingBuildType,
             };
+            // Workers erect land structures, tankers raise oil platforms — the
+            // sim applies the same split (GameSim.CanBuild).
+            bool wantsTanker = state.Rules.Units[_ui.PendingBuildType].Is(UnitTypeFlags.OilSource);
             foreach (uint packed in _selection)
             {
-                if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
-                    || !state.Rules.Units[state.Units[idx].TypeId].Is(UnitTypeFlags.Peon))
+                if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx))
+                    continue;
+                ref var row = ref state.Rules.Units[state.Units[idx].TypeId];
+                if (!row.Is(wantsTanker ? UnitTypeFlags.Tanker : UnitTypeFlags.Peon))
                     continue;
                 cmd.Selection.Ids[cmd.SelectionCount++] = packed;
                 break; // one builder

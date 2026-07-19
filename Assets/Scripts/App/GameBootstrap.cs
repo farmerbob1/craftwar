@@ -17,8 +17,18 @@ namespace Craftwar.App
     {
         [SerializeField] TilemapView tilemapView;
         [SerializeField] CameraRig cameraRig;
-        [Tooltip("Optional override; otherwise LocalAssetPaths.defaultMap is used.")]
+        [Tooltip("Map to load. Empty = LocalAssetPaths.defaultMap. A bare file " +
+                 "name resolves against StreamingAssets/Maps; anything containing " +
+                 "a separator is used as a literal path.")]
         [SerializeField] string mapOverridePath = "";
+
+        /// <summary>Where the inspector dropdown looks, and where a bare
+        /// <c>mapOverridePath</c> is resolved from. Blizzard .pud files here are
+        /// gitignored — see .gitignore.</summary>
+        public const string MapsFolder = "Maps";
+
+        public static string StreamingMapsDir =>
+            Path.Combine(Application.streamingAssetsPath, MapsFolder);
 
         public PudFile CurrentMap { get; private set; }
 
@@ -50,6 +60,26 @@ namespace Craftwar.App
             }
         }
 
+        /// <summary>
+        /// Empty override falls back to the per-machine LocalAssetPaths default.
+        /// A bare file name means "one of the maps shipped in StreamingAssets",
+        /// which is what the inspector dropdown stores — that keeps the scene
+        /// portable, where an absolute path would bake in one machine's layout.
+        /// A value with a separator is honoured verbatim, so existing absolute
+        /// overrides keep working.
+        /// </summary>
+        string ResolveMapPath(LocalAssetPaths paths)
+        {
+            if (string.IsNullOrEmpty(mapOverridePath))
+                return Path.Combine(paths.mapsDir ?? "", paths.defaultMap ?? "");
+
+            bool bareName = mapOverridePath.IndexOf('/') < 0
+                && mapOverridePath.IndexOf('\\') < 0;
+            return bareName
+                ? Path.Combine(StreamingMapsDir, mapOverridePath)
+                : mapOverridePath;
+        }
+
         void Start()
         {
             var paths = LocalAssetPaths.Load();
@@ -61,9 +91,7 @@ namespace Craftwar.App
                 return;
             }
 
-            string mapPath = !string.IsNullOrEmpty(mapOverridePath)
-                ? mapOverridePath
-                : Path.Combine(paths.mapsDir ?? "", paths.defaultMap ?? "");
+            string mapPath = ResolveMapPath(paths);
             if (!File.Exists(mapPath))
             {
                 Debug.LogError($"[Craftwar] Map not found: {mapPath}");

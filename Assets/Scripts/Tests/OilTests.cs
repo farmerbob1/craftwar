@@ -243,6 +243,113 @@ namespace Craftwar.Sim.Tests
             Assert.IsFalse(sim.State.Units[platform].IsAlive, "a dry platform is removed");
         }
 
+        // ---- playtest regressions -------------------------------------------
+
+        [Test]
+        public void Tanker_CanBeOrderedToRaiseAPlatform()
+        {
+            // Regression: the Build gate only consulted the *worker* menu, so a
+            // tanker's oil platform came back TechUnavailable.
+            var pud = CoastMap();
+            pud.Units.Add(new PudUnitEntry
+            { X = PatchX, Y = PatchY, Type = (byte)UnitTypeId.OilPatch, Owner = 15, Alter = 4 });
+            var sim = Boot(pud);
+            var id = sim.State.SpawnUnit((ushort)UnitTypeId.HumanTanker, 0, 16, 10);
+            sim.State.TryGetUnitIndex(id, out int tanker);
+            sim.State.Units[tanker].Hp = 90;
+
+            Run(sim, 1, Cmd(sim, CommandOp.Build, tanker,
+                tx: PatchX, ty: PatchY, param: (ushort)UnitTypeId.HumanOilWell));
+
+            Assert.AreEqual(OrderType.Build, sim.State.Units[tanker].Order,
+                "the tanker accepted the build order");
+        }
+
+        [Test]
+        public void Peasant_CannotRaiseAPlatform()
+        {
+            var pud = CoastMap();
+            pud.Units.Add(new PudUnitEntry
+            { X = PatchX, Y = PatchY, Type = (byte)UnitTypeId.OilPatch, Owner = 15, Alter = 4 });
+            var sim = Boot(pud);
+            var id = sim.State.SpawnUnit((ushort)UnitTypeId.Peasant, 0, 4, 6);
+            sim.State.TryGetUnitIndex(id, out int peasant);
+            sim.State.Units[peasant].Hp = 90;
+
+            Run(sim, 1, Cmd(sim, CommandOp.Build, peasant,
+                tx: PatchX, ty: PatchY, param: (ushort)UnitTypeId.HumanOilWell));
+
+            Assert.AreNotEqual(OrderType.Build, sim.State.Units[peasant].Order,
+                "platforms are the tanker's job");
+        }
+
+        [Test]
+        public void UnclaimedOilPatch_DoesNotBlockShips()
+        {
+            // Regression: the patch is flagged Building, so it walled off the
+            // water around it — ships could not sail over an unbuilt patch.
+            var pud = CoastMap();
+            pud.Units.Add(new PudUnitEntry
+            { X = 15, Y = 10, Type = (byte)UnitTypeId.OilPatch, Owner = 15, Alter = 4 });
+            var sim = Boot(pud);
+
+            Assert.IsTrue(
+                sim.State.FootprintFree(UnitId.None, (ushort)UnitTypeId.HumanTanker, 16, 11),
+                "the patch does not occupy the water");
+
+            var pf = new Pathfinder(sim.State.Terrain, sim.State);
+            var path = new ushort[sim.State.Terrain.Width * sim.State.Terrain.Height];
+            int steps = pf.FindPath(MoveDomain.SeaDock, 1, 12, 11, 20, 11, path);
+            Assert.Greater(steps, 0, "a route exists");
+            Assert.AreEqual(20, path[steps - 1] % sim.State.Terrain.Width,
+                "and it runs straight through the patch");
+        }
+
+        [Test]
+        public void FinishedPlatform_DoesBlockShips()
+        {
+            var sim = Boot(CoastMap());
+            Place(sim, UnitTypeId.HumanOilWell, 15, 10);
+            Assert.IsFalse(
+                sim.State.FootprintFree(UnitId.None, (ushort)UnitTypeId.HumanTanker, 16, 11),
+                "once raised, the rig is solid");
+        }
+
+        [Test]
+        public void PlatformSite_IsFoundByUnitScan_NotOccupancy()
+        {
+            // The patch is deliberately absent from the occupancy layer, so the
+            // site check must locate it by scanning units.
+            var pud = CoastMap();
+            pud.Units.Add(new PudUnitEntry
+            { X = PatchX, Y = PatchY, Type = (byte)UnitTypeId.OilPatch, Owner = 15, Alter = 4 });
+            var sim = Boot(pud);
+
+            Assert.AreEqual(SiteBlock.None,
+                BuildSite.Check(sim.State, (ushort)UnitTypeId.HumanOilWell,
+                    PatchX, PatchY, 0, out uint patch));
+            Assert.AreNotEqual(0u, patch);
+        }
+
+        [Test]
+        public void ClickNearAPatch_SnapsOntoIt()
+        {
+            // The ghost and the Build command share this, so a rig never needs
+            // hand-alignment and the preview always sits on the real site.
+            var pud = CoastMap();
+            pud.Units.Add(new PudUnitEntry
+            { X = PatchX, Y = PatchY, Type = (byte)UnitTypeId.OilPatch, Owner = 15, Alter = 4 });
+            var sim = Boot(pud);
+
+            Assert.IsTrue(BuildSite.TrySnapToPatch(sim.State, PatchX + 2, PatchY + 1, 3,
+                out int sx, out int sy), "an overlapping click finds the patch");
+            Assert.AreEqual(PatchX, sx);
+            Assert.AreEqual(PatchY, sy);
+
+            Assert.IsFalse(BuildSite.TrySnapToPatch(sim.State, PatchX + 9, PatchY, 3, out _, out _),
+                "a click well clear of it does not");
+        }
+
         [Test]
         public void OilCycle_IsDeterministic()
         {

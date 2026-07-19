@@ -49,10 +49,12 @@ namespace Craftwar.Sim
                     break;
 
                 case CommandOp.Build:
-                    // The order must be on the player's race build menu and
-                    // pass the tech/ALOW gate before a worker even walks out.
+                    // The order must be on a build menu for the player's race and
+                    // pass the tech/ALOW gate before a builder even walks out.
+                    // Two menus exist: workers erect land/shore structures,
+                    // tankers raise oil platforms.
                     if (cmd.Param >= UdtaParser.UnitCount
-                        || !OnWorkerBuildMenu(cmd.Player, (UnitTypeId)cmd.Param)
+                        || !OnAnyBuildMenu(cmd.Player, (UnitTypeId)cmd.Param)
                         || !CanProduce(cmd.Player, (UnitTypeId)cmd.Param))
                     {
                         Emit(SimEventKind.CommandDenied, cmd.Player,
@@ -64,8 +66,7 @@ namespace Craftwar.Sim
                         if (!State.TryGetUnitIndex(UnitId.FromPacked(cmd.Selection.Ids[i]), out int idx))
                             continue;
                         ref Unit u = ref State.Units[idx];
-                        if (u.Player != cmd.Player ||
-                            !State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Peon))
+                        if (u.Player != cmd.Player || !CanBuild(ref u, (UnitTypeId)cmd.Param))
                             continue;
                         u.Order = OrderType.Build;
                         u.BuildType = (ushort)(cmd.Param + 1); // 1-based, 0 = idle
@@ -153,12 +154,36 @@ namespace Craftwar.Sim
             }
         }
 
-        bool OnWorkerBuildMenu(byte player, UnitTypeId type)
+        static bool Lists(UnitTypeId[] menu, UnitTypeId type)
         {
-            var menu = TechTree.WorkerBuildings(State.Players[player].Race);
             for (int i = 0; i < menu.Length; i++)
                 if (menu[i] == type)
                     return true;
+            return false;
+        }
+
+        bool OnWorkerBuildMenu(byte player, UnitTypeId type) =>
+            Lists(TechTree.WorkerBuildings(State.Players[player].Race), type);
+
+        bool OnTankerBuildMenu(byte player, UnitTypeId type) =>
+            Lists(TechTree.TankerBuildings(State.Players[player].Race), type);
+
+        bool OnAnyBuildMenu(byte player, UnitTypeId type) =>
+            OnWorkerBuildMenu(player, type) || OnTankerBuildMenu(player, type);
+
+        /// <summary>
+        /// Can this unit erect that structure? Workers raise everything on the
+        /// worker menu; tankers raise oil platforms and nothing else. Keeping
+        /// the two menus disjoint per builder is what stops a peasant walking
+        /// out to sea to build a platform.
+        /// </summary>
+        bool CanBuild(ref Unit u, UnitTypeId type)
+        {
+            ref UnitTypeData row = ref State.Rules.Units[u.TypeId];
+            if (row.Is(UnitTypeFlags.Peon))
+                return OnWorkerBuildMenu(u.Player, type);
+            if (row.Is(UnitTypeFlags.Tanker))
+                return OnTankerBuildMenu(u.Player, type);
             return false;
         }
 

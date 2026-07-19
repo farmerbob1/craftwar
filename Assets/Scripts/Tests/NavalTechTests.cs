@@ -90,18 +90,45 @@ namespace Craftwar.Sim.Tests
                 UpgradeId.OrcShipArmor2));
         }
 
+        // Ground truth: PEON.C fnCanBuild -> OLDSB.C can_build_* (structures)
+        // and the shipyard/aviary card gates bf_*_ok (units).
+        [TestCase(UnitTypeId.HumanShipyard, UnitTypeId.ElvenLumberMill)]
+        [TestCase(UnitTypeId.OrcShipyard, UnitTypeId.TrollLumberMill)]
         [TestCase(UnitTypeId.HumanFoundry, UnitTypeId.HumanShipyard)]
         [TestCase(UnitTypeId.HumanRefinery, UnitTypeId.HumanShipyard)]
-        [TestCase(UnitTypeId.HumanOilWell, UnitTypeId.HumanShipyard)]
+        [TestCase(UnitTypeId.HumanTransport, UnitTypeId.HumanFoundry)]
+        [TestCase(UnitTypeId.OrcTransport, UnitTypeId.OrcFoundry)]
         [TestCase(UnitTypeId.Battleship, UnitTypeId.HumanFoundry)]
+        [TestCase(UnitTypeId.Juggernaught, UnitTypeId.OrcFoundry)]
         [TestCase(UnitTypeId.GnomishSubmarine, UnitTypeId.GnomishInventor)]
+        [TestCase(UnitTypeId.GiantTurtle, UnitTypeId.GoblinAlchemist)]
+        [TestCase(UnitTypeId.GnomishFlyingMachine, UnitTypeId.GnomishInventor)]
+        [TestCase(UnitTypeId.GnomishFlyingMachine, UnitTypeId.ElvenLumberMill)]
         [TestCase(UnitTypeId.GryphonRider, UnitTypeId.GryphonAviary)]
         [TestCase(UnitTypeId.Dragon, UnitTypeId.DragonRoost)]
-        [TestCase(UnitTypeId.OrcOilWell, UnitTypeId.OrcShipyard)]
-        public void Prereqs_ChainThroughTheShipyard(UnitTypeId type, UnitTypeId required)
+        public void Prereqs_MatchTheOriginalGateTable(UnitTypeId type, UnitTypeId required)
         {
             Assert.IsTrue(Lists(TechTree.Prereqs(type), required),
                 $"{type} should require {required}");
+        }
+
+        [Test]
+        public void TankerAndDestroyer_NeedNothingBeyondTheShipyard()
+        {
+            // bf_tanker_ok / bf_destroyer_ok gate on nothing but the ALOW bit —
+            // the shipyard hosting the button is the only requirement.
+            Assert.AreEqual(0, TechTree.Prereqs(UnitTypeId.HumanTanker).Length);
+            Assert.AreEqual(0, TechTree.Prereqs(UnitTypeId.ElvenDestroyer).Length);
+            Assert.AreEqual(0, TechTree.Prereqs(UnitTypeId.TrollDestroyer).Length);
+        }
+
+        [Test]
+        public void OilPlatform_HasNoPrereq()
+        {
+            // can_build_always in the original: owning a tanker to raise it
+            // already implies a shipyard.
+            Assert.AreEqual(0, TechTree.Prereqs(UnitTypeId.HumanOilWell).Length);
+            Assert.AreEqual(0, TechTree.Prereqs(UnitTypeId.OrcOilWell).Length);
         }
 
         [Test]

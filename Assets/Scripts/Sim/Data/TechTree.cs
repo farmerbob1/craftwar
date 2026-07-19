@@ -99,14 +99,12 @@ namespace Craftwar.Sim
         static readonly UnitTypeId[] NeedOFoundry = { UnitTypeId.OrcFoundry };
         static readonly UnitTypeId[] NeedHAviary = { UnitTypeId.GryphonAviary };
         static readonly UnitTypeId[] NeedODragonRoost = { UnitTypeId.DragonRoost };
-        static readonly UnitTypeId[] NeedHInventorAndShipyard =
-            { UnitTypeId.GnomishInventor, UnitTypeId.HumanShipyard };
-        static readonly UnitTypeId[] NeedOAlchemistAndShipyard =
-            { UnitTypeId.GoblinAlchemist, UnitTypeId.OrcShipyard };
-        static readonly UnitTypeId[] NeedHFoundryAndShipyard =
-            { UnitTypeId.HumanFoundry, UnitTypeId.HumanShipyard };
-        static readonly UnitTypeId[] NeedOFoundryAndShipyard =
-            { UnitTypeId.OrcFoundry, UnitTypeId.OrcShipyard };
+        static readonly UnitTypeId[] NeedHInventor = { UnitTypeId.GnomishInventor };
+        static readonly UnitTypeId[] NeedOAlchemist = { UnitTypeId.GoblinAlchemist };
+        static readonly UnitTypeId[] NeedHMillAndInventor =
+            { UnitTypeId.ElvenLumberMill, UnitTypeId.GnomishInventor };
+        static readonly UnitTypeId[] NeedOMillAndAlchemist =
+            { UnitTypeId.TrollLumberMill, UnitTypeId.GoblinAlchemist };
 
         /// <summary>Buildings that must exist before `type` can be built or trained.</summary>
         public static UnitTypeId[] Prereqs(UnitTypeId type) => type switch
@@ -116,10 +114,12 @@ namespace Craftwar.Sim
             UnitTypeId.OgreMound => NeedStronghold,
             UnitTypeId.Church => NeedCastle,
             UnitTypeId.MageTower => NeedCastle,
-            UnitTypeId.GnomishInventor => NeedCastle,
+            // can_build_inventor: keep OR castle — Satisfies() lets a castle
+            // stand in for the keep, so requiring the keep is the correct rule.
+            UnitTypeId.GnomishInventor => NeedKeep,
             UnitTypeId.AltarOfStorms => NeedFortress,
             UnitTypeId.TempleOfTheDamned => NeedFortress,
-            UnitTypeId.GoblinAlchemist => NeedFortress,
+            UnitTypeId.GoblinAlchemist => NeedStronghold,
 
             // Hall tiers (as self-upgrade targets)
             UnitTypeId.Keep => NeedHBarracks,
@@ -145,25 +145,37 @@ namespace Craftwar.Sim
             UnitTypeId.Paladin => NeedStables,
             UnitTypeId.OgreMage => NeedMound,
 
-            // Naval + air structures
+            // Naval + air structures. Verbatim from the original's per-building
+            // gate table (PEON.C fnCanBuild -> OLDSB.C can_build_*): a shipyard
+            // needs a lumber mill, foundry and refinery need a shipyard, and an
+            // oil rig is can_build_always — no prerequisite at all, since owning
+            // a tanker to raise it already implies a shipyard.
+            UnitTypeId.HumanShipyard => NeedElvenMill,
+            UnitTypeId.OrcShipyard => NeedTrollMill,
             UnitTypeId.HumanFoundry => NeedHShipyard,
             UnitTypeId.OrcFoundry => NeedOShipyard,
             UnitTypeId.HumanRefinery => NeedHShipyard,
             UnitTypeId.OrcRefinery => NeedOShipyard,
-            UnitTypeId.HumanOilWell => NeedHShipyard,
-            UnitTypeId.OrcOilWell => NeedOShipyard,
+            UnitTypeId.HumanOilWell => NoBuildings,
+            UnitTypeId.OrcOilWell => NoBuildings,
             UnitTypeId.GryphonAviary => NeedCastle,
             UnitTypeId.DragonRoost => NeedFortress,
 
-            // Naval units (the shipyard itself is implied by the build menu)
-            UnitTypeId.ElvenDestroyer => NeedHShipyard,
-            UnitTypeId.TrollDestroyer => NeedOShipyard,
-            UnitTypeId.Battleship => NeedHFoundryAndShipyard,
-            UnitTypeId.Juggernaught => NeedOFoundryAndShipyard,
-            UnitTypeId.GnomishSubmarine => NeedHInventorAndShipyard,
-            UnitTypeId.GiantTurtle => NeedOAlchemistAndShipyard,
+            // Naval units, from the shipyard card gates (OLDSB.C bf_*_ok).
+            // Tanker and destroyer have no gate beyond the shipyard that hosts
+            // the button; transport and battleship both need a FOUNDRY; the
+            // submarine/turtle needs the inventor/alchemist.
+            UnitTypeId.HumanTransport => NeedHFoundry,
+            UnitTypeId.OrcTransport => NeedOFoundry,
+            UnitTypeId.Battleship => NeedHFoundry,
+            UnitTypeId.Juggernaught => NeedOFoundry,
+            UnitTypeId.GnomishSubmarine => NeedHInventor,
+            UnitTypeId.GiantTurtle => NeedOAlchemist,
 
-            // Air units
+            // Air units. The scouting flyers need mill + inventor (bf_flyer_ok);
+            // gryphons/dragons need their roost (bf_dragon_ok).
+            UnitTypeId.GnomishFlyingMachine => NeedHMillAndInventor,
+            UnitTypeId.GoblinZeppelin => NeedOMillAndAlchemist,
             UnitTypeId.GryphonRider => NeedHAviary,
             UnitTypeId.Dragon => NeedODragonRoost,
 

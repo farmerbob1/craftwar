@@ -131,6 +131,18 @@ namespace Craftwar.Sim
                     }
         }
 
+        /// <summary>
+        /// Does this type obstruct movement? An unclaimed oil patch is flagged
+        /// Building so it renders and can be targeted, but it is scenery
+        /// floating on open water — ships sail straight over it, and only the
+        /// platform later raised on top of it blocks. Keeping the patch out of
+        /// the occupancy layer entirely (rather than special-casing every
+        /// reader) also stops a passing ship's Occupy from overwriting the
+        /// patch's entry, which Vacate would never restore.
+        /// </summary>
+        public bool BlocksMovement(ushort typeId) =>
+            Rules == null || !Rules.Units[typeId].Is(UnitTypeFlags.OilPatch);
+
         /// <summary>Is the footprint at (tileX,tileY) free for this unit (ignoring itself)?</summary>
         public bool FootprintFree(UnitId self, ushort typeId, int tileX, int tileY)
         {
@@ -181,6 +193,8 @@ namespace Craftwar.Sim
                 PixY = tileY * SimConstants.TilePixels,
             };
             var id = new UnitId(index, gen);
+            if (!BlocksMovement(typeId))
+                return id;
             Occupy(id, typeId, tileX, tileY);
             return id;
         }
