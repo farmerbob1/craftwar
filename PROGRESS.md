@@ -130,22 +130,45 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   152/152 EditMode.
 
 ## In flight
-**M8** (HUD, menus, audio, victory, first-run import). Plan:
-`C:\Users\mattc\.claude\plans\synchronous-booping-bengio.md`. Landed so far:
+**M8 — all phases landed, needs a playtest pass.** 234/234 EditMode. Plan:
+`C:\Users\mattc\.claude\plans\synchronous-booping-bengio.md`.
 
-- **Phase 0d — loose-asset spike, gate GREEN.** See "The asset situation" below.
+- **Phase 0** — repaired `UIAssetCatalog` (three UXML refs had been null since
+  the UI-framework commit; the guard now checks fields, not just existence);
+  split `UIManager.Init` into `Init`/`SetRoot` so a scene with no sim can host
+  the stack; added a UnityEngine-free JSON reader; corrected stale docs.
 - **Phase 1 — victory.** `IVictoryEvaluator` + `MeleeVictoryEvaluator`;
   `PlayerState` gained hashed `Controller`/`Team`/`Outcome`; `MatchSetup.FromPud`
   preserves the human-vs-computer distinction `Setup` used to discard.
-  Victory keys off `Controller`, never `InGame` — passive/rescue slots are
-  in-game (their units spawn) but are not opponents.
-- **Phase 0a — `UIAssetCatalog` repaired.** Three UXML refs were null since the
-  UI-framework commit; the on-load guard now checks fields, not just existence.
-- **Music transcoded** offline via `Tools/convert_music.py` (608 MB → 77 MB).
+  **Victory keys off `Controller`, never `InGame`** — passive/rescue slots are
+  in-game (their units spawn) but are not opponents, and an InGame-keyed check
+  never resolves on those maps. `TickVictory` full-scans once a second rather
+  than maintaining counters, same desync reasoning as fog.
+- **Phase 2 — scene flow.** `MatchConfig` + `MatchSession`, `Menu.unity` at
+  build index 0, main menu, map picker, victory screen, Surrender (a
+  `GameCommand`, so it travels lockstep), timestamped replays.
+- **Phase 3/4 — asset seam and migration.** `IAssetSource` +
+  `LooseFileAssetSource` + `Wc2InstallLocator`; sprites and tilesets now read
+  named files from the install. `FileForUnit` was *generated* by composing
+  `EntryForUnit` with a pixel-exact reverse lookup of all 267 loose `.grp`s.
+- **Phase 5 — audio.** `RiffWav` (~150 lines) plus `Wc2SoundCatalog`, which
+  scans rather than constructs filenames. `IAudioProvider` gained a per-unit
+  axis; variant draws use `UnityEngine.Random`, never `GameState.Rng`.
+- **Phase 6 — names and icons.** Real names from `Strings/<locale>.json`;
+  command-card icons from the HUD atlas, resolved in the view from
+  `(Kind, Param)` so the model stays presentation-free.
+- **Phase 7 — music.** `MusicDirector` (crossfade, shuffled bag,
+  `DontDestroyOnLoad`) over `MusicLibrary`, which prefers the converted Ogg
+  cache and falls back to streaming the install's WAVs.
+- **Phase 8 — first-run import.** `ImportWizardScreen`; writes a pointer,
+  copies nothing.
 
-Next: Phase 0b (`UIManager` root-screen refactor), 0c (asmdef/JSON seams),
-then Phase 2 (MatchConfig + scene flow + menus) which delivers a playable
-start→victory.
+**Known incomplete:** `UnitIconTable` is hand-authored (no icon field exists
+anywhere in UDTA) and covers only unambiguous art — everything else still shows
+the initials box. It is **unverified in play**; check entries against the real
+game before extending it. Portraits, the WC2 HUD skin (`ThemeWc2.tss`) and the
+Options screen are not started. `PauseMenuScreen`'s Save button is still
+disabled — there is no `SimSerializer`, and that is M10 reconnect work.
 
 ## The asset situation (supersedes several older notes below)
 **Everything ships loose and decoder-free in the Remastered install** under
@@ -155,8 +178,9 @@ start→victory.
 `Strings/enUS.json` (`unit_<typeId>` keys map onto `UnitTypeId`).
 
 There is **no `maindat.war` in the install** — `LocalAssetPaths.maindatWar`
-points at a war2tools *sample* on the Desktop, so the current pipeline cannot
-bootstrap on a fresh machine. The only archive present is
+points at a war2tools *sample* on the Desktop, which is why the pre-M8 pipeline
+could not bootstrap anywhere but this machine. `dataRoot` is now the primary
+source and `maindatWar` an optional legacy fallback. The only archive present is
 `x86\Data\Files\War2Dat.mpq` (MPQ v1, 1192 files).
 
 Phase 0d proved the loose files decode identically: tilesets byte-identical with
@@ -240,5 +264,20 @@ The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
     `.seq` pass is still the standing backlog item.
 
 ## Next milestones (per plan)
-- M8 real HUD + menus + music + victory + first-run import (in flight — see above).
+- M8 code-complete; playtest and finish icons/skin/options (see "In flight").
   M9 AI. M10 LAN lockstep. M11 online + team vision. (Details in plan file.)
+
+## Playtest checklist for M8
+Nothing below is covered by the test gate — it all needs eyes on the running game.
+1. Launch to `Menu.unity`: main menu appears, menu music plays.
+2. Skirmish → pick a map → match loads, in-game music starts per race.
+3. Select units: correct voice lines, one bark per selection, not twelve.
+4. Command card: icons where mapped, initials elsewhere, and **check the mapped
+   icons are the right units** — `UnitIconTable` was derived by eye.
+5. Play to victory *and* to defeat: screen appears, sting plays, Restart and
+   Main Menu both work and leave nothing behind.
+6. Surrender from the pause menu resolves the match.
+7. Replays: each finished match writes its own timestamped `.cwrp`.
+8. **Fresh-machine simulation** — move `LocalAssetPaths.json` out of the repo
+   root, clear `persistentDataPath`, and confirm the wizard finds the install
+   and hands over to a playable menu.
