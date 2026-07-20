@@ -23,7 +23,13 @@ namespace Craftwar.View
         public virtual void OnFocus() { }
         public virtual void OnBlur() { }
 
-        /// <summary>Per-frame refresh. Only the top screen and the HUD tick.</summary>
+        /// <summary>
+        /// Per-frame refresh. Every screen on the stack ticks, not just the top
+        /// one — so a screen that is covered must still cope with being ticked.
+        /// (This has never mattered: the stack has only ever been [HUD, modal],
+        /// where "all" and "top plus HUD" are the same thing. It starts to matter
+        /// with the M8 menu stack.)
+        /// </summary>
         public virtual void Tick() { }
 
         /// <summary>Return true if this screen consumed the Escape key.</summary>

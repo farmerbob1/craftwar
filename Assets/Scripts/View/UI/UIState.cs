@@ -3,11 +3,6 @@ using System.Collections.Generic;
 namespace Craftwar.View
 {
     /// <summary>
-    /// Frame-rate UI/input state shared between world input and UI panels.
-    /// View-only: never read by the sim, never serialized, never hashed.
-    /// Replaces the old HudController handshake object.
-    /// </summary>
-    /// <summary>
     /// An order that has been chosen from the command card but still needs a
     /// world click to resolve its target. Build is the original placement mode;
     /// the rest arrived with the unit action card.
@@ -24,6 +19,10 @@ namespace Craftwar.View
         Unload,
     }
 
+    /// <summary>
+    /// Frame-rate UI/input state shared between world input and UI panels.
+    /// View-only: never read by the sim, never serialized, never hashed.
+    /// </summary>
     public sealed class UIState
     {
         /// <summary>Set while the player is choosing a target for a card order.</summary>

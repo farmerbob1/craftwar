@@ -3,7 +3,7 @@ using UnityEngine.UIElements;
 namespace Craftwar.View
 {
     /// <summary>
-    /// Reserves the sidebar's top slot for the M6 minimap and, more usefully
+    /// Reserves the sidebar's top slot for the minimap and, more usefully
     /// right now, makes that area pickable so clicks there never reach the
     /// battlefield. <see cref="Content"/> is where the minimap render texture
     /// goes at M6.

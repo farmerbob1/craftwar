@@ -130,19 +130,58 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   152/152 EditMode.
 
 ## In flight
-Nothing — M7 just landed; M8 not started.
+**M8** (HUD, menus, audio, victory, first-run import). Plan:
+`C:\Users\mattc\.claude\plans\synchronous-booping-bengio.md`. Landed so far:
+
+- **Phase 0d — loose-asset spike, gate GREEN.** See "The asset situation" below.
+- **Phase 1 — victory.** `IVictoryEvaluator` + `MeleeVictoryEvaluator`;
+  `PlayerState` gained hashed `Controller`/`Team`/`Outcome`; `MatchSetup.FromPud`
+  preserves the human-vs-computer distinction `Setup` used to discard.
+  Victory keys off `Controller`, never `InGame` — passive/rescue slots are
+  in-game (their units spawn) but are not opponents.
+- **Phase 0a — `UIAssetCatalog` repaired.** Three UXML refs were null since the
+  UI-framework commit; the on-load guard now checks fields, not just existence.
+- **Music transcoded** offline via `Tools/convert_music.py` (608 MB → 77 MB).
+
+Next: Phase 0b (`UIManager` root-screen refactor), 0c (asmdef/JSON seams),
+then Phase 2 (MatchConfig + scene flow + menus) which delivers a playable
+start→victory.
+
+## The asset situation (supersedes several older notes below)
+**Everything ships loose and decoder-free in the Remastered install** under
+`x86\Data\`: `Gamesfx/` (399 named PCM WAVs + `gamesfx.lst`), `Sfx/`, `Speech/`,
+`Music/`, `Art/unit/**/*.grp` (94 named sprite banks), `Art/bgs/<era>/*.{ppl,vr4,vx4,cv4}`,
+`Art/classic/HUD/` (196 icons × 4 eras at 46×38 + team masks + HUD chrome),
+`Strings/enUS.json` (`unit_<typeId>` keys map onto `UnitTypeId`).
+
+There is **no `maindat.war` in the install** — `LocalAssetPaths.maindatWar`
+points at a war2tools *sample* on the Desktop, so the current pipeline cannot
+bootstrap on a fresh machine. The only archive present is
+`x86\Data\Files\War2Dat.mpq` (MPQ v1, 1192 files).
+
+Phase 0d proved the loose files decode identically: tilesets byte-identical with
+a clean folder↔era diagonal, and 253 of 267 `.grp` files matching a maindat entry
+pixel-for-pixel (the rest are simply absent from that older archive — loose is a
+strict superset). **Era trap:** `bgs/Swamp` is the *Wasteland* era, `Iceland` is
+Winter; GRP prefixes are none=Forest, `s_`=Winter, `l_`=Wasteland, `x_`=Swamp.
+The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
+`Orc/x_sub.grp` the turtle (527).
 
 ## Known gaps / decisions
 - Sim system order: commands → production → movement → combat → harvest →
-  construction(stub) → fog(stub) → victory(stub). Tick = 50Hz, turn = 4.
+  transport → construction(stub) → fog → victory. Tick = 50Hz, turn = 4.
+  `TickConstruction` is the only remaining stub (real construction lives in
+  `TickProduction` + `TickBuilderWalk`); `TickVictory` runs a full scan once a
+  second, deliberately not incremental counters — same desync reasoning as fog.
 - BNE quirk: Town Hall UDTA lacks wood-storage bit; FindDepot accepts
   GoldDepot|LumberDepot for wood (original hardcoded behavior).
 - AttackMove engages only chargers/adjacent while marching (chases once
   engaged); head-on swap deadlocks resolved by strict repath.
 - Anim block layout is heuristic (walk 0-4, attack 5+, death last 3);
   refine per-unit against original .seq data later.
-- HUD is IMGUI placeholder until M8; construction sites render translucent
-  (no stage frames yet); no sounds yet; walls unsupported.
+- The IMGUI HUD is gone (83b1228) — the UI Toolkit HUD is the only one. The sole
+  remaining OnGUI is `DebugOverlay.cs` (F3), which stays IMGUI on purpose.
+  Construction sites render translucent (no stage frames yet); walls unsupported.
 - Backlog task: PSX UNITDATA.ARR diff report (spot checks matched BNE).
 - FindNearbyWood has no reachability check (PSX gates on region map
   `rgn_has_access`); the ToWood stuck-timeout compensates. Revisit if
@@ -173,10 +212,13 @@ Nothing — M7 just landed; M8 not started.
   - Attack-move stays on **Ctrl+click**, not the original's A+click: 'a' is
     command-card slot 3. Ctrl+click and Ctrl+number do not collide.
   - No team vision (M11), no sight-blocking terrain (WC2 has none either).
-  - Audio is placeholder tones behind `IAudioProvider`; M8 swaps in a real
-    War2 sound decoder. No sound decoder exists anywhere yet — war2tools never
-    implemented one, so the entry ids must be found empirically (the
-    `DebugDump` sweep is the template) or via Wargus `wartool.exe`.
+  - Audio is placeholder tones behind `IAudioProvider`; M8 swaps in the real
+    sound. **CORRECTED (M8): there is no sound decoder to write.** The earlier
+    note here — that maindat.war entry ids had to be found empirically — was a
+    dead end twice over. A sweep of all 528 entries found only 5 WAVs and 51 XMI
+    tracks; the SFX corpus was never in that archive. The real sounds ship loose
+    and uncompressed as named PCM WAVs (see "The asset situation" above), so all
+    that is needed is a RIFF reader. Do not restart the `DebugDump` hunt.
 
 - M7 decisions to revisit:
   - **Coast is no longer land-passable.** This is faithful (utype.h: shore is
@@ -198,5 +240,5 @@ Nothing — M7 just landed; M8 not started.
     `.seq` pass is still the standing backlog item.
 
 ## Next milestones (per plan)
-- M8 real HUD + menus + music + first-run import (and the real sound decoder).
+- M8 real HUD + menus + music + victory + first-run import (in flight — see above).
   M9 AI. M10 LAN lockstep. M11 online + team vision. (Details in plan file.)
