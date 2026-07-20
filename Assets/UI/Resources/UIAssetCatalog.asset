@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Craftwar.View::Craftwar.View.UIAssetCatalog
   panelSettings: {fileID: 11400000, guid: 1a006ad7331a6ec49be00179153676e6, type: 2}
   hudScreen: {fileID: 9197481963319205126, guid: a933f1edb83a36e41bcba038202ea3d1, type: 3}
-  pauseMenuScreen: {fileID: 0}
-  commandButton: {fileID: 0}
-  unitTile: {fileID: 0}
+  pauseMenuScreen: {fileID: 9197481963319205126, guid: 21773b8d2e554f8478c06d9d010d2746, type: 3}
+  commandButton: {fileID: 9197481963319205126, guid: 57af1cbf2e3fd6a4d8f85feb247dc213, type: 3}
+  unitTile: {fileID: 9197481963319205126, guid: aaa85e0e541640d43a84e923e290baf4, type: 3}

@@ -42,13 +42,37 @@ namespace Craftwar.EditorTools
         /// (or a wiped Library) would otherwise start with a HUD-less scene and
         /// a Resources.Load failure at runtime. Generate them on reload when
         /// the catalog is missing; the menu item stays for a forced refresh.
+        ///
+        /// Checks every field, not just the catalog's existence. A catalog
+        /// serialized before a template landed keeps a null reference forever —
+        /// an absence-only check never repairs it, the screen silently falls
+        /// back to its code-built version, and the UXML becomes dead code that
+        /// looks wired. That is exactly what happened to pauseMenuScreen,
+        /// commandButton and unitTile between the UI-framework commit and M8.
         /// </summary>
         [InitializeOnLoadMethod]
         static void EnsureUiAssetsOnLoad()
         {
-            if (AssetDatabase.LoadAssetAtPath<UIAssetCatalog>(CatalogPath) == null)
+            if (NeedsUiAssets())
                 EditorApplication.delayCall += () => EnsureUiAssets();
         }
+
+        static bool NeedsUiAssets()
+        {
+            var catalog = AssetDatabase.LoadAssetAtPath<UIAssetCatalog>(CatalogPath);
+            if (catalog == null)
+                return true;
+            return catalog.panelSettings == null
+                || catalog.hudScreen == null
+                || (catalog.pauseMenuScreen == null && HasUxml("PauseMenuScreen"))
+                || (catalog.commandButton == null && HasUxml("CommandButton"))
+                || (catalog.unitTile == null && HasUxml("UnitTile"));
+        }
+
+        /// <summary>A null field is only a defect once the template exists on disk;
+        /// before that it is the honest state of an unbuilt screen.</summary>
+        static bool HasUxml(string name) =>
+            AssetDatabase.LoadAssetAtPath<VisualTreeAsset>($"Assets/UI/UXML/{name}.uxml") != null;
 
         /// <summary>
         /// Creates the PanelSettings + UIAssetCatalog that back the UI Toolkit
