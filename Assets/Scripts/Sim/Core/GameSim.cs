@@ -176,6 +176,20 @@ namespace Craftwar.Sim
         {
             switch (cmd.Op)
             {
+                // Concede. A command rather than a UI action so it travels the
+                // lockstep path like everything else and lands on the same tick
+                // for every peer. Emitting here rather than leaving it to
+                // TickVictory keeps the announcement immediate; the latch there
+                // then skips this slot, so it is still announced exactly once.
+                case CommandOp.Surrender:
+                    if (cmd.Player < SimConstants.MaxPlayers
+                        && State.Players[cmd.Player].Outcome == PlayerOutcome.Playing)
+                    {
+                        State.Players[cmd.Player].Outcome = PlayerOutcome.Defeated;
+                        Emit(SimEventKind.PlayerDefeated, cmd.Player, 0, 0);
+                    }
+                    break;
+
                 case CommandOp.Move:
                     for (int i = 0; i < cmd.SelectionCount; i++)
                     {

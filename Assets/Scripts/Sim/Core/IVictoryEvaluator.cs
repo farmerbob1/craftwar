@@ -89,7 +89,7 @@ namespace Craftwar.Sim
                     continue;
                 }
 
-                bool alive = AliveAt(p, alive0, alive1, alive2, alive3, alive4, alive5, alive6, alive7);
+                bool alive = IsAlive(state, p, alive0, alive1, alive2, alive3, alive4, alive5, alive6, alive7);
                 if (!alive)
                 {
                     outcomes[p] = PlayerOutcome.Defeated;
@@ -104,12 +104,26 @@ namespace Craftwar.Sim
                     ref PlayerState qs = ref state.Players[q];
                     if (qs.Controller == Controller.None || qs.Team == ps.Team)
                         continue;
-                    if (AliveAt(q, alive0, alive1, alive2, alive3, alive4, alive5, alive6, alive7))
+                    if (IsAlive(state, q, alive0, alive1, alive2, alive3, alive4, alive5, alive6, alive7))
                         anyEnemyLeft = true;
                 }
 
                 outcomes[p] = anyEnemyLeft ? PlayerOutcome.Playing : PlayerOutcome.Victorious;
             }
+        }
+
+        /// <summary>
+        /// Holding units is not enough: a player who has already been marked
+        /// Defeated stays dead. That is what makes Surrender work — otherwise a
+        /// conceding player's surviving army would keep the match alive and
+        /// nobody could win.
+        /// </summary>
+        static bool IsAlive(GameState state, int p,
+            bool a0, bool a1, bool a2, bool a3, bool a4, bool a5, bool a6, bool a7)
+        {
+            if (state.Players[p].Outcome == PlayerOutcome.Defeated)
+                return false;
+            return AliveAt(p, a0, a1, a2, a3, a4, a5, a6, a7);
         }
 
         static bool AliveAt(int p, bool a0, bool a1, bool a2, bool a3, bool a4, bool a5, bool a6, bool a7)

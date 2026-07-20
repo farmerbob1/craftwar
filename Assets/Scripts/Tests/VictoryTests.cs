@@ -219,6 +219,66 @@ namespace Craftwar.Sim.Tests
             Assert.AreEqual(PlayerOutcome.Playing, sim.State.Players[0].Outcome);
         }
 
+        // ---------- surrender ----------
+
+        [Test]
+        public void Surrender_DefeatsTheConceder_AndLetsTheEnemyWin()
+        {
+            // The point of the feature: the conceder still has a full army, so
+            // a units-only test would leave the match unresolvable forever.
+            var pud = BaseMap();
+            Seat(pud, 0, PudOwner.Human);
+            Seat(pud, 1, PudOwner.Computer);
+            Place(pud, 0, UnitTypeId.Footman, 5, 5);
+            Place(pud, 0, UnitTypeId.TownHall, 8, 8);
+            Place(pud, 1, UnitTypeId.Grunt, 20, 20);
+
+            var sim = Boot(pud);
+            sim.Advance(new List<GameCommand>
+            {
+                new GameCommand { Op = CommandOp.Surrender, Player = 0, SelectionCount = 0 },
+            });
+
+            Assert.AreEqual(PlayerOutcome.Defeated, sim.State.Players[0].Outcome,
+                "surrender resolves immediately, not on the next victory check");
+
+            Run(sim, SimConstants.VictoryCheckTicks + 1);
+            Assert.AreEqual(PlayerOutcome.Victorious, sim.State.Players[1].Outcome,
+                "the surviving army must not keep the match alive");
+        }
+
+        [Test]
+        public void Surrender_IsAnnouncedOnce_AndCannotBeRepeated()
+        {
+            var pud = BaseMap();
+            Seat(pud, 0, PudOwner.Human);
+            Seat(pud, 1, PudOwner.Computer);
+            Place(pud, 0, UnitTypeId.Footman, 5, 5);
+            Place(pud, 1, UnitTypeId.Grunt, 20, 20);
+
+            var sim = Boot(pud);
+            var surrender = new List<GameCommand>
+            {
+                new GameCommand { Op = CommandOp.Surrender, Player = 0, SelectionCount = 0 },
+            };
+
+            sim.Advance(surrender);
+            int first = CountDefeats(sim);
+            sim.Advance(surrender); // a second click, or a duplicated packet
+            int second = CountDefeats(sim);
+
+            Assert.AreEqual(1, first);
+            Assert.AreEqual(0, second, "already-defeated players must not re-announce");
+        }
+
+        static int CountDefeats(GameSim sim)
+        {
+            int n = 0;
+            foreach (var e in sim.State.Events)
+                if (e.Kind == SimEventKind.PlayerDefeated) n++;
+            return n;
+        }
+
         // ---------- events, latching, determinism ----------
 
         [Test]

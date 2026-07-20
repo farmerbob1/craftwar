@@ -1,3 +1,4 @@
+using Craftwar.Sim;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -43,6 +44,7 @@ namespace Craftwar.View
 
             Bind("resume", () => _manager.Pop());
             Bind("quit", Quit);
+            Bind("surrender", Surrender);
 
             // Placeholders: visible so the shape of the menu is honest, but
             // disabled because nothing behind them exists yet.
@@ -76,7 +78,7 @@ namespace Craftwar.View
             foreach (var (n, text) in new[]
                      {
                          ("resume", "Resume"), ("options", "Options"),
-                         ("save", "Save Game"), ("quit", "Quit"),
+                         ("save", "Save Game"), ("surrender", "Surrender"), ("quit", "Quit"),
                      })
             {
                 var b = new Button { name = n, text = text };
@@ -94,6 +96,26 @@ namespace Craftwar.View
         {
             _manager.Pop();
             return true;
+        }
+
+        /// <summary>
+        /// Concede. Goes through the lockstep driver like any other command, so
+        /// it stays deterministic and lands in the replay. Also the way out of
+        /// the faithful stall where a player with one peasant and no gold can
+        /// neither win nor be defeated.
+        /// </summary>
+        void Surrender()
+        {
+            if (_host == null)
+                return;
+            var cmd = new GameCommand
+            {
+                Op = CommandOp.Surrender,
+                Player = HudScreen.LocalPlayer,
+                SelectionCount = 0,
+            };
+            _host.SubmitCommand(cmd);
+            _manager.Pop(); // unpause so the sim can execute the turn
         }
 
         static void Quit()

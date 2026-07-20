@@ -123,22 +123,34 @@ namespace Craftwar.App
             }
         }
 
-        void OnDestroy()
+        public static string ReplayDir => Path.Combine(Application.persistentDataPath, "Replays");
+
+        /// <summary>
+        /// Write the command log. Explicit saves are timestamped by the caller;
+        /// without one, every return to the menu would overwrite the same
+        /// last-session file, which only worked while quitting the app was the
+        /// sole way a match ended.
+        /// </summary>
+        public bool SaveReplay(string path)
         {
             if (_replay == null || _replay.Entries.Count == 0)
-                return;
+                return false;
             try
             {
-                string dir = Path.Combine(Application.persistentDataPath, "Replays");
-                Directory.CreateDirectory(dir);
-                string path = Path.Combine(dir, "last-session.cwrp");
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
                 File.WriteAllBytes(path, _replay.ToBytes());
                 Debug.Log($"[Craftwar] Replay saved: {path} ({_replay.Entries.Count} commands)");
+                return true;
             }
             catch (System.Exception e)
             {
                 Debug.LogWarning($"[Craftwar] Replay save failed: {e.Message}");
+                return false;
             }
         }
+
+        /// <summary>Safety net for crashes and alt-F4; a clean end-of-match has
+        /// already written its own timestamped copy.</summary>
+        void OnDestroy() => SaveReplay(Path.Combine(ReplayDir, "last-session.cwrp"));
     }
 }

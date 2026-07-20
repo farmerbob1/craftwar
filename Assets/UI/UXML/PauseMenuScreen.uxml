@@ -8,6 +8,7 @@
             <ui:Button name="resume" class="menu__button" text="Resume" />
             <ui:Button name="options" class="menu__button" text="Options" />
             <ui:Button name="save" class="menu__button" text="Save Game" />
+            <ui:Button name="surrender" class="menu__button" text="Surrender" />
             <ui:Button name="quit" class="menu__button" text="Quit" />
         </ui:VisualElement>
     </ui:VisualElement>

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Craftwar.Import;
 using Craftwar.Import.War2;
@@ -5,6 +6,7 @@ using Craftwar.Sim;
 using Craftwar.Sim.Pud;
 using Craftwar.View;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Craftwar.App
 {
@@ -27,6 +29,11 @@ namespace Craftwar.App
         /// gitignored — see .gitignore.</summary>
         public const string MapsFolder = "Maps";
 
+        /// <summary>The menu scene, added to build settings in Phase 2. Quitting to
+        /// menu degrades to a warning until it exists, so Game.unity stays runnable
+        /// on its own.</summary>
+        public const string MenuSceneName = "Menu";
+
         public static string StreamingMapsDir =>
             Path.Combine(Application.streamingAssetsPath, MapsFolder);
 
@@ -37,6 +44,10 @@ namespace Craftwar.App
         UIManager _ui;
         MinimapView _minimap;
         AudioDirector _audio;
+        MatchConfig _config;
+
+        /// <summary>Set once the match resolves, so the outcome is only announced once.</summary>
+        bool _matchOverShown;
 
         void LateUpdate()
         {
@@ -58,6 +69,58 @@ namespace Craftwar.App
                 _audio?.HandleSimEvents(_runner.PendingSimEvents);
                 _runner.PendingSimEvents.Clear();
             }
+
+            CheckMatchOver();
+        }
+
+        /// <summary>
+        /// Poll the local slot's hashed outcome rather than watching for the
+        /// one-frame PlayerDefeated/PlayerVictorious event. A screen that must
+        /// appear should not depend on us being alive for a single frame, and
+        /// this also picks the result up correctly after a load or a reconnect.
+        /// </summary>
+        void CheckMatchOver()
+        {
+            if (_matchOverShown || _ui == null || _runner?.Sim == null)
+                return;
+
+            byte local = _config?.localSlot ?? HudScreen.LocalPlayer;
+            var outcome = _runner.Sim.State.Players[local].Outcome;
+            if (outcome == PlayerOutcome.Playing)
+                return;
+
+            _matchOverShown = true;
+            SaveReplay();
+            _ui.Push(new VictoryScreen(_ui, _runner, outcome, Restart, QuitToMenu));
+        }
+
+        /// <summary>Reload the scene with the same config — everything is built in
+        /// Start(), so this is a clean reset with no teardown of its own.</summary>
+        public void Restart()
+        {
+            MatchSession.Pending = MatchSession.Current;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+
+        public void QuitToMenu()
+        {
+            if (Application.CanStreamedLevelBeLoaded(MenuSceneName))
+                SceneManager.LoadScene(MenuSceneName);
+            else
+                Debug.LogWarning($"[Craftwar] No '{MenuSceneName}' scene in build settings yet.");
+        }
+
+        /// <summary>
+        /// Timestamped, so returning to the menu no longer overwrites the previous
+        /// match. GameLoopRunner.OnDestroy still writes last-session.cwrp as a
+        /// safety net for crashes and alt-F4.
+        /// </summary>
+        void SaveReplay()
+        {
+            if (_runner == null)
+                return;
+            string name = $"match-{DateTime.Now:yyyyMMdd-HHmmss}.cwrp";
+            _runner.SaveReplay(Path.Combine(GameLoopRunner.ReplayDir, name));
         }
 
         /// <summary>
@@ -68,20 +131,30 @@ namespace Craftwar.App
         /// A value with a separator is honoured verbatim, so existing absolute
         /// overrides keep working.
         /// </summary>
-        string ResolveMapPath(LocalAssetPaths paths)
+        public static string ResolveMapPath(LocalAssetPaths paths, string mapPath)
         {
-            if (string.IsNullOrEmpty(mapOverridePath))
+            if (string.IsNullOrEmpty(mapPath))
                 return Path.Combine(paths.mapsDir ?? "", paths.defaultMap ?? "");
 
-            bool bareName = mapOverridePath.IndexOf('/') < 0
-                && mapOverridePath.IndexOf('\\') < 0;
+            bool bareName = mapPath.IndexOf('/') < 0
+                && mapPath.IndexOf('\\') < 0;
             return bareName
-                ? Path.Combine(StreamingMapsDir, mapOverridePath)
-                : mapOverridePath;
+                ? Path.Combine(StreamingMapsDir, mapPath)
+                : mapPath;
         }
 
         void Start()
         {
+            // A config handed over by the menu scene wins; with none (pressing
+            // Play straight on Game.unity, which is the dev loop) fall back to
+            // the inspector fields. Both paths must keep working.
+            _config = MatchSession.Take();
+            if (_config == null)
+            {
+                _config = MatchConfig.FromMapDefaults(mapOverridePath);
+                MatchSession.SetCurrent(_config);
+            }
+
             var paths = LocalAssetPaths.Load();
             if (paths == null || string.IsNullOrEmpty(paths.maindatWar) || !File.Exists(paths.maindatWar))
             {
@@ -91,7 +164,7 @@ namespace Craftwar.App
                 return;
             }
 
-            string mapPath = ResolveMapPath(paths);
+            string mapPath = ResolveMapPath(paths, _config.mapPath);
             if (!File.Exists(mapPath))
             {
                 Debug.LogError($"[Craftwar] Map not found: {mapPath}");
@@ -113,11 +186,15 @@ namespace Craftwar.App
             // --- Simulation ---
             var rules = RuleSet.CreateDefault();
             rules.ApplyMapOverrides(pud);
-            var sim = new GameSim(seed: 42); // lobby seed at M10
-            sim.Setup(pud, rules);
+            var sim = new GameSim(_config.seed);
+            var setup = _config.ToMatchSetup();
+            if (setup.HasValue)
+                sim.Setup(pud, rules, setup.Value);
+            else
+                sim.Setup(pud, rules); // no lobby: the map's own OWNR/SIDE
 
             var driver = new Craftwar.Net.LocalLockstepDriver();
-            var replay = new Replay { Seed = 42, MapHash = Replay.HashMapBytes(File.ReadAllBytes(mapPath)) };
+            var replay = new Replay { Seed = _config.seed, MapHash = Replay.HashMapBytes(File.ReadAllBytes(mapPath)) };
             var runner = gameObject.AddComponent<GameLoopRunner>();
             runner.Init(sim, driver, replay);
 

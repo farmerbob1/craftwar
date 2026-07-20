@@ -18,6 +18,9 @@ namespace Craftwar.Sim
         Board,
         Unload,
         Cast,
+        /// <summary>Concede. Appended, not inserted — these values are the wire
+        /// format and are baked into every existing replay.</summary>
+        Surrender,
     }
 
     /// <summary>
