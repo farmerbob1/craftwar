@@ -36,6 +36,17 @@ namespace Craftwar.App
                 { SoundId.PlacementBlocked, (240f, 0.12f, true)  },
             };
 
+        /// <summary>
+        /// No synthesized voices: a tone per unit type would be noise, not a
+        /// stand-in. Reporting zero variants makes callers skip barks entirely
+        /// until real audio is available.
+        /// </summary>
+        public int UnitSoundVariants(Craftwar.Sim.UnitTypeId type, Craftwar.Sim.Race race,
+                                     UnitSoundKind kind) => 0;
+
+        public AudioClip GetUnitSound(Craftwar.Sim.UnitTypeId type, Craftwar.Sim.Race race,
+                                      UnitSoundKind kind, int variant) => null;
+
         public AudioClip Get(SoundId id)
         {
             if (id == SoundId.None)

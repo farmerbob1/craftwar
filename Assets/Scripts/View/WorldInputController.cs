@@ -366,9 +366,10 @@ namespace Craftwar.View
                 cmd.Selection.Ids[cmd.SelectionCount++] = packed;
             }
             if (cmd.SelectionCount > 0)
-                _audio?.Play(op == CommandOp.Attack || op == CommandOp.AttackMove
-                    ? SoundId.OrderAttack
-                    : SoundId.OrderMove);
+                Bark(UnitSoundKind.Acknowledge,
+                    op == CommandOp.Attack || op == CommandOp.AttackMove
+                        ? SoundId.OrderAttack
+                        : SoundId.OrderMove);
             _host.SubmitCommand(cmd);
         }
 
@@ -455,7 +456,40 @@ namespace Craftwar.View
             // left in the set, so the two can never coexist.
             DropBuildings(state);
             if (_selection.Count > 0)
-                _audio?.Play(SoundId.OrderSelect);
+                Bark(UnitSoundKind.Selected, SoundId.OrderSelect);
+        }
+
+        /// <summary>
+        /// Speak as the first selected unit, falling back to a tone when that
+        /// unit has no recorded line (buildings, and every unit while running on
+        /// the placeholder bank).
+        ///
+        /// The first of the selection, not a random one: the original answers
+        /// with the group's lead unit, and picking randomly here would make
+        /// repeated clicks on one group sound like a crowd.
+        /// </summary>
+        void Bark(UnitSoundKind kind, SoundId fallback)
+        {
+            if (_audio == null)
+                return;
+
+            var state = _host.Sim.State;
+            foreach (uint packed in _selection)
+            {
+                if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx))
+                    continue;
+                ref Unit u = ref state.Units[idx];
+                if (u.Player != LocalPlayer)
+                    continue; // never speak for someone else's units
+
+                var race = u.Player < SimConstants.MaxPlayers
+                    ? state.Players[u.Player].Race
+                    : Race.Human;
+                if (_audio.TryPlayUnitSound((UnitTypeId)u.TypeId, race, kind))
+                    return;
+                break; // lead unit has no line: fall through to the tone
+            }
+            _audio.Play(fallback);
         }
 
         readonly List<uint> _evict = new List<uint>();

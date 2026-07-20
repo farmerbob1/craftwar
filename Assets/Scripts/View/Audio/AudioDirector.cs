@@ -71,11 +71,81 @@ namespace Craftwar.View
                 return;
 
             _lastPlayed[id] = now;
-            var voice = _voices[_next];
-            _next = (_next + 1) % _voices.Length;
+            PlayClip(clip);
+        }
+
+        /// <summary>
+        /// Take a voice. Prefers an idle one and only steals if all eight are
+        /// busy — plain round-robin would cut a half-finished line off mid-word
+        /// as soon as eight sounds overlap, which real voice lines (1-3 seconds)
+        /// make far likelier than the old blips did.
+        /// </summary>
+        void PlayClip(AudioClip clip)
+        {
+            AudioSource voice = null;
+            for (int i = 0; i < _voices.Length; i++)
+            {
+                var candidate = _voices[(_next + i) % _voices.Length];
+                if (!candidate.isPlaying)
+                {
+                    voice = candidate;
+                    _next = (_next + i + 1) % _voices.Length;
+                    break;
+                }
+            }
+            if (voice == null)
+            {
+                voice = _voices[_next];
+                _next = (_next + 1) % _voices.Length;
+            }
             voice.clip = clip;
             voice.Play();
         }
+
+        /// <summary>
+        /// A unit's voice line, picking a take at random.
+        ///
+        /// The draw uses UnityEngine.Random, never GameState.Rng: this is
+        /// presentation, and consuming sim randomness from the view would make
+        /// the world depend on what the local player happened to click.
+        ///
+        /// Only one line per event, not one per unit — selecting twelve footmen
+        /// makes one of them answer, as in the original.
+        /// </summary>
+        /// <summary>
+        /// Returns false when this unit has no such line, so the caller can fall
+        /// back to a generic cue. True also when the bark was suppressed by the
+        /// cooldown — the unit *does* speak, we simply chose not to repeat it,
+        /// and playing a tone instead would be worse than staying quiet.
+        /// </summary>
+        public bool TryPlayUnitSound(UnitTypeId type, Race race, UnitSoundKind kind)
+        {
+            if (_provider == null)
+                return false;
+            if (_provider.UnitSoundVariants(type, race, kind) <= 0)
+                return false;
+
+            float now = Time.unscaledTime;
+            // Barks share one cooldown across all units and kinds: the original's
+            // ACK_SND_MIN_TIME is a single global gate (GAMESND.C), which is what
+            // stops rapid clicking from producing a chorus.
+            if (now - _lastBark < BarkCooldown)
+                return true;
+
+            int count = _provider.UnitSoundVariants(type, race, kind);
+            var clip = _provider.GetUnitSound(type, race, kind, UnityEngine.Random.Range(0, count));
+            if (clip == null)
+                return false;
+
+            _lastBark = now;
+            PlayClip(clip);
+            return true;
+        }
+
+        float _lastBark = -999f;
+
+        /// <summary>ACK_SND_MIN_TIME in the original: one second between barks.</summary>
+        const float BarkCooldown = 1f;
 
         /// <summary>
         /// Turn this frame's sim events into sounds. Only events belonging to

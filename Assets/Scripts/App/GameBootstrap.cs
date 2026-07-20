@@ -252,7 +252,7 @@ namespace Craftwar.App
                 InputRouter.GroupCount);
 
             var audio = gameObject.AddComponent<AudioDirector>();
-            audio.Init(new PlaceholderAudioBank(), HudScreen.LocalPlayer);
+            audio.Init(new LooseAudioBank(assets), HudScreen.LocalPlayer);
             world.SetAudio(audio);
             _audio = audio;
 
