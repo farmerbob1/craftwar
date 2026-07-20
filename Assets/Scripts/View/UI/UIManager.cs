@@ -26,7 +26,26 @@ namespace Craftwar.View
         /// <summary>Layer for non-interactive world-space decorations (drag rect).</summary>
         public VisualElement OverlayLayer => _layerOverlay;
 
-        public void Init(ISimHost host, UIState ui)
+        /// <summary>
+        /// Set up the panel and layers for a match: the HUD becomes the stack's
+        /// permanent bottom entry. This is the in-game entry point.
+        /// </summary>
+        public void InitForMatch(ISimHost host, UIState ui)
+        {
+            if (!Init(ui, host))
+                return;
+            Hud = new HudScreen(_host, _ui, _layerNotify);
+            SetRoot(Hud);
+        }
+
+        /// <summary>
+        /// Set up the panel and layers with no match behind them, for the menu
+        /// scene. The caller supplies the bottom screen via <see cref="SetRoot"/>;
+        /// until then the stack is empty and <see cref="Hud"/> stays null.
+        /// </summary>
+        public void Init(UIState ui) => Init(ui, null);
+
+        bool Init(UIState ui, ISimHost host)
         {
             _host = host;
             _ui = ui;
@@ -37,7 +56,7 @@ namespace Craftwar.View
                 Debug.LogError("[Craftwar] UIAssetCatalog not found in Resources. " +
                                "Run Craftwar/Setup/Ensure UI Assets.");
                 enabled = false;
-                return;
+                return false;
             }
 
             _document = GetComponent<UIDocument>();
@@ -54,8 +73,19 @@ namespace Craftwar.View
             _layerNotify = AddLayer(root, "layer-notify", PickingMode.Ignore);
 
             _stack = new UIScreenStack(_assets);
-            Hud = new HudScreen(_host, _ui, _layerNotify);
-            _stack.Push(Hud, _layerHud);
+            return true;
+        }
+
+        /// <summary>
+        /// Install the stack's permanent bottom screen — the HUD in a match, the
+        /// main menu outside one. Lives on the HUD layer so pushed screens sit
+        /// above it. Call once, before anything is pushed.
+        /// </summary>
+        public void SetRoot(UIScreen screen)
+        {
+            if (_stack == null || screen == null)
+                return;
+            _stack.Push(screen, _layerHud);
         }
 
         /// <summary>
@@ -108,15 +138,19 @@ namespace Craftwar.View
                 Hud?.HandleSimEvents(events);
         }
 
-        public void Push(UIScreen screen) => _stack.Push(screen, _layerScreens);
-        public void Pop() => _stack.Pop();
-        public bool RouteEscape() => _stack.RouteEscape();
-        public bool HasScreen<T>() where T : UIScreen => _stack.Contains<T>();
+        public void Push(UIScreen screen) => _stack?.Push(screen, _layerScreens);
+        public void Pop() => _stack?.Pop();
+        public bool RouteEscape() => _stack != null && _stack.RouteEscape();
+        public bool HasScreen<T>() where T : UIScreen => _stack != null && _stack.Contains<T>();
 
-        /// <summary>Opens the pause menu if it isn't already up.</summary>
+        /// <summary>
+        /// Opens the pause menu if it isn't already up. No-op without a sim host:
+        /// the menu scene has nothing to pause, and the pause menu's Resume/Quit
+        /// would have nothing to act on.
+        /// </summary>
         public void OpenPauseMenu()
         {
-            if (!HasScreen<PauseMenuScreen>())
+            if (_host != null && !HasScreen<PauseMenuScreen>())
                 Push(new PauseMenuScreen(this, _host));
         }
     }

@@ -128,7 +128,7 @@ namespace Craftwar.App
             var uiState = new UIState();
             pool.Init(runner, spriteBank, pud.Height, uiState.Selection);
             var ui = gameObject.AddComponent<UIManager>();
-            ui.Init(runner, uiState);
+            ui.InitForMatch(runner, uiState);
 
             var input = gameObject.AddComponent<InputRouter>();
             input.Init(uiState, ui);
