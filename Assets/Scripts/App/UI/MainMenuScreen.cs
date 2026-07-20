@@ -43,7 +43,9 @@ namespace Craftwar.App
             title.pickingMode = PickingMode.Ignore;
             menu.Add(title);
 
-            bool haveData = _paths != null && !string.IsNullOrEmpty(_paths.maindatWar);
+            // HasData, not maindatWar: dataRoot (the loose install) is the primary
+            // source now, and a Remastered install has no maindat.war at all.
+            bool haveData = _paths != null && _paths.HasData;
 
             var skirmish = MenuButton("skirmish", "Single Player",
                 () => _manager.Push(new MatchSetupScreen(_manager, _paths, _onStart)));
