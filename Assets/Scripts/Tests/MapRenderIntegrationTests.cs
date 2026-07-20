@@ -1,5 +1,6 @@
 using System.IO;
 using Craftwar.App;
+using Craftwar.Import;
 using Craftwar.Import.War2;
 using Craftwar.Sim.Pud;
 using Craftwar.View;
@@ -10,14 +11,12 @@ using UnityEngine.Tilemaps;
 namespace Craftwar.Sim.Tests
 {
     /// <summary>
-    /// End-to-end M1 check without entering play mode: real PUD + real
-    /// maindat.war → tile catalog → TilemapView → every cell holds a real
+    /// End-to-end M1 check without entering play mode: real PUD + the player's own
+    /// installation → tile catalog → TilemapView → every cell holds a real
     /// (non-placeholder) tile.
     /// </summary>
     public class MapRenderIntegrationTests
     {
-        const string MaindatPath =
-            @"C:\Users\mattc\Desktop\Warcraft shit\war2tools-master\data\maindat.war";
         const string MapPath =
             @"C:\Program Files (x86)\Warcraft II Remastered\x86\Maps\Gold Rush BNE.pud";
 
@@ -33,12 +32,13 @@ namespace Craftwar.Sim.Tests
         [Test]
         public void FullPipeline_PudToTilemap_NoPlaceholderTiles()
         {
-            if (!File.Exists(MaindatPath) || !File.Exists(MapPath))
+            var installs = Wc2InstallLocator.Find();
+            if (installs.Count == 0 || !installs[0].IsUsable || !File.Exists(MapPath))
                 Assert.Ignore("Local WC2 data not present");
 
             var pud = PudFile.Parse(File.ReadAllBytes(MapPath));
-            var archive = new War2Archive(File.ReadAllBytes(MaindatPath));
-            var catalog = RuntimeTileCatalog.Build(archive, pud.Era);
+            var assets = new LooseFileAssetSource(installs[0].DataRoot);
+            var catalog = RuntimeTileCatalog.Build(assets, pud.Era);
             Assert.Greater(catalog.TileCount, 300);
 
             _gridGo = new GameObject("Grid", typeof(Grid));

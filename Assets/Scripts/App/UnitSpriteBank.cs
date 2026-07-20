@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Craftwar.Import;
 using Craftwar.Import.War2;
 using Craftwar.Sim;
 using Craftwar.Sim.Pud;
@@ -9,26 +10,36 @@ namespace Craftwar.App
 {
     /// <summary>
     /// Runtime unit sprite provider: decodes unit sprite banks out of the
-    /// archive on demand, one atlas per (unit entry, player color), and
+    /// installation on demand, one atlas per (sprite file, player color), and
     /// serves standing frames by facing. WC2 frames are grouped 5 per
     /// animation step (N, NE, E, SE, S); west-side facings mirror the east
     /// sprites.
     /// </summary>
     public sealed class UnitSpriteBank : IUnitSpriteProvider
     {
-        readonly War2Archive _archive;
+        readonly IAssetSource _source;
         readonly Rgba[] _palette;
         readonly PudEra _era;
-        readonly Dictionary<uint, Sprite[]> _cache = new Dictionary<uint, Sprite[]>();
+        readonly Dictionary<string, Sprite[]> _cache = new Dictionary<string, Sprite[]>();
 
-        public UnitSpriteBank(War2Archive archive, PudEra era)
+        public UnitSpriteBank(IAssetSource source, PudEra era)
         {
-            _archive = archive;
+            _source = source;
             _era = era;
-            _palette = War2Palette.Decode(archive.ExtractEntry(War2Palette.EntryForEra(era)));
+
+            string palettePath = $"art/bgs/{War2Palette.FolderForEra(era).ToLowerInvariant()}" +
+                                 $"/{War2Palette.StemForEra(era)}.ppl";
+            _palette = source.TryRead(palettePath, out var ppl)
+                ? War2Palette.Decode(ppl)
+                : null;
+            if (_palette == null)
+                Debug.LogError($"[Craftwar] Palette not found: {palettePath}");
         }
 
-        public bool Has(ushort typeId) => War2Sprites.EntryForUnit(typeId, _era) != 0;
+        public bool Has(ushort typeId) => War2Sprites.FileForUnit(typeId, _era) != null;
+
+        /// <summary>Logical path for a sprite file relative to the install's Data folder.</summary>
+        static string LogicalPath(string file) => "art/unit/" + file.ToLowerInvariant();
 
         public Sprite Get(ushort typeId, byte player, byte facing, out bool flipX)
         {
@@ -78,33 +89,35 @@ namespace Craftwar.App
         }
 
         /// <summary>
-        /// Cargo sprite bank overrides (worker carrying gold/wood). Falls back
-        /// to the base bank if the entry doesn't decode as a unit bank.
+        /// Art for a unit that is carrying something, or null for the base art.
+        ///
+        /// The loose filenames say outright what M4 and M7 had to establish by
+        /// eye: "g" is gold, "l" is lumber, "o" is oil. That also independently
+        /// confirms the laden-tanker banks, which M7 could only identify by
+        /// silhouette comparison — Human/tankero.grp decodes pixel-identically to
+        /// entry 126 and Orc/tankero.grp to 127, exactly as guessed.
         /// </summary>
-        static int CarryEntryOverride(ushort typeId, byte carry)
+        static string CarryFileOverride(ushort typeId, byte carry)
         {
-            // Laden tankers continue the same carry-variant block: 126/127.
-            // Identified by silhouette comparison against the base tanker banks
-            // (59/60) — 126 contains 100% of the human hull plus 7% extra
-            // pixels, 127 likewise for the orc, and the cross-pairings do not.
             if (typeId == (ushort)Craftwar.Sim.UnitTypeId.HumanTanker)
-                return carry == 3 ? 126 : 0;
+                return carry == 3 ? "Human/tankero.grp" : null;
             if (typeId == (ushort)Craftwar.Sim.UnitTypeId.OrcTanker)
-                return carry == 3 ? 127 : 0;
+                return carry == 3 ? "Orc/tankero.grp" : null;
 
             bool human = typeId is (ushort)Craftwar.Sim.UnitTypeId.Peasant
                 or (ushort)Craftwar.Sim.UnitTypeId.AttackPeasant;
             bool orc = typeId is (ushort)Craftwar.Sim.UnitTypeId.Peon
                 or (ushort)Craftwar.Sim.UnitTypeId.AttackPeon;
             if (!human && !orc)
-                return 0;
-            // Verified visually from maindat.war: 122/123 = wood-carrying
-            // peasant/peon, 124/125 = gold-carrying peasant/peon.
+                return null;
+
+            // Race is the folder; the stem is shared between both races.
+            string folder = human ? "Human/" : "Orc/";
             return carry switch
             {
-                1 => human ? 124 : 125, // gold sack
-                2 => human ? 122 : 123, // lumber bundle
-                _ => 0,
+                1 => folder + "peong.grp", // gold sack
+                2 => folder + "peonl.grp", // lumber bundle
+                _ => null,
             };
         }
 
@@ -124,55 +137,48 @@ namespace Craftwar.App
             return frames[index];
         }
 
-        readonly Dictionary<int, bool> _bankValidity = new Dictionary<int, bool>();
-
-        /// <summary>Sniff whether an archive entry decodes as a multi-frame unit bank.</summary>
-        bool LooksLikeUnitBank(int entry)
-        {
-            if (_bankValidity.TryGetValue(entry, out bool valid))
-                return valid;
-            valid = false;
-            try
-            {
-                var data = _archive.ExtractEntry(entry);
-                if (data != null && data.Length > 6)
-                {
-                    var bank = War2Sprites.Decode(data);
-                    valid = bank.FrameCount >= 15 && bank.MaxWidth >= 16 && bank.MaxWidth <= 96;
-                }
-            }
-            catch (War2FormatException) { }
-            catch (System.IndexOutOfRangeException) { }
-            _bankValidity[entry] = valid;
-            return valid;
-        }
-
         Sprite[] GetFrames(ushort typeId, byte player, byte carry = 0)
         {
-            int entry = 0;
-            if (carry != 0)
-            {
-                entry = CarryEntryOverride(typeId, carry);
-                if (entry != 0 && !LooksLikeUnitBank(entry))
-                    entry = 0; // wrong guess or absent: use base art
-            }
-            if (entry == 0)
-                entry = War2Sprites.EntryForUnit(typeId, _era);
-            if (entry == 0)
+            // Carry art is optional: fall back to the base bank if it is absent
+            // rather than rendering nothing.
+            string file = carry != 0 ? CarryFileOverride(typeId, carry) : null;
+            if (file != null && !_source.Exists(LogicalPath(file)))
+                file = null;
+            if (file == null)
+                file = War2Sprites.FileForUnit(typeId, _era);
+            if (file == null || _palette == null)
                 return null;
+
             byte playerColor = (byte)(player < 8 ? player : 0);
-            uint key = ((uint)entry << 8) | playerColor;
+            string key = file + "#" + playerColor;
             if (_cache.TryGetValue(key, out var cached))
                 return cached;
 
-            var bank = War2Sprites.Decode(_archive.ExtractEntry(entry));
+            if (!_source.TryRead(LogicalPath(file), out var data))
+            {
+                Debug.LogWarning($"[Craftwar] Sprite not found: {file}");
+                _cache[key] = null;
+                return null;
+            }
+
+            SpriteBank bank;
+            try
+            {
+                bank = War2Sprites.Decode(data);
+            }
+            catch (War2FormatException e)
+            {
+                Debug.LogWarning($"[Craftwar] Sprite decode failed for {file}: {e.Message}");
+                _cache[key] = null;
+                return null;
+            }
             int cols = Mathf.CeilToInt(Mathf.Sqrt(bank.FrameCount));
             int rows = (bank.FrameCount + cols - 1) / cols;
             int cw = bank.MaxWidth, ch = bank.MaxHeight;
 
             var atlas = new Texture2D(cols * cw, rows * ch, TextureFormat.RGBA32, false)
             {
-                name = $"unit_{entry}_p{playerColor}",
+                name = $"unit_{key}",
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp,
             };
@@ -208,7 +214,7 @@ namespace Craftwar.App
                     new Rect(cellX, cellY, cw, ch),
                     new Vector2(0.5f, 0.5f),
                     SimConstants.TilePixels, 0, SpriteMeshType.FullRect);
-                sprites[f].name = $"u{entry}_p{playerColor}_f{f}";
+                sprites[f].name = $"{key}_f{f}";
             }
             atlas.Apply(false, false);
 

@@ -133,8 +133,12 @@ namespace Craftwar.App
         /// </summary>
         public static string ResolveMapPath(LocalAssetPaths paths, string mapPath)
         {
+            // paths can be null: the install may have been auto-detected without
+            // a LocalAssetPaths.json existing at all.
             if (string.IsNullOrEmpty(mapPath))
-                return Path.Combine(paths.mapsDir ?? "", paths.defaultMap ?? "");
+                return paths == null
+                    ? string.Empty
+                    : Path.Combine(paths.mapsDir ?? "", paths.defaultMap ?? "");
 
             bool bareName = mapPath.IndexOf('/') < 0
                 && mapPath.IndexOf('\\') < 0;
@@ -156,11 +160,24 @@ namespace Craftwar.App
             }
 
             var paths = LocalAssetPaths.Load();
-            if (paths == null || string.IsNullOrEmpty(paths.maindatWar) || !File.Exists(paths.maindatWar))
+            var assets = paths?.CreateAssetSource();
+            if (assets == null)
+            {
+                // dataRoot is unset or gone. Try to find an install anyway, so a
+                // dev machine with no LocalAssetPaths.json still runs; the Phase 8
+                // wizard turns this into a real first-run flow.
+                var found = Wc2InstallLocator.Find();
+                if (found.Count > 0 && found[0].IsUsable)
+                {
+                    assets = new LooseFileAssetSource(found[0].DataRoot);
+                    Debug.Log($"[Craftwar] Auto-detected install: {found[0].DataRoot}");
+                }
+            }
+            if (assets == null)
             {
                 Debug.LogError(
-                    "[Craftwar] LocalAssetPaths.json missing or maindatWar not found. " +
-                    $"Create {LocalAssetPaths.ProjectRootPath} pointing at your maindat.war.");
+                    "[Craftwar] No Warcraft II data found. Set dataRoot in " +
+                    $"{LocalAssetPaths.ProjectRootPath} to your installation's Data folder.");
                 return;
             }
 
@@ -174,8 +191,7 @@ namespace Craftwar.App
             var pud = PudFile.Parse(File.ReadAllBytes(mapPath));
             CurrentMap = pud;
 
-            var archive = new War2Archive(File.ReadAllBytes(paths.maindatWar));
-            var catalog = RuntimeTileCatalog.Build(archive, pud.Era);
+            var catalog = RuntimeTileCatalog.Build(assets, pud.Era);
 
             tilemapView.LoadMap(pud, catalog);
             cameraRig.SetMapBounds(pud.Width, pud.Height);
@@ -199,7 +215,7 @@ namespace Craftwar.App
             runner.Init(sim, driver, replay);
 
             // --- Unit views + input ---
-            var spriteBank = new UnitSpriteBank(archive, pud.Era);
+            var spriteBank = new UnitSpriteBank(assets, pud.Era);
             var poolGo = new GameObject("UnitViews");
             var pool = poolGo.AddComponent<UnitViewPool>();
             var uiState = new UIState();

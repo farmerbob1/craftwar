@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Craftwar.Import;
 using Craftwar.Import.War2;
 using Craftwar.Sim.Pud;
 using Craftwar.View;
@@ -27,10 +28,17 @@ namespace Craftwar.App
         public Texture2D Atlas { get; private set; }
         public int TileCount => _tiles.Count;
 
-        public static RuntimeTileCatalog Build(War2Archive archive, PudEra era)
+        public static RuntimeTileCatalog Build(IAssetSource source, PudEra era)
         {
             var catalog = new RuntimeTileCatalog();
-            var tileset = War2Tileset.Load(archive, era);
+            var tileset = War2Tileset.Load(source, era);
+            if (tileset == null)
+            {
+                Debug.LogError($"[Craftwar] Tileset not found for era {era} " +
+                               $"(looked under art/bgs/{War2Palette.FolderForEra(era)}). " +
+                               $"Source: {source.Describe()}");
+                return catalog;
+            }
             var decoded = tileset.DecodeAll();
 
             // "Special" megatiles with no MTXM id — chopping art the sim

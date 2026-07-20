@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Craftwar.Import;
 using Craftwar.Sim.Pud;
 
 namespace Craftwar.Import.War2
@@ -51,6 +52,32 @@ namespace Craftwar.Import.War2
                 archive.ExtractEntry(paletteEntry + 2),
                 archive.ExtractEntry(paletteEntry + 3),
                 palette);
+        }
+
+        /// <summary>
+        /// Load from a loose installation. The four archive entries correspond to
+        /// four files, and which extension is which is fixed by arithmetic rather
+        /// than guesswork: .vx4 is indexed 32 bytes per megatile (11904 B = 372),
+        /// .vr4 is 64 bytes per minitile (224128 B = 3502), and .cv4 is the
+        /// megatile map addressed by (id&gt;&gt;4)*42 + (id&amp;0xF)*2, whose maximum
+        /// offset for id 0x9DF is 6626 — just inside the file's 6636 bytes.
+        ///
+        /// Verified byte-identical against the archive path for all four eras.
+        /// Returns null if any part is missing, so callers can fall back.
+        /// </summary>
+        public static War2Tileset Load(IAssetSource source, PudEra era)
+        {
+            string folder = War2Palette.FolderForEra(era).ToLowerInvariant();
+            string stem = War2Palette.StemForEra(era);
+            string Path(string ext) => $"art/bgs/{folder}/{stem}.{ext}";
+
+            if (!source.TryRead(Path("ppl"), out var ppl)
+                || !source.TryRead(Path("vx4"), out var info)
+                || !source.TryRead(Path("vr4"), out var pixels)
+                || !source.TryRead(Path("cv4"), out var map))
+                return null;
+
+            return new War2Tileset(info, pixels, map, War2Palette.Decode(ppl));
         }
 
         /// <summary>
