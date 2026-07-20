@@ -45,9 +45,15 @@ namespace Craftwar.App
         MinimapView _minimap;
         AudioDirector _audio;
         MatchConfig _config;
+        MusicDirector _music;
 
         /// <summary>Set once the match resolves, so the outcome is only announced once.</summary>
         bool _matchOverShown;
+
+        /// <summary>The install folder behind an asset source, for music (which
+        /// reads whole files rather than going through the source).</summary>
+        static string DataRootOf(IAssetSource source) =>
+            source is LooseFileAssetSource loose ? loose.Root : null;
 
         void LateUpdate()
         {
@@ -91,6 +97,8 @@ namespace Craftwar.App
 
             _matchOverShown = true;
             SaveReplay();
+            _music?.Play(outcome == PlayerOutcome.Victorious ? MusicCue.Victory : MusicCue.Defeat,
+                         _runner.Sim.State.Players[local].Race);
             _ui.Push(new VictoryScreen(_ui, _runner, outcome, Restart, QuitToMenu));
         }
 
@@ -261,6 +269,13 @@ namespace Craftwar.App
             var icons = IconAtlas.Load(assets, pud.Era);
             if (icons != null)
                 ui.Hud?.Card?.SetIconProvider(icons);
+
+            var music = MusicLibrary.Create(paths, DataRootOf(assets));
+            if (music != null)
+            {
+                _music = MusicDirector.Ensure(music);
+                _music.Play(MusicCue.InGame, sim.State.Players[_config.localSlot].Race);
+            }
             world.SetAudio(audio);
             _audio = audio;
 

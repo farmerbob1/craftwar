@@ -31,6 +31,17 @@ namespace Craftwar.App
 
             var paths = LocalAssetPaths.Load();
             _ui.SetRoot(new MainMenuScreen(_ui, paths, StartMatch));
+
+            string dataRoot = paths?.dataRoot;
+            if (string.IsNullOrEmpty(dataRoot))
+            {
+                var found = Wc2InstallLocator.Find();
+                if (found.Count > 0 && found[0].IsUsable)
+                    dataRoot = found[0].DataRoot;
+            }
+            var music = MusicLibrary.Create(paths, dataRoot);
+            if (music != null)
+                MusicDirector.Ensure(music).Play(MusicCue.Menu);
         }
 
         /// <summary>Hand the config over and switch scenes. GameBootstrap consumes it in Start().</summary>
