@@ -254,12 +254,61 @@ namespace Craftwar.View
                 if (empty)
                     continue;
 
-                if (_icons[i] != null)
-                    _icons[i].text = s.Label;
+                ApplyIcon(_icons[i], ref s);
                 if (_costs[i] != null)
                     _costs[i].text = CostText(ref s);
                 _buttons[i].tooltip = s.Label;
             }
+        }
+
+        /// <summary>
+        /// Paint the slot's art, or leave the name as text when there is none.
+        ///
+        /// The icon is derived here rather than stored on CommandSlot because it
+        /// is a pure function of (Kind, Param) — both already part of
+        /// ComputeStructureHash, so a changed icon can never be missed and the
+        /// model stays presentation-free.
+        ///
+        /// The label survives either way: with art it becomes the accessible
+        /// name behind the image, and without it, it is the button.
+        /// </summary>
+        void ApplyIcon(Label icon, ref CommandSlot s)
+        {
+            if (icon == null)
+                return;
+
+            var sprite = _iconProvider?.Get(IconIndex(ref s));
+            icon.style.backgroundImage = sprite == null
+                ? new StyleBackground(StyleKeyword.Null)
+                : new StyleBackground(sprite);
+            icon.text = sprite == null ? s.Label : string.Empty;
+        }
+
+        int IconIndex(ref CommandSlot s)
+        {
+            switch (s.Kind)
+            {
+                case CommandSlotKind.Build:
+                case CommandSlotKind.Train:
+                case CommandSlotKind.UpgradeTo:
+                    return UnitIconTable.IconFor((UnitTypeId)s.Param);
+                case CommandSlotKind.Research:
+                    // Upgrades carry their icon in the data (UGRD offset 364),
+                    // so unlike units this needs no hand-authored table.
+                    var rules = _host?.Sim?.State.Rules;
+                    return rules == null ? UnitIconTable.None : rules.Upgrades[s.Param].Icon;
+                default:
+                    return UnitIconTable.None;
+            }
+        }
+
+        IIconProvider _iconProvider;
+
+        /// <summary>Injected once assets resolve; null keeps the text buttons.</summary>
+        public void SetIconProvider(IIconProvider provider)
+        {
+            _iconProvider = provider;
+            Render();
         }
 
         static string CostText(ref CommandSlot s)

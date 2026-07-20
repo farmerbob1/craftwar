@@ -253,6 +253,14 @@ namespace Craftwar.App
 
             var audio = gameObject.AddComponent<AudioDirector>();
             audio.Init(new LooseAudioBank(assets), HudScreen.LocalPlayer);
+
+            // Real names and icons, where the installation provides them. Both
+            // are injected rather than looked up, so a machine with no data
+            // still renders the reflection-derived names and initials boxes.
+            UnitNames.SetStringTable(Wc2StringTable.Load(assets, paths?.locale ?? "enUS"));
+            var icons = IconAtlas.Load(assets, pud.Era);
+            if (icons != null)
+                ui.Hud?.Card?.SetIconProvider(icons);
             world.SetAudio(audio);
             _audio = audio;
 

@@ -5,18 +5,36 @@ using Craftwar.Sim;
 namespace Craftwar.View
 {
     /// <summary>
-    /// Display names and 2-letter initials for sim enums, built once at first
-    /// use. Placeholder art until the WC2 icons land at M8 — the card renders
-    /// initials in a colored box, so every button is readable without assets.
-    /// Absorbs the old HudController.NameOf.
+    /// Display names and 2-letter initials for sim enums.
+    ///
+    /// Two sources, in order: the installation's own localized string table when
+    /// one has been supplied (see <see cref="SetStringTable"/>), otherwise names
+    /// derived by reflection from the enum identifiers. The reflection path is
+    /// not dead code — it is what a machine with no game data still renders, and
+    /// it keeps the UI readable when nothing has been imported yet.
+    ///
+    /// Initials always come from the reflection path: they are a compact
+    /// placeholder glyph, not prose, and deriving them from localized names
+    /// would produce nonsense in scripts without Latin initials.
     /// </summary>
     public static class UnitNames
     {
         static string[] _units, _upgrades;
         static string[] _unitInitials, _upgradeInitials;
+        static IStringTable _strings;
+
+        /// <summary>
+        /// Install the game's own names. Injected by the app layer once assets
+        /// resolve; null restores the reflection-derived names.
+        /// </summary>
+        public static void SetStringTable(IStringTable table) => _strings = table;
 
         public static string Of(UnitTypeId id)
         {
+            string real = _strings?.UnitName(id);
+            if (!string.IsNullOrEmpty(real))
+                return real;
+
             EnsureUnits();
             int i = (int)id;
             return (uint)i < (uint)_units.Length && _units[i] != null ? _units[i] : id.ToString();
