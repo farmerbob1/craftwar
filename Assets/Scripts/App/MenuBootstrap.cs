@@ -1,0 +1,43 @@
+using Craftwar.Import;
+using Craftwar.View;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UIElements;
+
+namespace Craftwar.App
+{
+    /// <summary>
+    /// Entry point for the menu scene: the counterpart to GameBootstrap, and the
+    /// reason UIManager had to stop hardcoding HudScreen as its root.
+    ///
+    /// Deliberately thin. It owns no sim, so it needs no lockstep driver, no
+    /// tile catalog and no sprite bank — which is what makes it safe to load
+    /// before any game data has been found. When the first-run import flow lands
+    /// (Phase 8), the "no data yet" branch below is where the wizard goes.
+    /// </summary>
+    [RequireComponent(typeof(UIDocument))]
+    public sealed class MenuBootstrap : MonoBehaviour
+    {
+        public const string GameSceneName = "Game";
+
+        UIManager _ui;
+        UIState _uiState;
+
+        void Start()
+        {
+            _uiState = new UIState();
+            _ui = gameObject.AddComponent<UIManager>();
+            _ui.Init(_uiState);
+
+            var paths = LocalAssetPaths.Load();
+            _ui.SetRoot(new MainMenuScreen(_ui, paths, StartMatch));
+        }
+
+        /// <summary>Hand the config over and switch scenes. GameBootstrap consumes it in Start().</summary>
+        public static void StartMatch(MatchConfig config)
+        {
+            MatchSession.Pending = config;
+            SceneManager.LoadScene(GameSceneName);
+        }
+    }
+}

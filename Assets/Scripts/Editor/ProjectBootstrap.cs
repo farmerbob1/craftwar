@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Craftwar.App;
 using Craftwar.View;
 using UnityEditor;
@@ -212,6 +213,82 @@ namespace Craftwar.EditorTools
 
             EditorSceneManager.SaveScene(scene, GameScenePath);
             Debug.Log($"[Craftwar] Created {GameScenePath}");
+            EnsureBuildSettings();
+        }
+
+        const string MenuScenePath = "Assets/Scenes/Menu.unity";
+
+        /// <summary>
+        /// The menu scene: a camera and a UIDocument, nothing else. It owns no
+        /// sim, which is what lets it load before any game data has been found —
+        /// the first-run import wizard (Phase 8) hangs off MenuBootstrap.
+        /// </summary>
+        [MenuItem("Craftwar/Setup/Ensure Menu Scene")]
+        public static void EnsureMenuScene()
+        {
+            if (AssetDatabase.LoadAssetAtPath<SceneAsset>(MenuScenePath) != null)
+            {
+                EnsureBuildSettings();
+                return;
+            }
+
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            var camGo = new GameObject("Main Camera", typeof(Camera));
+            camGo.tag = "MainCamera";
+            var cam = camGo.GetComponent<Camera>();
+            cam.orthographic = true;
+            cam.backgroundColor = Color.black;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+
+            // UIDocument is added by MenuBootstrap's [RequireComponent].
+            new GameObject("MenuBootstrap", typeof(MenuBootstrap));
+
+            EditorSceneManager.SaveScene(scene, MenuScenePath);
+            Debug.Log($"[Craftwar] Created {MenuScenePath}");
+            EnsureBuildSettings();
+        }
+
+        /// <summary>
+        /// Menu first so a built player boots into it; Game second so
+        /// SceneManager.LoadScene("Game") resolves. Idempotent, and it preserves
+        /// any other scenes already listed.
+        /// </summary>
+        public static void EnsureBuildSettings()
+        {
+            var wanted = new[] { MenuScenePath, GameScenePath };
+            var scenes = new List<EditorBuildSettingsScene>();
+
+            foreach (var path in wanted)
+                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(path) != null)
+                    scenes.Add(new EditorBuildSettingsScene(path, true));
+
+            // Keep any other scenes, but drop entries whose asset is gone: the
+            // URP template left SampleScene.unity listed after it was deleted,
+            // and a stale entry fails the build rather than being ignored.
+            foreach (var existing in EditorBuildSettings.scenes)
+            {
+                if (System.Array.IndexOf(wanted, existing.path) >= 0)
+                    continue;
+                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(existing.path) == null)
+                {
+                    Debug.Log($"[Craftwar] Dropping missing scene from build settings: {existing.path}");
+                    continue;
+                }
+                scenes.Add(existing);
+            }
+
+            bool changed = scenes.Count != EditorBuildSettings.scenes.Length;
+            if (!changed)
+                for (int i = 0; i < scenes.Count; i++)
+                    if (scenes[i].path != EditorBuildSettings.scenes[i].path)
+                        { changed = true; break; }
+
+            if (changed)
+            {
+                EditorBuildSettings.scenes = scenes.ToArray();
+                Debug.Log("[Craftwar] Build settings: " + string.Join(", ", scenes.ConvertAll(s => s.path)));
+            }
         }
     }
 }
