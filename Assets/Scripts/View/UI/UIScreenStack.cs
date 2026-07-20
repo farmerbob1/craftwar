@@ -32,6 +32,24 @@ namespace Craftwar.View
             RecomputeModal();
         }
 
+        /// <summary>
+        /// Swap the bottom screen for another, discarding anything above it.
+        /// Pop() deliberately refuses to remove the bottom entry, so this is the
+        /// only way to change it — needed when the menu scene replaces the
+        /// import wizard with the main menu once data has been located.
+        /// </summary>
+        public void ReplaceRoot(UIScreen screen, VisualElement layerRoot)
+        {
+            for (int i = _screens.Count - 1; i >= 0; i--)
+            {
+                _screens[i].OnBlur();
+                _screens[i].OnPop();
+                _screens[i].Detach();
+            }
+            _screens.Clear();
+            Push(screen, layerRoot);
+        }
+
         /// <summary>Pops the top screen. The bottom entry (the HUD) is never popped.</summary>
         public UIScreen Pop()
         {

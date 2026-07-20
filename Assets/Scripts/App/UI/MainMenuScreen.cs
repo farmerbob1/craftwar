@@ -16,12 +16,15 @@ namespace Craftwar.App
         readonly UIManager _manager;
         readonly LocalAssetPaths _paths;
         readonly Action<MatchConfig> _onStart;
+        readonly Action _onLocateData;
 
-        public MainMenuScreen(UIManager manager, LocalAssetPaths paths, Action<MatchConfig> onStart)
+        public MainMenuScreen(UIManager manager, LocalAssetPaths paths,
+                              Action<MatchConfig> onStart, Action onLocateData = null)
         {
             _manager = manager;
             _paths = paths;
             _onStart = onStart;
+            _onLocateData = onLocateData;
         }
 
         public override void Attach(VisualElement layerRoot, UIAssetCatalog assets)
@@ -52,7 +55,12 @@ namespace Craftwar.App
             skirmish.SetEnabled(haveData);
             menu.Add(skirmish);
 
-            // Placeholders, visible so the shape of the menu is honest.
+            // Re-runnable, not first-run only: installs move, and a player who
+            // pointed at the wrong folder needs a way back.
+            menu.Add(MenuButton("locate", "Locate Game Data", () =>
+                _onLocateData?.Invoke()));
+
+            // Placeholder, visible so the shape of the menu is honest.
             var options = MenuButton("options", "Options", null);
             options.SetEnabled(false);
             menu.Add(options);

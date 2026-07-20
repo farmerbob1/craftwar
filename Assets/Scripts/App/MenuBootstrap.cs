@@ -29,9 +29,44 @@ namespace Craftwar.App
             _ui = gameObject.AddComponent<UIManager>();
             _ui.Init(_uiState);
 
-            var paths = LocalAssetPaths.Load();
-            _ui.SetRoot(new MainMenuScreen(_ui, paths, StartMatch));
+            ShowMainMenu();
+        }
 
+        void ShowMainMenu()
+        {
+            var paths = LocalAssetPaths.Load();
+
+            // Nothing configured and nothing findable: the wizard is the whole
+            // first-run experience, and it must come before the menu rather
+            // than behind a dead "Single Player" button.
+            if (paths == null || !paths.HasData)
+            {
+                var found = Wc2InstallLocator.Find();
+                bool anyUsable = found.Count > 0 && found[0].IsUsable;
+                if (!anyUsable || paths == null)
+                {
+                    _ui.SetRoot(new ImportWizardScreen(_ui, OnImportComplete));
+                    return;
+                }
+            }
+
+            _ui.SetRoot(new MainMenuScreen(_ui, paths, StartMatch, ShowImportWizard));
+            StartMenuMusic(paths);
+        }
+
+        /// <summary>Rebuild the root screen now that data has been located.</summary>
+        void OnImportComplete()
+        {
+            var paths = LocalAssetPaths.Load();
+            _ui.SetRoot(new MainMenuScreen(_ui, paths, StartMatch, ShowImportWizard));
+            StartMenuMusic(paths);
+        }
+
+        void ShowImportWizard() =>
+            _ui.SetRoot(new ImportWizardScreen(_ui, OnImportComplete));
+
+        void StartMenuMusic(LocalAssetPaths paths)
+        {
             string dataRoot = paths?.dataRoot;
             if (string.IsNullOrEmpty(dataRoot))
             {

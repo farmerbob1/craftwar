@@ -85,7 +85,9 @@ namespace Craftwar.View
         {
             if (_stack == null || screen == null)
                 return;
-            _stack.Push(screen, _layerHud);
+            // Replace rather than stack: calling this twice means "show that
+            // instead", as when the import wizard hands over to the main menu.
+            _stack.ReplaceRoot(screen, _layerHud);
         }
 
         /// <summary>
