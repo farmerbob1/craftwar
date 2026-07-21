@@ -204,11 +204,21 @@ namespace Craftwar.EditorTools
             ppc.refResolutionX = 640;
             ppc.refResolutionY = 480;
 
-            // Bootstrap object wired to the view components
-            var bootGo = new GameObject("GameBootstrap", typeof(GameBootstrap));
-            var so = new SerializedObject(bootGo.GetComponent<GameBootstrap>());
+            // The game controller hosts the sim driver and binds the per-GameObject
+            // view subsystems. RequireComponent on GameLoopRunner pulls in UIManager
+            // (+UIDocument), InputRouter, WorldInputController, AudioDirector and
+            // DebugOverlay, so the scene owns every persistent component rather than
+            // spawning them at runtime.
+            var controllerGo = new GameObject("GameController", typeof(GameLoopRunner));
+            var unitViewsGo = new GameObject("UnitViews", typeof(UnitViewPool), typeof(BuildPlacementGhost));
+            var fogGo = new GameObject("FogOfWar", typeof(FogOfWarView));
+
+            var so = new SerializedObject(controllerGo.GetComponent<GameLoopRunner>());
             so.FindProperty("tilemapView").objectReferenceValue = terrainGo.GetComponent<TilemapView>();
             so.FindProperty("cameraRig").objectReferenceValue = camGo.GetComponent<CameraRig>();
+            so.FindProperty("unitViewPool").objectReferenceValue = unitViewsGo.GetComponent<UnitViewPool>();
+            so.FindProperty("buildGhost").objectReferenceValue = unitViewsGo.GetComponent<BuildPlacementGhost>();
+            so.FindProperty("fogOfWar").objectReferenceValue = fogGo.GetComponent<FogOfWarView>();
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorSceneManager.SaveScene(scene, GameScenePath);
@@ -218,10 +228,12 @@ namespace Craftwar.EditorTools
 
         const string MenuScenePath = "Assets/Scenes/Menu.unity";
 
+        const string MainMenuUxmlPath = "Assets/UI/UXML/MainMenu.uxml";
+
         /// <summary>
-        /// The menu scene: a camera and a UIDocument, nothing else. It owns no
-        /// sim, which is what lets it load before any game data has been found —
-        /// the first-run import wizard (Phase 8) hangs off MenuBootstrap.
+        /// The menu scene: a camera and a UIDocument whose Source Asset is the
+        /// scene-authored MainMenu.uxml, driven by MainMenuController. It owns no
+        /// sim, which is what lets it load before any game data has been found.
         /// </summary>
         [MenuItem("Craftwar/Setup/Ensure Menu Scene")]
         public static void EnsureMenuScene()
@@ -234,15 +246,21 @@ namespace Craftwar.EditorTools
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-            var camGo = new GameObject("Main Camera", typeof(Camera));
+            // The AudioListener is what makes menu music audible; the old menu
+            // camera lacked one.
+            var camGo = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener));
             camGo.tag = "MainCamera";
             var cam = camGo.GetComponent<Camera>();
             cam.orthographic = true;
             cam.backgroundColor = Color.black;
             cam.clearFlags = CameraClearFlags.SolidColor;
 
-            // UIDocument is added by MenuBootstrap's [RequireComponent].
-            new GameObject("MenuBootstrap", typeof(MenuBootstrap));
+            // UIDocument (added by MainMenuController's [RequireComponent]) hosts the
+            // scene-authored layout; the controller only wires behaviour.
+            var menuGo = new GameObject("Menu", typeof(MainMenuController));
+            var doc = menuGo.GetComponent<UIDocument>();
+            doc.panelSettings = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelSettingsPath);
+            doc.visualTreeAsset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(MainMenuUxmlPath);
 
             EditorSceneManager.SaveScene(scene, MenuScenePath);
             Debug.Log($"[Craftwar] Created {MenuScenePath}");

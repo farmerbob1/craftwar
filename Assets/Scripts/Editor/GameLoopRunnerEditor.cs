@@ -9,11 +9,11 @@ namespace Craftwar.EditorTools
     /// <summary>
     /// Replaces the free-text map path with a dropdown of the .pud files sitting
     /// in StreamingAssets/Maps. The serialized value stays a plain string — a
-    /// bare file name, which GameBootstrap resolves against that folder — so
+    /// bare file name, which GameLoopRunner resolves against that folder — so
     /// the scene does not bake in one machine's absolute paths.
     /// </summary>
-    [CustomEditor(typeof(GameBootstrap))]
-    public sealed class GameBootstrapEditor : Editor
+    [CustomEditor(typeof(GameLoopRunner))]
+    public sealed class GameLoopRunnerEditor : Editor
     {
         const string DefaultLabel = "(LocalAssetPaths default)";
         const string MapField = "mapOverridePath";
@@ -27,7 +27,7 @@ namespace Craftwar.EditorTools
         void RefreshMapList()
         {
             var files = new List<string>();
-            string dir = GameBootstrap.StreamingMapsDir;
+            string dir = GameLoopRunner.StreamingMapsDir;
             if (Directory.Exists(dir))
             {
                 var found = Directory.GetFiles(dir, "*.pud");
@@ -109,8 +109,8 @@ namespace Craftwar.EditorTools
                     MessageType.Info);
                 if (GUILayout.Button("Reveal folder"))
                 {
-                    Directory.CreateDirectory(GameBootstrap.StreamingMapsDir);
-                    EditorUtility.RevealInFinder(GameBootstrap.StreamingMapsDir);
+                    Directory.CreateDirectory(GameLoopRunner.StreamingMapsDir);
+                    EditorUtility.RevealInFinder(GameLoopRunner.StreamingMapsDir);
                 }
             }
             else if (isStray)

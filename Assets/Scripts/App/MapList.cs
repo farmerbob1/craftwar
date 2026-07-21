@@ -16,7 +16,7 @@ namespace Craftwar.App
     /// <summary>
     /// Finds playable .pud files for the match-setup screen.
     ///
-    /// Deliberately mirrors GameBootstrapEditor's rules so the runtime picker and
+    /// Deliberately mirrors GameLoopRunnerEditor's rules so the runtime picker and
     /// the inspector dropdown agree: sort case-insensitively so the order is the
     /// same on every machine, and store a bare file name for anything in
     /// StreamingAssets so the value stays portable, falling back to an absolute
@@ -30,7 +30,7 @@ namespace Craftwar.App
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // Dev maps shipped in StreamingAssets: store the bare name.
-            AddFrom(GameBootstrap.StreamingMapsDir, bareName: true, entries, seen);
+            AddFrom(GameLoopRunner.StreamingMapsDir, bareName: true, entries, seen);
 
             // The player's own install: absolute, since it is machine-specific.
             if (paths != null && !string.IsNullOrEmpty(paths.mapsDir))

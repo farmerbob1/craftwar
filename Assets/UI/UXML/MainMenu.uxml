@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The menu scene's whole layout. Assigned to the menu UIDocument's Source Asset
+     in Menu.unity, so the menu lives in the scene rather than being built in C#.
+     MainMenuController shows exactly one panel at a time and fills the dynamic
+     bits (map name, install candidates). -->
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <ui:VisualElement name="scrim" class="screen-scrim">
+
+        <!-- Main menu -->
+        <ui:VisualElement name="panel-main" class="menu">
+            <ui:Label class="menu__title" text="Craftwar" picking-mode="Ignore" />
+            <ui:Button name="single-player" class="menu__button" text="Single Player" />
+            <ui:Button name="locate" class="menu__button" text="Locate Game Data" />
+            <ui:Button name="options" class="menu__button" text="Options" enabled="false" />
+            <ui:Button name="quit" class="menu__button" text="Quit" />
+            <ui:Label name="main-warn" class="text text--warn" picking-mode="Ignore"
+                      text="No Warcraft II data found.&#10;Point the wizard at your installation." />
+        </ui:VisualElement>
+
+        <!-- Skirmish setup -->
+        <ui:VisualElement name="panel-setup" class="menu">
+            <ui:Label class="menu__title" text="Skirmish" picking-mode="Ignore" />
+            <ui:Label name="setup-warn" class="text text--warn" picking-mode="Ignore"
+                      text="No .pud maps found.&#10;Checked StreamingAssets/Maps and LocalAssetPaths.mapsDir." />
+            <ui:VisualElement name="map-row" style="flex-direction: row;">
+                <ui:Button name="map-prev" class="menu__button" text="&lt;" />
+                <ui:Label name="map-label" class="text" picking-mode="Ignore"
+                          style="flex-grow: 1; -unity-text-align: middle-center;" />
+                <ui:Button name="map-next" class="menu__button" text="&gt;" />
+            </ui:VisualElement>
+            <ui:Button name="setup-start" class="menu__button" text="Start" />
+            <ui:Button name="setup-back" class="menu__button" text="Back" />
+        </ui:VisualElement>
+
+        <!-- Locate game data (first run and re-runnable) -->
+        <ui:VisualElement name="panel-wizard" class="menu">
+            <ui:Label class="menu__title" text="Locate Warcraft II" picking-mode="Ignore" />
+            <ui:Label class="text text--dim" picking-mode="Ignore" style="white-space: normal;"
+                      text="Craftwar reads art, sound and music from your own copy of Warcraft II. Nothing is copied — the files stay where they are." />
+            <ui:VisualElement name="candidates" />
+            <ui:Label name="wizard-detail" class="text" picking-mode="Ignore" style="white-space: normal;" />
+            <ui:TextField name="manual-path" label="Or enter a folder" />
+            <ui:Button name="wizard-check" class="menu__button" text="Check This Folder" />
+            <ui:Button name="wizard-use" class="menu__button" text="Use This Copy" />
+            <ui:Button name="wizard-rescan" class="menu__button" text="Search Again" />
+            <ui:Button name="wizard-back" class="menu__button" text="Back" />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>

@@ -259,6 +259,50 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1844290583}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1009335937
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1009335939}
+  - component: {fileID: 1009335938}
+  m_Layer: 0
+  m_Name: FogOfWar
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1009335938
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1009335937}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a5f0ff8123f5a544c9c96b10e1b8bf42, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.FogOfWarView
+--- !u!4 &1009335939
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1009335937}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1222718627
 GameObject:
   m_ObjectHideFlags: 0
@@ -430,6 +474,63 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!1 &1282740084
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1282740087}
+  - component: {fileID: 1282740086}
+  - component: {fileID: 1282740085}
+  m_Layer: 0
+  m_Name: UnitViews
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1282740085
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1282740084}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c4f058464274c124c85d1fe684f4e73b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.BuildPlacementGhost
+--- !u!114 &1282740086
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1282740084}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1d44018c57ac0c54f8f140b691ce7d24, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.UnitViewPool
+--- !u!4 &1282740087
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1282740084}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1844290582
 GameObject:
   m_ObjectHideFlags: 0
@@ -484,29 +585,20 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1923795492}
-  - component: {fileID: 1923795491}
+  - component: {fileID: 1923795499}
+  - component: {fileID: 1923795498}
+  - component: {fileID: 1923795497}
+  - component: {fileID: 1923795496}
+  - component: {fileID: 1923795495}
+  - component: {fileID: 1923795494}
+  - component: {fileID: 1923795493}
   m_Layer: 0
-  m_Name: GameBootstrap
+  m_Name: GameController
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1923795491
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1923795490}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9550c7e85e54dea49b41ff36e4d2dd8e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Craftwar.App::Craftwar.App.GameBootstrap
-  tilemapView: {fileID: 538096386}
-  cameraRig: {fileID: 1222718628}
-  mapOverridePath: 
 --- !u!4 &1923795492
 Transform:
   m_ObjectHideFlags: 0
@@ -522,6 +614,107 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1923795493
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923795490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4892f57b5cd17af46828f644716f0296, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.App::Craftwar.App.GameLoopRunner
+  tilemapView: {fileID: 538096386}
+  cameraRig: {fileID: 1222718628}
+  unitViewPool: {fileID: 1282740086}
+  buildGhost: {fileID: 1282740085}
+  fogOfWar: {fileID: 1009335938}
+  mapOverridePath: Skirmish BNE.pud
+--- !u!114 &1923795494
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923795490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: da05cce7723090747ac1218fccecc544, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.DebugOverlay
+--- !u!114 &1923795495
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923795490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22f1f5bd3be33734b8bd65431e40b60a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.AudioDirector
+--- !u!114 &1923795496
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923795490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b38ed3b91547d147bf0fb905f8610e8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.WorldInputController
+--- !u!114 &1923795497
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923795490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dc8bb7aea7c79d446b20e94a2f718c1b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.InputRouter
+--- !u!114 &1923795498
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923795490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dedffd69e4c947e4e9525121d4e303ac, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.View::Craftwar.View.UIManager
+--- !u!114 &1923795499
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1923795490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 19102, guid: 0000000000000000e000000000000000, type: 0}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.dll::UnityEngine.UIElements.UIDocument
+  m_PanelSettings: {fileID: 0}
+  m_ParentUI: {fileID: 0}
+  sourceAsset: {fileID: 0}
+  m_SortingOrder: 0
+  m_Position: 0
+  m_WorldSpaceSizeMode: 1
+  m_WorldSpaceWidth: 1920
+  m_WorldSpaceHeight: 1080
+  m_PivotReferenceSize: 0
+  m_Pivot: 0
+  m_WorldSpaceCollider: {fileID: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -529,3 +722,5 @@ SceneRoots:
   - {fileID: 1844290583}
   - {fileID: 1222718631}
   - {fileID: 1923795492}
+  - {fileID: 1282740087}
+  - {fileID: 1009335939}

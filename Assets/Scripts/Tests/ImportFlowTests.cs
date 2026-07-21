@@ -11,7 +11,8 @@ namespace Craftwar.Sim.Tests
     /// with no configuration at all can find the game, record where it is, and
     /// load every asset class from it.
     ///
-    /// Exercises the same steps as ImportWizardScreen without the UI, so the
+    /// Exercises the same steps as MainMenuController's locate-data flow without
+    /// the UI, so the
     /// flow is covered by the gate rather than only by clicking through it.
     /// </summary>
     public class ImportFlowTests

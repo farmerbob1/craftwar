@@ -129,26 +129,14 @@ GameObject:
   m_Component:
   - component: {fileID: 388819384}
   - component: {fileID: 388819383}
-  - component: {fileID: 388819382}
+  - component: {fileID: 388819385}
   m_Layer: 0
-  m_Name: MenuBootstrap
+  m_Name: Menu
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &388819382
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 388819381}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0bf73dac4ba0da64e9d6928009694be8, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Craftwar.App::Craftwar.App.MenuBootstrap
 --- !u!114 &388819383
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -161,9 +149,9 @@ MonoBehaviour:
   m_Script: {fileID: 19102, guid: 0000000000000000e000000000000000, type: 0}
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.dll::UnityEngine.UIElements.UIDocument
-  m_PanelSettings: {fileID: 0}
+  m_PanelSettings: {fileID: 11400000, guid: 1a006ad7331a6ec49be00179153676e6, type: 2}
   m_ParentUI: {fileID: 0}
-  sourceAsset: {fileID: 0}
+  sourceAsset: {fileID: 9197481963319205126, guid: d428306888aa80742a827f4654875e0a, type: 3}
   m_SortingOrder: 0
   m_Position: 0
   m_WorldSpaceSizeMode: 1
@@ -187,6 +175,18 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &388819385
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 388819381}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 202d0b2d6cbff624eaaad5ff300f57b9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Craftwar.App::Craftwar.App.MainMenuController
 --- !u!1 &1014911013
 GameObject:
   m_ObjectHideFlags: 0
@@ -197,6 +197,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1014911015}
   - component: {fileID: 1014911014}
+  - component: {fileID: 1014911016}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -270,6 +271,14 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!81 &1014911016
+AudioListener:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1014911013}
+  m_Enabled: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
