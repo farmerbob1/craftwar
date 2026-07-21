@@ -233,6 +233,11 @@ namespace Craftwar.Sim
 
             var deadId = new UnitId((ushort)targetIndex, target.Gen);
             bool carriedTroops = target.CargoCount > 0;
+            // A razed construction site must free the builder hidden inside it,
+            // or the worker stays Hidden forever — invisible and unkillable.
+            if ((target.Flags & UnitFlags.Building) != 0
+                && (target.Flags & UnitFlags.UnderConstruction) != 0)
+                ReleaseBuilder(ref target, targetIndex);
             State.DestroyUnit(deadId);
             if (carriedTroops)
                 DrownCargo(deadId); // a sinking transport takes its hold with it

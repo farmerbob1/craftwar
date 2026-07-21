@@ -519,9 +519,19 @@ namespace Craftwar.Sim
                                 State.DestroyUnit(new UnitId((ushort)mi, mine.Gen)); // mine collapses
                                 Emit(SimEventKind.MineCollapsed, u.Player, 0, mine.TypeId);
                             }
+                            u.Harvest = HarvestStage.ToDepot;
+                            u.PathLength = 0;
                         }
-                        u.Harvest = HarvestStage.ToDepot;
-                        u.PathLength = 0;
+                        else
+                        {
+                            // The mine collapsed while this worker was inside
+                            // (several fit at once; the exit that empties it
+                            // destroys it). Surface empty-handed — skipping the
+                            // unhide leaves an invisible, untargetable and
+                            // unkillable unit, which blocks victory forever.
+                            UnhideNear(ref u, i, i, u.TileX, u.TileY);
+                            EndHarvest(ref u);
+                        }
                         break;
                     }
 
