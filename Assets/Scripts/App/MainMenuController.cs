@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.IO;
 using Craftwar.Import;
+using Craftwar.Sim;
+using Craftwar.Sim.Pud;
 using Craftwar.View;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -29,8 +31,24 @@ namespace Craftwar.App
         List<MapEntry> _maps;
         int _mapSel;
         Label _mapLabel, _setupWarn;
-        VisualElement _mapRow;
+        VisualElement _mapRow, _slotList;
         Button _setupStart;
+
+        /// <summary>One configurable seat of the selected map. Defaults come
+        /// from the PUD's OWNR/SIDE/AIPL; the human is fixed to slot 0 for M9
+        /// (the view hard-codes LocalPlayer = 0).</summary>
+        sealed class SlotRow
+        {
+            public int Slot;
+            public Controller Controller;
+            public Race Race;
+            public byte AiType;
+            public Button CtrlBtn;
+            public Button RaceBtn;
+        }
+
+        PudFile _setupPud;
+        readonly List<SlotRow> _slotRows = new List<SlotRow>();
 
         // Wizard panel
         List<InstallCandidate> _candidates;
@@ -62,6 +80,7 @@ namespace Craftwar.App
             _mapLabel = root.Q<Label>("map-label");
             _setupWarn = root.Q<Label>("setup-warn");
             _mapRow = root.Q("map-row");
+            _slotList = root.Q("slot-list");
             _setupStart = root.Q<Button>("setup-start");
             root.Q<Button>("map-prev").clicked += () => Step(-1);
             root.Q<Button>("map-next").clicked += () => Step(1);
@@ -120,6 +139,7 @@ namespace Craftwar.App
             _setupStart.SetEnabled(haveMaps);
             if (haveMaps)
                 _mapLabel.text = _maps[0].Label;
+            LoadSetupPud();
 
             Show(_panelMain, false);
             Show(_panelSetup, true);
@@ -142,15 +162,137 @@ namespace Craftwar.App
                 return;
             _mapSel = (_mapSel + delta + _maps.Count) % _maps.Count;
             _mapLabel.text = _maps[_mapSel].Label;
+            LoadSetupPud();
+        }
+
+        /// <summary>Parse the selected map so the slot rows can be offered.
+        /// On any failure the rows vanish and Start falls back to the PUD's
+        /// own OWNR/SIDE — exactly the pre-M9 behaviour.</summary>
+        void LoadSetupPud()
+        {
+            _setupPud = null;
+            if (_maps != null && _maps.Count > 0)
+            {
+                try
+                {
+                    string path = GameLoopRunner.ResolveMapPath(_paths, _maps[_mapSel].Value);
+                    if (File.Exists(path))
+                        _setupPud = PudFile.Parse(File.ReadAllBytes(path));
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning($"[Craftwar] No slot setup for this map: {e.Message}");
+                }
+            }
+            RebuildSlotRows();
+        }
+
+        void RebuildSlotRows()
+        {
+            _slotRows.Clear();
+            if (_slotList == null)
+                return;
+            _slotList.Clear();
+            if (_setupPud == null)
+                return;
+
+            for (int p = 0; p < SimConstants.MaxPlayers; p++)
+            {
+                if (MatchSetup.ControllerFor(_setupPud.Owner[p]) == Controller.None)
+                    continue;
+                var row = new SlotRow
+                {
+                    Slot = p,
+                    // The human stays slot 0 for M9: the view hard-codes
+                    // LocalPlayer = 0 (HudScreen.cs), so seat 0 is "You".
+                    Controller = p == 0 ? Controller.Human : Controller.Computer,
+                    Race = _setupPud.Side[p] == (byte)Race.Orc ? Race.Orc : Race.Human,
+                    AiType = _setupPud.AiType[p],
+                };
+                _slotRows.Add(row);
+
+                var line = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+                var label = new Label($"Slot {p + 1}") { pickingMode = PickingMode.Ignore };
+                label.AddToClassList("text");
+                label.style.width = 70;
+                line.Add(label);
+
+                row.CtrlBtn = new Button(() => CycleController(row)) { text = "" };
+                row.CtrlBtn.AddToClassList("menu__button");
+                row.CtrlBtn.style.flexGrow = 1;
+                row.CtrlBtn.SetEnabled(p != 0);
+                line.Add(row.CtrlBtn);
+
+                row.RaceBtn = new Button(() => CycleRace(row)) { text = "" };
+                row.RaceBtn.AddToClassList("menu__button");
+                row.RaceBtn.style.width = 90;
+                line.Add(row.RaceBtn);
+
+                UpdateRowLabels(row);
+                _slotList.Add(line);
+            }
+        }
+
+        void CycleController(SlotRow row)
+        {
+            row.Controller = row.Controller == Controller.Computer
+                ? Controller.None
+                : Controller.Computer;
+            UpdateRowLabels(row);
+        }
+
+        void CycleRace(SlotRow row)
+        {
+            row.Race = row.Race == Race.Orc ? Race.Human : Race.Orc;
+            UpdateRowLabels(row);
+        }
+
+        static void UpdateRowLabels(SlotRow row)
+        {
+            row.CtrlBtn.text = row.Controller switch
+            {
+                Controller.Human => "You",
+                Controller.Computer => row.AiType == 0x01 ? "Computer (passive)" : "Computer",
+                _ => "Off",
+            };
+            row.RaceBtn.text = row.Race == Race.Orc ? "Orc" : "Human";
+            row.RaceBtn.SetEnabled(row.Controller != Controller.None);
         }
 
         void StartSkirmish()
         {
             if (_maps == null || _maps.Count == 0)
                 return;
-            // Slots stay null: GameSim.Setup derives controllers, races and teams
-            // from the PUD's own OWNR/SIDE, exactly as before.
-            StartMatch(MatchConfig.FromMapDefaults(_maps[_mapSel].Value));
+            if (_setupPud == null || _slotRows.Count == 0)
+            {
+                // No parsed map to configure: the PUD's own OWNR/SIDE decide,
+                // exactly as before M9.
+                StartMatch(MatchConfig.FromMapDefaults(_maps[_mapSel].Value));
+                return;
+            }
+
+            var config = new MatchConfig
+            {
+                mapPath = _maps[_mapSel].Value,
+                localSlot = 0,
+                slots = new SlotConfig[SimConstants.MaxPlayers],
+            };
+            for (int p = 0; p < SimConstants.MaxPlayers; p++)
+                config.slots[p] = new SlotConfig
+                {
+                    controller = Controller.None,
+                    race = Race.Human,
+                    team = (byte)p,
+                };
+            foreach (var row in _slotRows)
+                config.slots[row.Slot] = new SlotConfig
+                {
+                    controller = row.Controller,
+                    race = row.Race,
+                    team = (byte)row.Slot, // free-for-all, like melee defaults
+                    aiType = row.AiType,
+                };
+            StartMatch(config);
         }
 
         /// <summary>Hand the config over and switch scenes. GameLoopRunner consumes it in Start().</summary>

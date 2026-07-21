@@ -28,6 +28,9 @@
                           style="flex-grow: 1; -unity-text-align: middle-center;" />
                 <ui:Button name="map-next" class="menu__button" text="&gt;" />
             </ui:VisualElement>
+            <!-- One row per playable slot of the selected map, built in C#
+                 (MainMenuController.RebuildSlotRows) like the wizard's list. -->
+            <ui:VisualElement name="slot-list" />
             <ui:Button name="setup-start" class="menu__button" text="Start" />
             <ui:Button name="setup-back" class="menu__button" text="Back" />
         </ui:VisualElement>

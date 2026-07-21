@@ -130,6 +130,75 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   152/152 EditMode.
 
 ## In flight
+**M9 — scripted AI opponent, code complete.** Plan:
+`C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.
+
+- **Architecture: the AI runs OUTSIDE `GameSim.Advance`** as a command-emitting
+  player (`Assets/Scripts/Sim/Ai/`, namespace `Craftwar.Sim.Ai`). `AiPlayer.Think`
+  reads sim state and fills a buffer with `GameCommand`s stamped with its slot;
+  `GameLoopRunner` submits them through the lockstep driver at a fixed point per
+  tick (immediately before `TryGetTickCommands`), so replays record AI commands
+  like anyone's and **AI tuning never invalidates a replay**. Playback constructs
+  no AIs. The code lives inside `Craftwar.Sim` so `SimPurityTests` enforces
+  integer-only determinism. It uses NO randomness at all (and must never touch
+  `GameState.Rng` — that would desync replay verification).
+- **Behavior** transcribed from the original VLAND/COMMON AI script data (facts
+  only): linear phase script (`AiScript`) — build order Hall→Mill→Barracks→
+  Smith→upgrades→2nd Barracks→Keep→Stables→Towers→Castle→Church→MageTower,
+  worker targets 9→12→15→19→22→25, wave sizes 3,5,6,7,7,9…, endgame loop at 11,
+  500-tick post-wave sleep; economy thresholds MIN_GOLD 500 / LOW_GOLD 1000 /
+  LOW_TREE 500 / PLENTY_TREE 2000; rebuild-only rule (gold<200 && lumber<100);
+  suicide all-in when buildings drop below 3 (gated on having ever had 3).
+  Race-neutral roles resolve per race via `AiRaceMap` (no such pairing table
+  existed anywhere). Fog: the AI cheats for targeting (like the original) but
+  pays and harvests honestly.
+- **Key mechanisms:** pending-build ledger (Build deducts cost on builder
+  ARRIVAL — the AI reserves in-flight costs or it double-spends; tested by a
+  zero-resource-denies invariant), per-think claim list (a unit is never tasked
+  twice in one think), deterministic ring-spiral site search (`AiSiteSearch`,
+  mine-lane keep-out + ≥3-open-perimeter rules), strict-order script walk with
+  stall relaxation (NoSite → wider radius → skip entry), TrainSubstitute always
+  applied (ranger/berserker/paladin/ogre-mage), farm-on-food-pressure ahead of
+  the script.
+- **Two deliberate liveness deviations from the original:** (1) oil-costing
+  goals are skipped permanently when unaffordable — the land script never
+  builds an oil economy, so waiting is provably futile (maps without SOIL would
+  otherwise dead-stall the build order at the Blacksmith); (2) when no gold
+  mine remains and no wave has launched for 1500 ticks, the AI attacks with
+  whatever it has (`AiScript.DryWaveTicks`) — a mined-out map must still
+  resolve to a victor.
+- **Sim bug fixes shaken out by AI matches (both were match-blockers):**
+  a worker inside a gold mine when it collapsed was never unhidden — invisible,
+  untargetable, unkillable, so victory could never resolve (`GameSim.Economy`
+  InMine now surfaces it empty-handed); a combat-razed construction site never
+  released the builder hidden inside it (`ApplyDamage` now calls
+  `ReleaseBuilder` first).
+- **Driver:** `LocalLockstepDriver.TryGetTickCommands` now sorts canonically
+  (stable insertion sort by player; intra-player order preserved) — the shape
+  the interface always promised and M10's net driver needs.
+- **Menu:** the skirmish panel parses the selected PUD and shows one row per
+  playable slot (slot 0 locked to "You" — the view hard-codes LocalPlayer=0;
+  others cycle Computer↔Off and Human↔Orc; AIPL passive shown). Start always
+  populates `MatchConfig.slots`; `SlotConfig` gained `aiType` (app-side only).
+  With no rows (unparseable map) it falls back to PUD OWNR/SIDE exactly as
+  before — and that fall-through path ALSO gets AIs, so pressing Play directly
+  on Game.unity with a melee map fights back.
+- **Tests:** `AiTestHarness` (TwoBaseMap + RunAiMatch/Playback),
+  `AiDeterminismTests` (same-seed hash equality; replay playback with NO AIs
+  reproduces the live hash; byte round-trip), `AiEconomyTests` (farm-first,
+  worker ramp, harvest split, no-resource-denies, ledger holds back the second
+  build), `AiBuildTests` (site search valid/deterministic/keep-out/boxed-in,
+  race map total), `AiMilitaryTests` (wave at muster size then 500-tick sleep,
+  targets enemy hall, rangers-never-archers, passive emits nothing),
+  `AiMatchTests` (**the M9 criterion**: AI-vs-AI reaches exactly one
+  Victorious + one Defeated within budget — resolves ~t58k; idle human loses),
+  `LockstepDriverTests` (canonical sort stability). 185/185 in the standalone
+  harness.
+
+Still to do for M9: run the batch EditMode gate (editor must be closed), play a
+real 1v1 vs the AI in the editor (win and lose), and the M8 playtest checklist
+below remains outstanding.
+
 **M8 — all phases landed, needs a playtest pass.** 234/234 EditMode. Plan:
 `C:\Users\mattc\.claude\plans\synchronous-booping-bengio.md`.
 
@@ -264,8 +333,8 @@ The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
     `.seq` pass is still the standing backlog item.
 
 ## Next milestones (per plan)
-- M8 code-complete; playtest and finish icons/skin/options (see "In flight").
-  M9 AI. M10 LAN lockstep. M11 online + team vision. (Details in plan file.)
+- M9 code-complete (see "In flight"); playtest it plus the M8 checklist.
+  M10 LAN lockstep. M11 online + team vision. (Details in plan file.)
 
 ## Playtest checklist for M8
 Nothing below is covered by the test gate — it all needs eyes on the running game.
