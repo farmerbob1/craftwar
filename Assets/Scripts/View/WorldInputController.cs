@@ -444,10 +444,19 @@ namespace Craftwar.View
                 if (state.Terrain != null && state.Terrain.InBounds(tileX, tileY))
                 {
                     uint occ = state.OccupancySurface[tileY * state.Terrain.Width + tileX];
-                    if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi)
-                        && state.Units[bi].Player == LocalPlayer
-                        && (state.Units[bi].Flags & UnitFlags.Building) != 0)
-                        _selection.SetSingle(occ);
+                    if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi))
+                    {
+                        ref var occupant = ref state.Units[bi];
+                        bool ownBuilding = occupant.Player == LocalPlayer
+                            && (occupant.Flags & UnitFlags.Building) != 0;
+                        // Neutral gold mines and oil patches select for anyone,
+                        // read-only, so their remaining resources are visible.
+                        bool resource = state.Rules != null
+                            && state.Rules.Units[occupant.TypeId].Is(
+                                UnitTypeFlags.GoldMine | UnitTypeFlags.OilPatch);
+                        if (ownBuilding || resource)
+                            _selection.SetSingle(occ);
+                    }
                 }
                 return;
             }

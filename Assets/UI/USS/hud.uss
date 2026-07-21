@@ -161,16 +161,24 @@
     background-color: var(--cw-btn-bg-disabled);
 }
 
-/* Full command name, wrapped. Long ones ("Elven Lumber Mill") take three
-   lines; the tooltip carries the same text for anything that still clips.
-   Becomes an icon at M8 — the label stays as the accessible name. */
+/* Doubles as the icon and the text fallback. As text it is the full command
+   name, wrapped ("Elven Lumber Mill" takes three lines; the tooltip carries the
+   same text for anything that still clips). As an icon it must fill the button:
+   flex-grow claims the whole interior height instead of collapsing to the empty
+   label's zero height (which was crushing the art), and background-size: contain
+   scales the 46x38 icon to fit without distortion. */
 .command-button__icon {
     color: var(--cw-text);
     font-size: 10px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     white-space: normal;
+    flex-grow: 1;
     width: 100%;
+    min-height: 0;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
 }
 
 .command-button--disabled .command-button__icon {

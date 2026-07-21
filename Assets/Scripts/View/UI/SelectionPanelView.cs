@@ -273,12 +273,16 @@ namespace Craftwar.View
             bool isBuilding = (u.Flags & UnitFlags.Building) != 0;
             bool canAttack = row.Is(UnitTypeFlags.CanAttack);
             int speed = UnitSpeeds.Get(u.TypeId);
+            // A neutral mine/patch has combat stats in the data, but showing
+            // "Armor: 20" for a gold mine is noise — the resources line is the
+            // only stat that matters, so drop the block for resource nodes.
+            bool isResource = row.Is(UnitTypeFlags.GoldMine | UnitTypeFlags.OilPatch);
 
-            SetStat(Stat.Armor, true, WithBonus(row.Armor, sim.EffectiveArmor(ref u)));
-            SetStat(Stat.Damage, canAttack, DamageText(sim, ref u, ref row));
-            SetStat(Stat.Range, canAttack, WithBonus(row.AttackRange, sim.EffectiveRange(ref u)));
-            SetStat(Stat.Sight, true, WithBonus(row.Sight, sim.EffectiveSight(ref u)));
-            SetStat(Stat.Speed, speed > 0, speed.ToString());
+            SetStat(Stat.Armor, !isResource, WithBonus(row.Armor, sim.EffectiveArmor(ref u)));
+            SetStat(Stat.Damage, !isResource && canAttack, DamageText(sim, ref u, ref row));
+            SetStat(Stat.Range, !isResource && canAttack, WithBonus(row.AttackRange, sim.EffectiveRange(ref u)));
+            SetStat(Stat.Sight, !isResource, WithBonus(row.Sight, sim.EffectiveSight(ref u)));
+            SetStat(Stat.Speed, !isResource && speed > 0, speed.ToString());
 
             RenderProgress(state, ref u, ref row, isBuilding);
         }
@@ -330,7 +334,15 @@ namespace Craftwar.View
             string label = null;
             int total = 0;
 
-            if (isBuilding)
+            // Neutral gold mines and oil patches report what is left rather than
+            // any production, and update live as harvesters draw them down.
+            if (state.Rules != null
+                && state.Rules.Units[u.TypeId].Is(UnitTypeFlags.GoldMine | UnitTypeFlags.OilPatch))
+            {
+                bool oil = state.Rules.Units[u.TypeId].Is(UnitTypeFlags.OilPatch);
+                label = (oil ? "Oil: " : "Gold: ") + u.ResourceAmount;
+            }
+            else if (isBuilding)
             {
                 if ((u.Flags & UnitFlags.UnderConstruction) != 0)
                 {
