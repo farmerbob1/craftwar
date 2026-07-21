@@ -36,7 +36,31 @@ namespace Craftwar.Net
             commands.Clear();
             commands.AddRange(_pending);
             _pending.Clear();
+            SortCanonically(commands);
             return true;
+        }
+
+        /// <summary>
+        /// The canonical order the interface promises: grouped by player, each
+        /// player's own submissions kept in submission order (a worker's Build
+        /// then Move must not swap). Hand-rolled insertion sort because
+        /// List.Sort is unstable. With the human and up to 7 AIs co-submitting,
+        /// this makes the per-tick bundle independent of intra-frame submit
+        /// timing — the shape M10's network driver needs anyway.
+        /// </summary>
+        public static void SortCanonically(List<GameCommand> commands)
+        {
+            for (int i = 1; i < commands.Count; i++)
+            {
+                var c = commands[i];
+                int j = i - 1;
+                while (j >= 0 && commands[j].Player > c.Player)
+                {
+                    commands[j + 1] = commands[j];
+                    j--;
+                }
+                commands[j + 1] = c;
+            }
         }
     }
 }

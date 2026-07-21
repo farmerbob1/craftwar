@@ -11,6 +11,11 @@ namespace Craftwar.App
         public Race race = Race.Human;
         public byte team;
         public byte colour;
+
+        /// <summary>PUD AIPL byte for Computer slots (0 = land attack, 1 =
+        /// passive). App-side data consumed by GameLoopRunner when it creates
+        /// the AIs; the sim never sees it.</summary>
+        public byte aiType;
     }
 
     /// <summary>

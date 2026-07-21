@@ -4,6 +4,7 @@ using System.IO;
 using Craftwar.Import;
 using Craftwar.Net;
 using Craftwar.Sim;
+using Craftwar.Sim.Ai;
 using Craftwar.Sim.Pud;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -65,6 +66,12 @@ namespace Craftwar.App
         Replay _replay;
         float _accumulator;
         const float TickSeconds = SimConstants.MsPerTick / 1000f;
+
+        // Computer opponents. Command sources exactly like the human: they read
+        // sim state and submit through the driver, so replays capture their
+        // commands. Plain owned objects, rebuilt with the scene on Restart.
+        readonly List<AiPlayer> _ais = new List<AiPlayer>();
+        readonly List<GameCommand> _aiCommands = new List<GameCommand>();
 
         /// <summary>Tile mutations accumulated across the ticks run this frame; drained by the view.</summary>
         public readonly List<(ushort x, ushort y, ushort tile)> PendingTileChanges
@@ -169,6 +176,29 @@ namespace Craftwar.App
             var driver = new LocalLockstepDriver();
             var replay = new Replay { Seed = _config.seed, MapHash = Replay.HashMapBytes(mapBytes) };
             Init(sim, driver, replay);
+            CreateAis();
+        }
+
+        /// <summary>
+        /// One AI per Computer slot, on both config paths (explicit lobby slots
+        /// and the null-slots PUD fall-through, whose OWNR already marks melee
+        /// computer slots). Replay playback must never call this — the recorded
+        /// commands already contain everything the AIs did.
+        /// </summary>
+        void CreateAis()
+        {
+            _ais.Clear();
+            for (byte p = 0; p < SimConstants.MaxPlayers; p++)
+            {
+                ref PlayerState ps = ref Sim.State.Players[p];
+                if (ps.Controller != Controller.Computer || !ps.InGame)
+                    continue;
+                byte aipl = _config.slots != null && p < _config.slots.Length
+                    && _config.slots[p] != null
+                    ? _config.slots[p].aiType
+                    : _map.AiType[p];
+                _ais.Add(new AiPlayer(p, AiBehaviorMap.FromAiplByte(aipl)));
+            }
         }
 
         void BuildView(IAssetSource assets, RuntimeTileCatalog catalog)
@@ -311,6 +341,18 @@ namespace Craftwar.App
             int safety = 8; // don't spiral after a hitch
             while (_accumulator >= TickSeconds && safety-- > 0)
             {
+                // AIs think here, at a fixed point per tick, so their commands
+                // land on exactly the tick they observed and are recorded like
+                // any player's. Human input arrives earlier in the frame via
+                // the same SubmitLocalCommand path.
+                for (int a = 0; a < _ais.Count; a++)
+                {
+                    _aiCommands.Clear();
+                    _ais[a].Think(Sim, _aiCommands);
+                    for (int c = 0; c < _aiCommands.Count; c++)
+                        Driver.SubmitLocalCommand(_aiCommands[c]);
+                }
+
                 if (!Driver.TryGetTickCommands(Sim.State.Tick, _tickCommands))
                     break; // waiting on network turn (M10+)
 
