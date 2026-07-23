@@ -38,6 +38,10 @@ namespace Craftwar.Sim.Ai
         public byte Slot { get; }
         public AiBehavior Behavior { get; }
 
+        /// <summary>The desired-state script this opponent plays. Read-only; a
+        /// strategy instance may be shared across AIs.</summary>
+        public AiStrategy Strategy { get; }
+
         struct PendingBuild
         {
             public uint BuilderPacked;
@@ -67,10 +71,11 @@ namespace Craftwar.Sim.Ai
         int _anchorX, _anchorY;
         bool _emergency;
 
-        public AiPlayer(byte slot, AiBehavior behavior)
+        public AiPlayer(byte slot, AiBehavior behavior, AiStrategy strategy = null)
         {
             Slot = slot;
             Behavior = behavior;
+            Strategy = strategy ?? BuiltinAiStrategies.Default;
         }
 
         /// <summary>Current script phase, exposed for tests and the debug overlay.</summary>
@@ -99,8 +104,8 @@ namespace Craftwar.Sim.Ai
             _out = output;
             _budget = MaxCommandsPerThink;
             _race = s.Players[Slot].Race;
-            _emergency = s.Players[Slot].Gold < AiScript.RebuildOnlyGold
-                && s.Players[Slot].Lumber < AiScript.RebuildOnlyLumber;
+            _emergency = s.Players[Slot].Gold < Strategy.RebuildOnlyGold
+                && s.Players[Slot].Lumber < Strategy.RebuildOnlyLumber;
             if (!AiQueries.FindBaseAnchor(s, Slot, out _anchorX, out _anchorY))
             {
                 _sim = null;

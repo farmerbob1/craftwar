@@ -14,7 +14,7 @@ namespace Craftwar.Sim.Ai
 
         void TrainWorker()
         {
-            var phase = AiScript.Phase(_phase);
+            var phase = Strategy.Phase(_phase);
             ushort workerType = (ushort)AiRaceMap.Unit(AiUnit.Worker, _race);
             int have = AiQueries.CountAlive(_s, Slot, workerType, includeUnderConstruction: true)
                 + AiQueries.CountInTraining(_s, Slot, workerType);
@@ -82,12 +82,12 @@ namespace Craftwar.Sim.Ai
                 return;
 
             ref PlayerState p = ref _s.Players[Slot];
-            int wantWood = p.Lumber < AiScript.LowTree ? total / 2
-                : p.Lumber > AiScript.PlentyTree ? 1
+            int wantWood = p.Lumber < Strategy.LowTree ? total / 2
+                : p.Lumber > Strategy.PlentyTree ? 1
                 : total / 3;
-            if (p.Gold < AiScript.LowGold && wantWood > total / 3)
+            if (p.Gold < Strategy.LowGold && wantWood > total / 3)
                 wantWood = total / 3;
-            if (p.Gold < AiScript.MinGold && wantWood > 1)
+            if (p.Gold < Strategy.MinGold && wantWood > 1)
                 wantWood = 1;
             if (mine < 0)
                 wantWood = total; // no mine left: everyone chops

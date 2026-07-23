@@ -197,7 +197,12 @@ namespace Craftwar.App
                     && _config.slots[p] != null
                     ? _config.slots[p].aiType
                     : _map.AiType[p];
-                _ais.Add(new AiPlayer(p, AiBehaviorMap.FromAiplByte(aipl)));
+                var ai = new AiPlayer(p, AiBehaviorMap.FromAiplByte(aipl));
+                _ais.Add(ai);
+                // Provenance for the replay header (v2). The recorded commands
+                // already reproduce the match; this only records which strategy
+                // each computer slot ran.
+                _replay?.SetAiStrategyHash(p, ai.Strategy.Hash());
             }
         }
 

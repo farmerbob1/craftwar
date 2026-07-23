@@ -37,7 +37,7 @@ namespace Craftwar.Sim.Tests
                 "three footmen meet the phase-0 wave size of 3");
             if (waveTicks.Count >= 2)
                 Assert.GreaterOrEqual(waveTicks[1] - waveTicks[0],
-                    AiScript.PostWaveSleepTicks,
+                    BuiltinAiStrategies.Default.PostWaveSleepTicks,
                     "the post-wave sleep must gate the next wave");
         }
 

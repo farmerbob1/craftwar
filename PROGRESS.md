@@ -130,6 +130,32 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   152/152 EditMode.
 
 ## In flight
+**M9.5 — Scriptable, tiered AI (rework of M9).** Plan:
+`C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled
+with the user): declarative strategy DATA (not a bytecode VM / not a rule engine),
+difficulty = skill scaling + optional handicap cheats, executor scope = base
+layout + focus-fire + active defense + scouting/expansion, and evolve M9 in place
+(its script becomes the first shipped data strategy). The original WC2 "ICE" AI is
+the same split we already have — a tiny desired-state script driving native
+engines — so this externalizes the script layer and strengthens the executor.
+
+- **Phase A DONE (green: 265/265 EditMode; 195/195 standalone).** `AiScript`'s
+  hardcoded `AiPhase[]` is replaced by an integer-only `AiStrategy` (Sim) parsed
+  from a readable text file. New Sim files: `Ai/AiStrategy.cs` (data + `ByteWriter`/
+  `ByteReader` canonical binary + FNV `Hash()`), `Ai/AiStrategyParser.cs`
+  (line-oriented `key=value` format; lives INSIDE Sim — integer-only, SimPurity-safe
+  — so the standalone harness can use it; the plan's "parse outside the fence" note
+  was unnecessary), `Ai/AiTier.cs` (enum `Dumb/Normal/Smart/God`, behavior in Phase
+  B), `Ai/BuiltinAiStrategies.cs` (land-attack embedded as text + parsed default).
+  Player-facing copy at `Assets/StreamingAssets/Ai/land-attack.ai.txt`;
+  `AiStrategyDriftTests` (EditMode-only) guards the two in sync. `AiPlayer` now takes
+  an optional `AiStrategy` (defaults to the built-in land-attack), so **all existing
+  M9 tests pass unchanged against the data-driven strategy** — the migration-fidelity
+  proof. Replay bumped to **v2** (per-slot `AiStrategyHash` in the header, provenance
+  only; v1 still reads). No editor codegen tool: the built-in text is a hand-authored
+  `const` guarded by the drift test (there is no external ground truth to codegen
+  from, unlike DefaultData). Phases B–F still to do.
+
 **M9 — scripted AI opponent, code complete.** Plan:
 `C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.
 

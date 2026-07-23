@@ -73,9 +73,9 @@ namespace Craftwar.Sim.Ai
 
             var desired = new int[32]; // per-AiUnit running totals while walking
             int flat = -1;
-            for (int pi = 0; pi <= _phase && pi < AiScript.LandAttack.Length; pi++)
+            for (int pi = 0; pi <= _phase && pi < Strategy.Phases.Length; pi++)
             {
-                var unlock = AiScript.LandAttack[pi].Unlock;
+                var unlock = Strategy.Phases[pi].Unlock;
                 for (int ei = 0; ei < unlock.Length; ei++)
                 {
                     flat = (pi << 8) | ei;

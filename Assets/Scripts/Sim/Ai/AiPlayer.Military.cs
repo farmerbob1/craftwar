@@ -9,7 +9,7 @@ namespace Craftwar.Sim.Ai
         {
             if (_emergency)
                 return;
-            var phase = AiScript.Phase(_phase);
+            var phase = Strategy.Phase(_phase);
             ref PlayerState p = ref _s.Players[Slot];
             for (int i = 0; i < phase.Army.Length && _budget > 0; i++)
             {
@@ -63,9 +63,9 @@ namespace Craftwar.Sim.Ai
             if (_emergency)
                 return;
             ref PlayerState p = ref _s.Players[Slot];
-            for (int pi = 0; pi <= _phase && pi < AiScript.LandAttack.Length; pi++)
+            for (int pi = 0; pi <= _phase && pi < Strategy.Phases.Length; pi++)
             {
-                var goals = AiScript.LandAttack[pi].ResearchGoals;
+                var goals = Strategy.Phases[pi].ResearchGoals;
                 for (int gi = 0; gi < goals.Length; gi++)
                 {
                     var u = AiRaceMap.Upgrade(goals[gi], _race);
@@ -119,27 +119,27 @@ namespace Craftwar.Sim.Ai
             int buildings = CountOwnBuildings();
             if (buildings > _maxBuildingsSeen)
                 _maxBuildingsSeen = buildings;
-            if (_maxBuildingsSeen >= AiScript.SuicideBuildingCount
-                && buildings < AiScript.SuicideBuildingCount)
+            if (_maxBuildingsSeen >= Strategy.SuicideBuildingCount
+                && buildings < Strategy.SuicideBuildingCount)
             {
                 if (_s.Tick >= _nextAllInTick && PickWaveTarget(out int ax, out int ay))
                 {
                     LaunchWave(ax, ay, everything: true);
-                    _nextAllInTick = _s.Tick + AiScript.PostWaveSleepTicks;
+                    _nextAllInTick = _s.Tick + Strategy.PostWaveSleepTicks;
                 }
                 return;
             }
 
             if (_s.Tick < _sleepUntilTick)
                 return;
-            var phase = AiScript.Phase(_phase);
+            var phase = Strategy.Phase(_phase);
             int army = CountCombatUnits();
             if (army >= phase.WaveSize)
             {
                 if (!PickWaveTarget(out int tx, out int ty))
                     return;
                 LaunchWave(tx, ty, everything: false);
-                _sleepUntilTick = _s.Tick + AiScript.PostWaveSleepTicks;
+                _sleepUntilTick = _s.Tick + Strategy.PostWaveSleepTicks;
                 _lastWaveTick = _s.Tick;
                 _phase++;
                 return;
@@ -149,12 +149,12 @@ namespace Craftwar.Sim.Ai
             // reach the muster size, so attack with what exists rather than
             // stalemating forever.
             if (army >= 1
-                && _s.Tick - _lastWaveTick >= AiScript.DryWaveTicks
+                && _s.Tick - _lastWaveTick >= Strategy.DryWaveTicks
                 && AiQueries.NearestGoldMine(_s, _anchorX, _anchorY) < 0
                 && PickWaveTarget(out int dx, out int dy))
             {
                 LaunchWave(dx, dy, everything: true);
-                _sleepUntilTick = _s.Tick + AiScript.PostWaveSleepTicks;
+                _sleepUntilTick = _s.Tick + Strategy.PostWaveSleepTicks;
                 _lastWaveTick = _s.Tick;
             }
         }
