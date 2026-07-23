@@ -16,13 +16,13 @@ namespace Craftwar.Sim.Ai
     /// </summary>
     public sealed partial class AiPlayer
     {
-        /// <summary>Think every half second (the original ran strategy and
-        /// tactics passes every 50 ticks; our merged managers run at twice
-        /// that rate). Tick-gated, so frame pacing can never affect behavior.</summary>
-        public const int ThinkPeriodTicks = 25;
+        /// <summary>Think cadence in ticks, now set by the difficulty tier
+        /// (AiTierTable: Dumb 50 / Normal 25 / Smart 18 / God 12). Normal keeps
+        /// the M9 value. Tick-gated, so frame pacing can never affect behavior.</summary>
+        public int ThinkPeriodTicks => _tier.ThinkPeriodTicks;
 
         /// <summary>Per-slot phase offset — spreads up to 8 AI scans across
-        /// distinct ticks (7 is coprime with 25).</summary>
+        /// distinct ticks.</summary>
         public const int SlotStaggerTicks = 7;
 
         /// <summary>Commands per think, so a backlog never bursts.</summary>
@@ -41,6 +41,12 @@ namespace Craftwar.Sim.Ai
         /// <summary>The desired-state script this opponent plays. Read-only; a
         /// strategy instance may be shared across AIs.</summary>
         public AiStrategy Strategy { get; }
+
+        /// <summary>Difficulty tier. Its SKILL params (cadence + competence
+        /// toggles) drive this out-of-sim executor; its HANDICAP knobs are the
+        /// app's to bake into hashed PlayerState — the AI never applies them.</summary>
+        public AiTier Tier { get; }
+        readonly AiTierParams _tier;
 
         struct PendingBuild
         {
@@ -71,11 +77,14 @@ namespace Craftwar.Sim.Ai
         int _anchorX, _anchorY;
         bool _emergency;
 
-        public AiPlayer(byte slot, AiBehavior behavior, AiStrategy strategy = null)
+        public AiPlayer(byte slot, AiBehavior behavior, AiStrategy strategy = null,
+            AiTier tier = AiTier.Normal)
         {
             Slot = slot;
             Behavior = behavior;
             Strategy = strategy ?? BuiltinAiStrategies.Default;
+            Tier = tier;
+            _tier = AiTierTable.For(tier);
         }
 
         /// <summary>Current script phase, exposed for tests and the debug overlay.</summary>

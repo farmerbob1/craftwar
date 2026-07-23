@@ -8,6 +8,15 @@ namespace Craftwar.Sim
         public Controller Controller;
         public Race Race;
         public byte Team;
+
+        /// <summary>Optional AI difficulty handicaps, baked into the slot's
+        /// hashed <see cref="PlayerState"/> at Setup. Zero = no handicap (the
+        /// default), so <see cref="MatchSetup.FromPud"/> is unchanged. The app
+        /// fills these from the chosen <see cref="Ai.AiTier"/> at match start.</summary>
+        public int StartGoldBonus;
+        public int StartLumberBonus;
+        public int HarvestBonusTenths;
+        public int SightBonus;
     }
 
     /// <summary>

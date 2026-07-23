@@ -462,6 +462,8 @@ namespace Craftwar.Sim
             if (u.TypeId == (ushort)UnitTypeId.Berserker
                 && p.HasResearched(UpgradeId.BerserkerScouting))
                 s += 3;
+            // AI vision handicap; zero outside a handicapped match.
+            s += p.SightBonus;
             return s;
         }
     }

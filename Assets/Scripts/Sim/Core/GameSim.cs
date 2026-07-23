@@ -75,12 +75,16 @@ namespace Craftwar.Sim
                     Controller = inGame ? setup.Slots[p].Controller : Controller.None,
                     Team = setup.Slots[p].Team,
                     Outcome = PlayerOutcome.Playing,
-                    Gold = pud.StartGold[p],
-                    Lumber = pud.StartLumber[p],
+                    // Start-resource handicap is a one-time bump at Setup (the
+                    // running Gold/Lumber are hashed, so no separate field needed).
+                    Gold = pud.StartGold[p] + setup.Slots[p].StartGoldBonus,
+                    Lumber = pud.StartLumber[p] + setup.Slots[p].StartLumberBonus,
                     Oil = pud.StartOil[p],
                     AllowedUnits = pud.AllowUnits?[p] ?? ~0u,
                     AllowedUpgrades = pud.AllowUpgrades?[p] ?? ~0u,
                     AllowedSpells = pud.AllowSpellResearch?[p] ?? ~0u,
+                    HarvestBonusTenths = setup.Slots[p].HarvestBonusTenths,
+                    SightBonus = setup.Slots[p].SightBonus,
                 };
 
                 // Fog grids only exist for slots that are actually playing;

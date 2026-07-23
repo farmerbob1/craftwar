@@ -154,7 +154,22 @@ engines — so this externalizes the script layer and strengthens the executor.
   proof. Replay bumped to **v2** (per-slot `AiStrategyHash` in the header, provenance
   only; v1 still reads). No editor codegen tool: the built-in text is a hand-authored
   `const` guarded by the drift test (there is no external ground truth to codegen
-  from, unlike DefaultData). Phases B–F still to do.
+  from, unlike DefaultData). Phases C–F still to do.
+
+- **Phase B DONE (green: 274/274 EditMode; 204/204 standalone).** Difficulty tiers
+  `Dumb/Normal/Smart/God` (`Ai/AiTier.cs`): `AiTierParams` bundles SKILL (think
+  cadence + competence toggles) and optional HANDICAP knobs; `AiTierTable.For(tier)`
+  is the gradient — **Normal == the M9 baseline exactly** (cadence 25, no
+  competences, no handicaps), so the migration stays byte-identical. `AiPlayer` now
+  takes a tier; only cadence bites this phase (Dumb 50 / Normal 25 / Smart 18 / God
+  12), the competence bools are dormant until C–E read them. Handicaps
+  (`HarvestBonusTenths`, `SightBonus` on hashed `PlayerState`; start-gold/lumber
+  bonus at Setup) flow lobby → `SlotSetup` → `GameSim.Setup`, applied in `Deposit`
+  and `EffectiveSight` — **never by the out-of-sim AiPlayer**, so cheats stay
+  deterministic and hashed. Every handicap default is integer identity, proven by
+  the whole prior suite passing unchanged. Build-speed handicap deferred (touches
+  more sites, least essential of the three). Only God cheats by default; Smart is
+  pure skill. Phases C–F still to do.
 
 **M9 — scripted AI opponent, code complete.** Plan:
 `C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.

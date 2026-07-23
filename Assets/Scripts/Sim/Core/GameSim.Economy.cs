@@ -685,6 +685,9 @@ namespace Craftwar.Sim
                 return;
             ref PlayerState p = ref State.Players[u.Player];
             int amount = SimConstants.CarryAmount;
+            // AI harvest handicap: +N/10 of the whole yield. Zero for everyone
+            // outside a handicapped match, so this reduces to `amount` exactly.
+            amount += amount * p.HarvestBonusTenths / 10;
             var depotType = u.ChaseX < State.HighestUnitIndex && State.Units[u.ChaseX].IsAlive
                 ? (UnitTypeId)State.Units[u.ChaseX].TypeId : UnitTypeId.None;
             if (u.Carry == CarryType.Gold)

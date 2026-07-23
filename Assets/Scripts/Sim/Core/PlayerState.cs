@@ -61,6 +61,14 @@ namespace Craftwar.Sim
         public uint AllowedUpgrades;  // upgrade bit order
         public uint AllowedSpells;    // spell bit order
 
+        // AI difficulty handicaps (set once at Setup from the lobby, then const).
+        // Integer, identity at zero, so a match with no handicap hashes exactly as
+        // before. Applied by sim systems (Deposit / EffectiveSight), never by the
+        // out-of-sim AiPlayer — that keeps the cheat deterministic. Also usable as
+        // a general per-player handicap in custom games later.
+        public int HarvestBonusTenths; // +N/10 of every gold/wood/oil drop-off
+        public int SightBonus;         // +N tiles of sight on every unit
+
         public bool HasResearched(UpgradeId u) =>
             u != UpgradeId.None && (Researched & (1ul << (int)u)) != 0;
 
@@ -84,6 +92,8 @@ namespace Craftwar.Sim
             h.Add(AllowedUnits);
             h.Add(AllowedUpgrades);
             h.Add(AllowedSpells);
+            h.Add(HarvestBonusTenths);
+            h.Add(SightBonus);
         }
     }
 }
