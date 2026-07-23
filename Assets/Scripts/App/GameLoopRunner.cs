@@ -337,7 +337,11 @@ namespace Craftwar.App
             if (Sim == null || Paused)
                 return;
 
-            _accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f);
+            // Game speed scales how fast wall-clock feeds the fixed 50 Hz tick —
+            // the sim itself never changes, so determinism and replays are
+            // untouched (replays record ticks, not seconds).
+            _accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f)
+                * View.GameplaySettings.Current.SpeedMultiplier;
             int safety = 8; // don't spiral after a hitch
             while (_accumulator >= TickSeconds && safety-- > 0)
             {

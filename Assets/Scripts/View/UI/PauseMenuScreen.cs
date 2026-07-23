@@ -45,10 +45,11 @@ namespace Craftwar.View
             Bind("resume", () => _manager.Pop());
             Bind("quit", Quit);
             Bind("surrender", Surrender);
+            Bind("options", () => _manager.Push(new OptionsScreen(_manager)));
 
-            // Placeholders: visible so the shape of the menu is honest, but
-            // disabled because nothing behind them exists yet.
-            Disable("options");
+            // Placeholder: visible so the shape of the menu is honest, but
+            // disabled because nothing behind it exists yet (Save is M10's
+            // SimSerializer work).
             Disable("save");
         }
 

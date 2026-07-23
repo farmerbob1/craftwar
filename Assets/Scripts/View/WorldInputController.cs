@@ -304,6 +304,7 @@ namespace Craftwar.View
                     // cursor becomes a probe for hidden units. Own units always
                     // resolve. Falls through to a plain Move.
                     && (state.Units[ti].Player == LocalPlayer
+                        || GameplaySettings.Current.revealMap
                         || _host.Sim.IsUnitVisible(LocalPlayer, ref state.Units[ti])))
                 {
                     ref var target = ref state.Units[ti];

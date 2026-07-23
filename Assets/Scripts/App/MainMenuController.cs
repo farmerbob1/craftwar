@@ -24,8 +24,11 @@ namespace Craftwar.App
         public const string GameSceneName = "Game";
 
         LocalAssetPaths _paths;
-        VisualElement _panelMain, _panelSetup, _panelWizard;
+        VisualElement _panelMain, _panelSetup, _panelWizard, _panelOptions;
         bool _musicStarted;
+
+        // Options panel
+        Button _optFog, _optSpeed;
 
         // Setup panel
         List<MapEntry> _maps;
@@ -70,11 +73,32 @@ namespace Craftwar.App
             _panelMain = root.Q("panel-main");
             _panelSetup = root.Q("panel-setup");
             _panelWizard = root.Q("panel-wizard");
+            _panelOptions = root.Q("panel-options");
 
             // Main panel
             root.Q<Button>("single-player").clicked += ShowSetup;
             root.Q<Button>("locate").clicked += ShowWizard;
             root.Q<Button>("quit").clicked += Quit;
+            root.Q<Button>("options").clicked += ShowOptions;
+
+            // Options panel (may be absent from an older scene's UXML)
+            _optFog = root.Q<Button>("opt-fog");
+            _optSpeed = root.Q<Button>("opt-speed");
+            if (_optFog != null)
+                _optFog.clicked += () =>
+                {
+                    GameplaySettings.Current.revealMap = !GameplaySettings.Current.revealMap;
+                    GameplaySettings.Save();
+                    RefreshOptionLabels();
+                };
+            if (_optSpeed != null)
+                _optSpeed.clicked += () =>
+                {
+                    GameplaySettings.Current.CycleSpeed(1);
+                    GameplaySettings.Save();
+                    RefreshOptionLabels();
+                };
+            root.Q<Button>("options-back")?.RegisterCallback<ClickEvent>(_ => ShowMain());
 
             // Setup panel
             _mapLabel = root.Q<Label>("map-label");
@@ -121,6 +145,8 @@ namespace Craftwar.App
             Show(_panelMain, true);
             Show(_panelSetup, false);
             Show(_panelWizard, false);
+            if (_panelOptions != null)
+                Show(_panelOptions, false);
 
             bool haveData = _paths != null && _paths.HasData;
             _panelMain.Q<Button>("single-player").SetEnabled(haveData);
@@ -151,7 +177,29 @@ namespace Craftwar.App
             Show(_panelMain, false);
             Show(_panelSetup, false);
             Show(_panelWizard, true);
+            if (_panelOptions != null)
+                Show(_panelOptions, false);
             Rescan();
+        }
+
+        void ShowOptions()
+        {
+            if (_panelOptions == null)
+                return;
+            RefreshOptionLabels();
+            Show(_panelMain, false);
+            Show(_panelSetup, false);
+            Show(_panelWizard, false);
+            Show(_panelOptions, true);
+        }
+
+        void RefreshOptionLabels()
+        {
+            var s = GameplaySettings.Current;
+            if (_optFog != null)
+                _optFog.text = s.revealMap ? "Fog of War: Off" : "Fog of War: On";
+            if (_optSpeed != null)
+                _optSpeed.text = $"Game Speed: {s.SpeedLabel}";
         }
 
         // --- Skirmish setup ----------------------------------------------------

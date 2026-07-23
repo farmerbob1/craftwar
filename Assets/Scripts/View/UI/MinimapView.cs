@@ -143,9 +143,10 @@ namespace Craftwar.View
                 return;
             var state = sim.State;
 
-            byte[] visible = state.Visible != null && _player < SimConstants.MaxPlayers
+            bool reveal = GameplaySettings.Current.revealMap;
+            byte[] visible = !reveal && state.Visible != null && _player < SimConstants.MaxPlayers
                 ? state.Visible[_player] : null;
-            byte[] explored = state.Explored != null && _player < SimConstants.MaxPlayers
+            byte[] explored = !reveal && state.Explored != null && _player < SimConstants.MaxPlayers
                 ? state.Explored[_player] : null;
 
             // Terrain, masked by fog.
@@ -177,7 +178,7 @@ namespace Craftwar.View
                     continue;
 
                 bool own = u.Player == _player;
-                if (!own && !sim.IsUnitVisible(_player, ref u))
+                if (!own && !reveal && !sim.IsUnitVisible(_player, ref u))
                     continue;
 
                 Color32 dot = own ? OwnColor

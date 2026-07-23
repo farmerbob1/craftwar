@@ -328,7 +328,9 @@ namespace Craftwar.View
 
                 // Fog: own units are always drawn; everyone else only while in
                 // sight. Buildings additionally leave a remembered ghost behind.
-                bool inSight = u.Player == LocalPlayer || _host.Sim.IsUnitVisible(LocalPlayer, ref u);
+                bool inSight = u.Player == LocalPlayer
+                    || GameplaySettings.Current.revealMap
+                    || _host.Sim.IsUnitVisible(LocalPlayer, ref u);
                 sr.enabled = inSight;
 
                 if (u.Player != LocalPlayer && (u.Flags & UnitFlags.Building) != 0)
@@ -421,7 +423,8 @@ namespace Craftwar.View
                 int origin = kv.Key;
                 int tx = origin % width;
                 int ty = origin / width;
-                bool visible = sim.IsVisible(LocalPlayer, tx, ty);
+                bool visible = GameplaySettings.Current.revealMap
+                    || sim.IsVisible(LocalPlayer, tx, ty);
 
                 // We can see that tile and no building reported itself there
                 // this frame: whatever we remembered is gone.

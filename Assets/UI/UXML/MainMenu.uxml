@@ -11,7 +11,7 @@
             <ui:Label class="menu__title" text="Craftwar" picking-mode="Ignore" />
             <ui:Button name="single-player" class="menu__button" text="Single Player" />
             <ui:Button name="locate" class="menu__button" text="Locate Game Data" />
-            <ui:Button name="options" class="menu__button" text="Options" enabled="false" />
+            <ui:Button name="options" class="menu__button" text="Options" />
             <ui:Button name="quit" class="menu__button" text="Quit" />
             <ui:Label name="main-warn" class="text text--warn" picking-mode="Ignore"
                       text="No Warcraft II data found.&#10;Point the wizard at your installation." />
@@ -33,6 +33,19 @@
             <ui:VisualElement name="slot-list" />
             <ui:Button name="setup-start" class="menu__button" text="Start" />
             <ui:Button name="setup-back" class="menu__button" text="Back" />
+        </ui:VisualElement>
+
+        <!-- Options. One tab so far (Gameplay); the tab row is where
+             Audio/Video join later. Both controls write GameplaySettings,
+             which the game loop and the fog/minimap/unit views read live. -->
+        <ui:VisualElement name="panel-options" class="menu">
+            <ui:Label class="menu__title" text="Options" picking-mode="Ignore" />
+            <ui:VisualElement name="options-tabs" style="flex-direction: row;">
+                <ui:Button name="tab-gameplay" class="menu__button" text="Gameplay" enabled="false" />
+            </ui:VisualElement>
+            <ui:Button name="opt-fog" class="menu__button" />
+            <ui:Button name="opt-speed" class="menu__button" />
+            <ui:Button name="options-back" class="menu__button" text="Back" />
         </ui:VisualElement>
 
         <!-- Locate game data (first run and re-runnable) -->

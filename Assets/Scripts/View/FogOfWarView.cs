@@ -92,6 +92,13 @@ namespace Craftwar.View
         {
             if (_host?.Sim == null || _mask == null)
                 return;
+            // Reveal-map option: the sim's fog keeps computing (hashed state);
+            // only the overlay stops drawing.
+            bool reveal = GameplaySettings.Current.revealMap;
+            if (_renderer != null)
+                _renderer.enabled = !reveal;
+            if (reveal)
+                return;
             UploadMask();
         }
 
