@@ -169,7 +169,21 @@ engines — so this externalizes the script layer and strengthens the executor.
   deterministic and hashed. Every handicap default is integer identity, proven by
   the whole prior suite passing unchanged. Build-speed handicap deferred (touches
   more sites, least essential of the three). Only God cheats by default; Smart is
-  pure skill. Phases C–F still to do.
+  pure skill. Phases D–F still to do.
+
+- **Phase C DONE (green: 277/277 EditMode; 207/207 standalone).** `Ai/AiBasePlan.cs`
+  replaces the naive first-valid spiral with a clustered, non-self-boxing placement
+  for `PlannedLayout` tiers (Smart/God); Dumb/Normal keep the spiral, so the M9
+  baseline is untouched. It reuses `AiSiteSearch`'s validity (BuildSite +
+  mine-lane + ≥3 open perimeter) and scores valid plots: hug existing friendly
+  buildings (compact base, shorter worker paths), keep the plot's own perimeter
+  open, prefer small rings, and **reject any plot that would brick in a neighbour**
+  (leave it <2 open perimeter). `AiPlayer.Build.FindSiteAvoidingBlacklist` calls it
+  when `_tier.PlannedLayout`, falling back to the spiral if it finds no clustered
+  plot. Deterministic (fixed ring/scan order, integer scores, first-wins ties).
+  A Smart AI builds out a full base and marches its army out (not boxed); it even
+  banks more gold than the spiral thanks to the shorter harvest paths. Phases D–F
+  still to do.
 
 **M9 — scripted AI opponent, code complete.** Plan:
 `C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.

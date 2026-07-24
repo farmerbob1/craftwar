@@ -213,6 +213,13 @@ namespace Craftwar.Sim.Ai
         bool FindSiteAvoidingBlacklist(ushort typeId, int radius, uint builderPacked,
             out int x, out int y)
         {
+            // Higher tiers plan a clustered, non-boxing layout; if it can't find a
+            // plot it falls through to the naive spiral so a build still happens.
+            if (_tier.PlannedLayout
+                && AiBasePlan.FindSite(_s, Slot, typeId, _anchorX, _anchorY, radius,
+                    builderPacked, _blacklistedSites, out x, out y))
+                return true;
+
             // The spiral is deterministic, so a handful of poisoned top-left
             // tiles (timed-out walks) is all the exclusion state needed.
             int size = _s.Footprint(typeId);
