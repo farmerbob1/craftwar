@@ -69,6 +69,18 @@ namespace Craftwar.Sim
         public int HarvestBonusTenths; // +N/10 of every gold/wood/oil drop-off
         public int SightBonus;         // +N tiles of sight on every unit
 
+        // Cumulative match statistics for the end-game score screen (hashed:
+        // deterministic integer counters). Kills/razings are credited to the
+        // attacker at the killing blow; losses to the dying unit's owner;
+        // gathered totals at each resource drop-off.
+        public int GoldGathered;
+        public int LumberGathered;
+        public int OilGathered;
+        public int UnitsKilled;
+        public int BuildingsRazed;
+        public int UnitsLost;
+        public int BuildingsLost;
+
         public bool HasResearched(UpgradeId u) =>
             u != UpgradeId.None && (Researched & (1ul << (int)u)) != 0;
 
@@ -94,6 +106,13 @@ namespace Craftwar.Sim
             h.Add(AllowedSpells);
             h.Add(HarvestBonusTenths);
             h.Add(SightBonus);
+            h.Add(GoldGathered);
+            h.Add(LumberGathered);
+            h.Add(OilGathered);
+            h.Add(UnitsKilled);
+            h.Add(BuildingsRazed);
+            h.Add(UnitsLost);
+            h.Add(BuildingsLost);
         }
     }
 }

@@ -17,8 +17,8 @@
                       text="No Warcraft II data found.&#10;Point the wizard at your installation." />
         </ui:VisualElement>
 
-        <!-- Skirmish setup -->
-        <ui:VisualElement name="panel-setup" class="menu">
+        <!-- Skirmish setup (wider: slot rows carry controller/race/strategy/difficulty) -->
+        <ui:VisualElement name="panel-setup" class="menu menu--wide">
             <ui:Label class="menu__title" text="Skirmish" picking-mode="Ignore" />
             <ui:Label name="setup-warn" class="text text--warn" picking-mode="Ignore"
                       text="No .pud maps found.&#10;Checked StreamingAssets/Maps and LocalAssetPaths.mapsDir." />

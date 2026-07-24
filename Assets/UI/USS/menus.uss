@@ -26,6 +26,12 @@
     border-bottom-color: var(--cw-panel-border);
 }
 
+/* Panels whose rows are wide (skirmish setup: label + controller + race +
+   strategy + difficulty per slot). */
+.menu--wide {
+    width: 640px;
+}
+
 .menu__title {
     color: var(--cw-accent);
     font-size: 20px;

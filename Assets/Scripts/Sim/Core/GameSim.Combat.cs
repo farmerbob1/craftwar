@@ -197,7 +197,7 @@ namespace Craftwar.Sim
 
             if (row.MissileWeapon == SimConstants.MissileNone)
             {
-                ApplyDamage(targetIndex, damage);
+                ApplyDamage(targetIndex, damage, attacker.Player);
                 return;
             }
 
@@ -220,10 +220,10 @@ namespace Craftwar.Sim
                 return;
             }
             // Pool exhausted: land the hit instantly rather than lose it.
-            ApplyDamage(targetIndex, damage);
+            ApplyDamage(targetIndex, damage, attacker.Player);
         }
 
-        void ApplyDamage(int targetIndex, int damage)
+        void ApplyDamage(int targetIndex, int damage, byte attacker)
         {
             ref Unit target = ref State.Units[targetIndex];
             target.Hp -= damage;
@@ -231,7 +231,9 @@ namespace Craftwar.Sim
             if (target.Hp > 0)
                 return;
 
+            CreditKill(attacker, target.Player, (target.Flags & UnitFlags.Building) != 0);
             var deadId = new UnitId((ushort)targetIndex, target.Gen);
+
             bool carriedTroops = target.CargoCount > 0;
             // A razed construction site must free the builder hidden inside it,
             // or the worker stays Hidden forever — invisible and unkillable.
@@ -241,6 +243,24 @@ namespace Craftwar.Sim
             State.DestroyUnit(deadId);
             if (carriedTroops)
                 DrownCargo(deadId); // a sinking transport takes its hold with it
+        }
+
+        /// <summary>Tally a kill for the end-game score screen: a loss for the
+        /// dead unit's owner, and a kill/razing for the attacker when it is an
+        /// enemy (different team). Neutral owners (mines, critters) don't count.</summary>
+        void CreditKill(byte attacker, byte victim, bool isBuilding)
+        {
+            if (victim < SimConstants.MaxPlayers)
+            {
+                if (isBuilding) State.Players[victim].BuildingsLost++;
+                else State.Players[victim].UnitsLost++;
+            }
+            if (attacker < SimConstants.MaxPlayers && victim < SimConstants.MaxPlayers
+                && State.Players[attacker].Team != State.Players[victim].Team)
+            {
+                if (isBuilding) State.Players[attacker].BuildingsRazed++;
+                else State.Players[attacker].UnitsKilled++;
+            }
         }
 
         /// <summary>
@@ -286,7 +306,7 @@ namespace Craftwar.Sim
                 if (dx >= -speed && dx <= speed && dy >= -speed && dy <= speed)
                 {
                     proj.Active = false;
-                    ApplyDamage(ti, proj.Damage);
+                    ApplyDamage(ti, proj.Damage, proj.SourcePlayer);
                     continue;
                 }
                 proj.PixX += dx > speed ? speed : dx < -speed ? -speed : dx;

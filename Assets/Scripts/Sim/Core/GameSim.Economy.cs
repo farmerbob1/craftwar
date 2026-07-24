@@ -697,12 +697,14 @@ namespace Craftwar.Sim
                 else if (depotType is UnitTypeId.Castle or UnitTypeId.Fortress)
                     amount += amount * SimConstants.CastleFactorPct / 100;
                 p.Gold += amount;
+                p.GoldGathered += amount;
             }
             else if (u.Carry == CarryType.Wood)
             {
                 if (depotType is UnitTypeId.ElvenLumberMill or UnitTypeId.TrollLumberMill)
                     amount += amount * SimConstants.MillFactorPct / 100;
                 p.Lumber += amount;
+                p.LumberGathered += amount;
             }
             else if (u.Carry == CarryType.Oil)
             {
@@ -712,6 +714,7 @@ namespace Craftwar.Sim
                 if (HasCompletedRefinery(u.Player))
                     amount += amount * SimConstants.RefineryFactorPct / 100;
                 p.Oil += amount;
+                p.OilGathered += amount;
             }
         }
 
