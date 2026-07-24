@@ -193,11 +193,12 @@ namespace Craftwar.App
                 ref PlayerState ps = ref Sim.State.Players[p];
                 if (ps.Controller != Controller.Computer || !ps.InGame)
                     continue;
-                byte aipl = _config.slots != null && p < _config.slots.Length
-                    && _config.slots[p] != null
-                    ? _config.slots[p].aiType
-                    : _map.AiType[p];
-                var ai = new AiPlayer(p, AiBehaviorMap.FromAiplByte(aipl));
+                var slot = _config.slots != null && p < _config.slots.Length
+                    ? _config.slots[p] : null;
+                byte aipl = slot != null ? slot.aiType : _map.AiType[p];
+                var strategy = AiStrategyLibrary.Resolve(slot?.aiStrategy);
+                var tier = (AiTier)(slot != null ? slot.aiTier : (byte)AiTier.Normal);
+                var ai = new AiPlayer(p, AiBehaviorMap.FromAiplByte(aipl), strategy, tier);
                 _ais.Add(ai);
                 // Provenance for the replay header (v2). The recorded commands
                 // already reproduce the match; this only records which strategy

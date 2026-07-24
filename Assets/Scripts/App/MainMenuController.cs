@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using Craftwar.Import;
 using Craftwar.Sim;
+using Craftwar.Sim.Ai;
 using Craftwar.Sim.Pud;
 using Craftwar.View;
 using UnityEngine;
@@ -46,9 +47,17 @@ namespace Craftwar.App
             public Controller Controller;
             public Race Race;
             public byte AiType;
+            public AiTier Tier = AiTier.Normal;
+            public string Strategy = AiStrategyLibrary.DefaultName;
             public Button CtrlBtn;
             public Button RaceBtn;
+            public Button StratBtn;
+            public Button DiffBtn;
         }
+
+        // Selectable AI strategies (built-ins + player files), computed when the
+        // setup panel is built so a freshly-dropped mod file appears next time.
+        List<string> _strategyNames;
 
         PudFile _setupPud;
         readonly List<SlotRow> _slotRows = new List<SlotRow>();
@@ -243,6 +252,7 @@ namespace Craftwar.App
             _slotList.Clear();
             if (_setupPud == null)
                 return;
+            _strategyNames = AiStrategyLibrary.Names();
 
             for (int p = 0; p < SimConstants.MaxPlayers; p++)
             {
@@ -276,6 +286,17 @@ namespace Craftwar.App
                 row.RaceBtn.style.width = 90;
                 line.Add(row.RaceBtn);
 
+                // AI strategy + difficulty, meaningful only for Computer slots.
+                row.StratBtn = new Button(() => CycleStrategy(row)) { text = "" };
+                row.StratBtn.AddToClassList("menu__button");
+                row.StratBtn.style.width = 130;
+                line.Add(row.StratBtn);
+
+                row.DiffBtn = new Button(() => CycleTier(row)) { text = "" };
+                row.DiffBtn.AddToClassList("menu__button");
+                row.DiffBtn.style.width = 90;
+                line.Add(row.DiffBtn);
+
                 UpdateRowLabels(row);
                 _slotList.Add(line);
             }
@@ -295,6 +316,27 @@ namespace Craftwar.App
             UpdateRowLabels(row);
         }
 
+        void CycleStrategy(SlotRow row)
+        {
+            if (_strategyNames == null || _strategyNames.Count == 0)
+                return;
+            int i = _strategyNames.IndexOf(row.Strategy);
+            row.Strategy = _strategyNames[(i + 1) % _strategyNames.Count];
+            UpdateRowLabels(row);
+        }
+
+        void CycleTier(SlotRow row)
+        {
+            row.Tier = row.Tier switch
+            {
+                AiTier.Dumb => AiTier.Normal,
+                AiTier.Normal => AiTier.Smart,
+                AiTier.Smart => AiTier.God,
+                _ => AiTier.Dumb,
+            };
+            UpdateRowLabels(row);
+        }
+
         static void UpdateRowLabels(SlotRow row)
         {
             row.CtrlBtn.text = row.Controller switch
@@ -305,6 +347,13 @@ namespace Craftwar.App
             };
             row.RaceBtn.text = row.Race == Race.Orc ? "Orc" : "Human";
             row.RaceBtn.SetEnabled(row.Controller != Controller.None);
+
+            // Strategy/difficulty apply only to an active Computer that actually plays.
+            bool aiActive = row.Controller == Controller.Computer && row.AiType != 0x01;
+            row.StratBtn.text = row.Strategy;
+            row.DiffBtn.text = row.Tier.ToString();
+            row.StratBtn.SetEnabled(aiActive);
+            row.DiffBtn.SetEnabled(aiActive);
         }
 
         void StartSkirmish()
@@ -339,6 +388,8 @@ namespace Craftwar.App
                     race = row.Race,
                     team = (byte)row.Slot, // free-for-all, like melee defaults
                     aiType = row.AiType,
+                    aiStrategy = row.Strategy,
+                    aiTier = (byte)row.Tier,
                 };
             StartMatch(config);
         }

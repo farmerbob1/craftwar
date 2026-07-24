@@ -213,7 +213,24 @@ engines — so this externalizes the script layer and strengthens the executor.
   **Scouting**: one early worker Move toward the enemy, gated on a worker surplus
   (≥5) so the (cosmetic — the AI cheats fog) scout never robs a thin economy; with
   the gate a Smart AI still first-musters ~t15k, barely behind Normal's ~t14k.
-  Phase F still to do.
+
+- **Phase F DONE (green: 290/290 EditMode; standalone incl. tier soak).**
+  Skill ordering PROVEN by `AiDifficultyTests` (tier + handicaps composed exactly
+  as the app wires them): Normal out-develops Dumb at a checkpoint (cadence-only
+  pair, so a unit-count proxy is fair), and **Smart beats Dumb, God beats Normal,
+  God beats Dumb** to an outright win (the competence tiers trade units, so they
+  must be scored by winning, not a snapshot). Near-equal Normal-vs-Dumb stalemates
+  past 80k — the known symmetric-mirror slowness — hence the checkpoint there.
+  Wiring: `SlotConfig` gained `aiStrategy`/`aiTier`; `MatchConfig.ToMatchSetup`
+  bakes the tier's handicap knobs into the Computer slot's hashed `PlayerState`
+  (0 for Dumb/Normal/Smart, so default configs are unchanged); `GameLoopRunner.
+  CreateAis` resolves the strategy (`AiStrategyLibrary`) and tier and hands both to
+  the `AiPlayer`. `AiStrategyLibrary` (App) lists built-ins + player `*.ai.txt`
+  from `persistentDataPath/Ai/` and parses them (a broken mod falls back to the
+  default, never bricks the lobby). The skirmish rows gained per-Computer-slot
+  strategy and difficulty cycle-buttons (`MainMenuController`; rows are built in
+  C#, so no UXML change). **Manual playtest (win + lose vs each tier, a dropped
+  player strategy) is the remaining human step** — inherently outside the gate.
 
 **M9 — scripted AI opponent, code complete.** Plan:
 `C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.

@@ -16,6 +16,18 @@ namespace Craftwar.App
         /// passive). App-side data consumed by GameLoopRunner when it creates
         /// the AIs; the sim never sees it.</summary>
         public byte aiType;
+
+        /// <summary>Strategy name for a Computer slot — a built-in
+        /// (<see cref="Craftwar.Sim.Ai.BuiltinAiStrategies"/>) or a discovered
+        /// player file. Empty = the default land-attack. App-side; resolved by
+        /// GameLoopRunner into the AiStrategy handed to the AiPlayer.</summary>
+        public string aiStrategy = "";
+
+        /// <summary>Difficulty tier (<see cref="Craftwar.Sim.Ai.AiTier"/>) for a
+        /// Computer slot. Its SKILL half drives the out-of-sim AiPlayer; its
+        /// HANDICAP half is baked into the slot's hashed PlayerState by
+        /// <see cref="MatchConfig.ToMatchSetup"/>.</summary>
+        public byte aiTier = (byte)Craftwar.Sim.Ai.AiTier.Normal;
     }
 
     /// <summary>
@@ -59,9 +71,26 @@ namespace Craftwar.App
             for (int p = 0; p < SimConstants.MaxPlayers; p++)
             {
                 var s = p < slots.Length ? slots[p] : null;
-                setup.Slots[p] = s == null
-                    ? new SlotSetup { Controller = Controller.None, Race = Race.Human, Team = (byte)p }
-                    : new SlotSetup { Controller = s.controller, Race = s.race, Team = s.team };
+                if (s == null)
+                {
+                    setup.Slots[p] = new SlotSetup
+                    {
+                        Controller = Controller.None, Race = Race.Human, Team = (byte)p,
+                    };
+                    continue;
+                }
+                var slot = new SlotSetup { Controller = s.controller, Race = s.race, Team = s.team };
+                // Bake the tier's handicap knobs into the hashed slot — only for
+                // Computer slots (a human never gets the AI's cheats).
+                if (s.controller == Controller.Computer)
+                {
+                    var tp = Craftwar.Sim.Ai.AiTierTable.For((Craftwar.Sim.Ai.AiTier)s.aiTier);
+                    slot.StartGoldBonus = tp.StartGoldBonus;
+                    slot.StartLumberBonus = tp.StartLumberBonus;
+                    slot.HarvestBonusTenths = tp.HarvestBonusTenths;
+                    slot.SightBonus = tp.SightBonus;
+                }
+                setup.Slots[p] = slot;
             }
             return setup;
         }
