@@ -55,6 +55,56 @@ namespace Craftwar.Sim.Tests
             return pud;
         }
 
+        /// <summary>
+        /// A synthetic N-seat melee on flat, fully-open grass — the hardest possible
+        /// self-boxing test, because there is no terrain to blame: any wall an AI
+        /// builds is its own. Each seat gets a hall, two workers, a nearby gold mine
+        /// and a forest block. Seats are laid out on a grid; no copyrighted PUD.
+        /// </summary>
+        public static PudFile MeleeMap(int seats)
+        {
+            if (seats < 2) seats = 2;
+            if (seats > SimConstants.MaxPlayers) seats = SimConstants.MaxPlayers;
+            int cols = 1;
+            while (cols * cols < seats) cols++;
+            const int cell = 34;
+            int size = cols * cell;
+
+            var pud = new PudFile { Width = size, Height = size };
+            pud.Tiles = new ushort[size * size];
+            pud.MoveMap = new ushort[size * size];
+            for (int i = 0; i < pud.MoveMap.Length; i++)
+            {
+                pud.Tiles[i] = 0x0050;   // grass
+                pud.MoveMap[i] = 0x0001; // land-passable
+            }
+
+            for (int s = 0; s < seats; s++)
+            {
+                int gx = (s % cols) * cell;
+                int gy = (s / cols) * cell;
+                int hallX = gx + 6, hallY = gy + 6;
+                Seat(pud, s, PudOwner.Computer, (s & 1) == 0 ? Race.Human : Race.Orc);
+                pud.StartGold[s] = 2000;
+                pud.StartLumber[s] = 1500;
+                pud.StartOil[s] = 1000;
+                Place(pud, s, (s & 1) == 0 ? UnitTypeId.TownHall : UnitTypeId.GreatHall,
+                    hallX, hallY);
+                Place(pud, s, (s & 1) == 0 ? UnitTypeId.Peasant : UnitTypeId.Peon,
+                    hallX + 6, hallY + 1);
+                Place(pud, s, (s & 1) == 0 ? UnitTypeId.Peasant : UnitTypeId.Peon,
+                    hallX + 6, hallY + 3);
+                pud.Units.Add(new PudUnitEntry
+                {
+                    X = (ushort)(gx + 16), Y = (ushort)(gy + 6),
+                    Type = (byte)UnitTypeId.GoldMine, Owner = 15, Alter = 25,
+                });
+                // A forest block for wood, kept clear of the hall and mine.
+                Forest(pud, gx + 2, gy + 16, gx + 10, gy + 24);
+            }
+            return pud;
+        }
+
         public static void Forest(PudFile pud, int x0, int y0, int x1, int y1)
         {
             for (int y = y0; y <= y1; y++)

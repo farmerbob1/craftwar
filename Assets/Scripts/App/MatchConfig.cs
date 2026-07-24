@@ -17,10 +17,10 @@ namespace Craftwar.App
         /// the AIs; the sim never sees it.</summary>
         public byte aiType;
 
-        /// <summary>Strategy name for a Computer slot — a built-in
-        /// (<see cref="Craftwar.Sim.Ai.BuiltinAiStrategies"/>) or a discovered
-        /// player file. Empty = the default land-attack. App-side; resolved by
-        /// GameLoopRunner into the AiStrategy handed to the AiPlayer.</summary>
+        /// <summary>AI profile name for a Computer slot — a built-in
+        /// (<see cref="Craftwar.Sim.Ai.BuiltinAiProfiles"/>) or a discovered modder
+        /// file. Empty = the default land-attack. App-side; resolved by
+        /// GameLoopRunner into the AiProfile handed to the AiPlayer.</summary>
         public string aiStrategy = "";
 
         /// <summary>Difficulty tier (<see cref="Craftwar.Sim.Ai.AiTier"/>) for a

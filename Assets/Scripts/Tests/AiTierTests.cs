@@ -21,16 +21,20 @@ namespace Craftwar.Sim.Tests
         }
 
         [Test]
-        public void Cadence_SharpensWithTier()
+        public void Cadence_StaysInTheHealthyBand()
         {
             int dumb = AiTierTable.For(AiTier.Dumb).ThinkPeriodTicks;
             int normal = AiTierTable.For(AiTier.Normal).ThinkPeriodTicks;
             int smart = AiTierTable.For(AiTier.Smart).ThinkPeriodTicks;
             int god = AiTierTable.For(AiTier.God).ThinkPeriodTicks;
-            Assert.Greater(dumb, normal);
-            Assert.Greater(normal, smart);
-            Assert.Greater(smart, god);
-            Assert.Greater(god, 0);
+            // Dumb reacts slowest; the higher tiers think at least as sharply but
+            // stay in the healthy band — thinking much faster than ~25 ticks
+            // currently develops WORSE (an over-eager harvest/attack cadence), so
+            // Smart's edge over Normal is its competences, not raw speed.
+            Assert.Greater(dumb, normal, "Dumb reacts slowest");
+            Assert.LessOrEqual(smart, normal, "Smart is at least as sharp as Normal");
+            Assert.LessOrEqual(god, smart, "God is the sharpest");
+            Assert.GreaterOrEqual(god, 20, "…but not so fast it thrashes its own economy");
         }
 
         [Test]
@@ -62,7 +66,7 @@ namespace Craftwar.Sim.Tests
             var god = new AiPlayer(0, AiBehavior.LandAttack, null, AiTier.God);
             var deflt = new AiPlayer(0, AiBehavior.LandAttack);
             Assert.AreEqual(50, dumb.ThinkPeriodTicks);
-            Assert.AreEqual(12, god.ThinkPeriodTicks);
+            Assert.AreEqual(22, god.ThinkPeriodTicks);
             Assert.AreEqual(25, deflt.ThinkPeriodTicks, "default tier is Normal");
             Assert.AreEqual(AiTier.Normal, deflt.Tier);
         }

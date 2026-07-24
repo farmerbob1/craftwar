@@ -59,7 +59,11 @@ namespace Craftwar.Sim.Ai
             },
             AiTier.Smart => new AiTierParams
             {
-                ThinkPeriodTicks = 18,
+                // Kept in the healthy cadence band (see Normal): thinking much
+                // faster than ~25 ticks currently develops WORSE, so Smart's edge
+                // is its competences (active defense, focus fire, reinforcement,
+                // scouting), not raw reaction speed.
+                ThinkPeriodTicks = 25,
                 PlannedLayout = true,
                 FocusFire = true,
                 Reinforce = true,
@@ -69,7 +73,7 @@ namespace Craftwar.Sim.Ai
             },
             AiTier.God => new AiTierParams
             {
-                ThinkPeriodTicks = 12,
+                ThinkPeriodTicks = 22,
                 PlannedLayout = true,
                 FocusFire = true,
                 Reinforce = true,

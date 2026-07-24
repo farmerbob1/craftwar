@@ -196,14 +196,14 @@ namespace Craftwar.App
                 var slot = _config.slots != null && p < _config.slots.Length
                     ? _config.slots[p] : null;
                 byte aipl = slot != null ? slot.aiType : _map.AiType[p];
-                var strategy = AiStrategyLibrary.Resolve(slot?.aiStrategy);
+                var profile = AiProfileLibrary.Resolve(slot?.aiStrategy);
                 var tier = (AiTier)(slot != null ? slot.aiTier : (byte)AiTier.Normal);
-                var ai = new AiPlayer(p, AiBehaviorMap.FromAiplByte(aipl), strategy, tier);
+                var ai = new AiPlayer(p, AiBehaviorMap.FromAiplByte(aipl), profile, tier);
                 _ais.Add(ai);
                 // Provenance for the replay header (v2). The recorded commands
-                // already reproduce the match; this only records which strategy
+                // already reproduce the match; this only records which profile
                 // each computer slot ran.
-                _replay?.SetAiStrategyHash(p, ai.Strategy.Hash());
+                _replay?.SetAiStrategyHash(p, ai.Profile.Hash());
             }
         }
 

@@ -48,7 +48,7 @@ namespace Craftwar.App
             public Race Race;
             public byte AiType;
             public AiTier Tier = AiTier.Normal;
-            public string Strategy = AiStrategyLibrary.DefaultName;
+            public string Strategy = AiProfileLibrary.DefaultName;
             public Button CtrlBtn;
             public Button RaceBtn;
             public Button StratBtn;
@@ -252,7 +252,7 @@ namespace Craftwar.App
             _slotList.Clear();
             if (_setupPud == null)
                 return;
-            _strategyNames = AiStrategyLibrary.Names();
+            _strategyNames = AiProfileLibrary.Names();
 
             for (int p = 0; p < SimConstants.MaxPlayers; p++)
             {
