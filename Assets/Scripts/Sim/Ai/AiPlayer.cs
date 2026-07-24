@@ -128,6 +128,12 @@ namespace Craftwar.Sim.Ai
             // Construction claims its builder before the harvest balancer can
             // re-task it — the original's peon dispatcher has the same bias.
             ThinkBuild();
+            // Higher-tier extras, after the core build order: a second base by a
+            // fresh mine, and a one-time early scout. Gated so Dumb/Normal skip them.
+            if (_tier.Expansion && _budget > 0)
+                ThinkExpansion();
+            if (_tier.Scouting && _budget > 0)
+                TryScout();
             if (_budget > 0)
                 ThinkEconomy();
             if (_budget > 0)

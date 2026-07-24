@@ -197,7 +197,23 @@ engines — so this externalizes the script layer and strengthens the executor.
   the post-wave cooldown gate so an ongoing fight is fought well; the wave target
   is recorded on every launch. Tests prove focus-fire hits the weakest, defense
   recalls to the intruder, Normal does neither, and a Smart-vs-Normal match still
-  resolves (tactics don't deadlock). Phases E–F still to do.
+  resolves (tactics don't deadlock). Phase F still to do.
+
+- **Phase E DONE (green: 286/286 EditMode; 216/216 standalone).**
+  `Ai/AiPlayer.Expand.cs` adds scouting and expansion, gated (Smart scouts; God
+  scouts + expands), so Dumb/Normal are untouched. **Expansion**: when workers
+  saturate one mine (≥12) or the home mine is nearly tapped, build a 2nd Town Hall
+  by the nearest *untapped* mine (site-searched around the mine, so the mine-lane
+  keep-out sets it a few tiles clear). It stops at "second hall by a fresh mine"
+  rather than a full multi-base worker rebalance: the economy manager keys its
+  mine off the anchor, so when the home mine dries up it already routes workers to
+  the next-nearest live mine — the one the new hall sits beside — which the sim's
+  depot search picks as their drop-off. That kills the mined-out-map stalemate
+  without the risky per-base split (the fuller rebalance is noted for later).
+  **Scouting**: one early worker Move toward the enemy, gated on a worker surplus
+  (≥5) so the (cosmetic — the AI cheats fog) scout never robs a thin economy; with
+  the gate a Smart AI still first-musters ~t15k, barely behind Normal's ~t14k.
+  Phase F still to do.
 
 **M9 — scripted AI opponent, code complete.** Plan:
 `C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.
