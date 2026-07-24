@@ -11,7 +11,21 @@ namespace Craftwar.Sim
     /// </summary>
     public sealed class Pathfinder
     {
-        const int MaxExpandedNodes = 8192;
+        // Cap on nodes expanded per search. The original never ran a whole-map
+        // A* (traverse.c bounded every search to MAX_STEPS=50); on a 128x128 map
+        // 8192 was half the grid, so one obstructed/unreachable search cost ~2 ms
+        // and late-game repath storms saturated the 20 ms tick budget. 2048 is
+        // ~9% of a big map — ample for reachable goals (weighted A* expands far
+        // fewer than this for open terrain) — and the closest-node partial-path
+        // fallback plus the caller's escalating recovery re-plan from the new
+        // spot, so a shorter partial in a pathological pocket is harmless.
+        const int MaxExpandedNodes = 2048;
+
+        // Greedy weight on the heuristic (f = g + h*3/2). Trades path optimality
+        // for a much smaller explored frontier — the standard RTS choice, and
+        // invisible in play. Integer-only for determinism.
+        const int HeuristicWeightNum = 3;
+        const int HeuristicWeightDen = 2;
 
         readonly TerrainMap _map;
         readonly GameState _state; // optional: occupancy-aware planning
@@ -56,6 +70,11 @@ namespace Craftwar.Sim
             // Octile: 14 per diagonal step, 10 per straight remainder.
             return dx > dy ? 14 * dy + 10 * (dx - dy) : 14 * dx + 10 * (dy - dx);
         }
+
+        // Weighted heuristic for the priority key. bestNode tracking still uses
+        // the raw Heuristic so the closest-node fallback is unaffected.
+        int WeightedH(int x, int y, int tx, int ty) =>
+            Heuristic(x, y, tx, ty) * HeuristicWeightNum / HeuristicWeightDen;
 
         bool Enterable(MoveDomain domain, int size, int x, int y)
         {
@@ -106,7 +125,7 @@ namespace Craftwar.Sim
             int start = sy * _w + sx;
             Touch(start);
             _gScore[start] = 0;
-            _fScore[start] = Heuristic(sx, sy, tx, ty);
+            _fScore[start] = WeightedH(sx, sy, tx, ty);
             HeapPush(start);
 
             int bestNode = start;
@@ -164,7 +183,7 @@ namespace Craftwar.Sim
 
                     Touch(neighbor);
                     _gScore[neighbor] = g;
-                    _fScore[neighbor] = g + Heuristic(nx, ny, tx, ty);
+                    _fScore[neighbor] = g + WeightedH(nx, ny, tx, ty);
                     _parent[neighbor] = current;
                     HeapPush(neighbor);
                 }

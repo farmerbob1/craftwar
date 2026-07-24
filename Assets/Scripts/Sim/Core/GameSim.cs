@@ -17,6 +17,16 @@ namespace Craftwar.Sim
         // Scratch path buffer reused by every search this tick.
         ushort[] _pathScratch;
 
+        // Per-tick pathfinding budget. A* dominates the tick (profiled at ~99% of
+        // Advance late-game), and congestion makes many blocked units want to
+        // repath at once. Capping searches per tick spreads them across ticks in
+        // deterministic unit-index order: a unit denied a search this tick keeps
+        // its order and retries next tick. The original got the same effect by
+        // caching a short per-unit traverse (traverse.c). Transient per-tick
+        // state — reset in TickMovement, never hashed.
+        const int MaxRepathsPerTick = 12;
+        int _repathsThisTick;
+
         // Victory. The evaluator is swappable so the campaign track (M13) can
         // supply scenario objectives; the scratch array lives here rather than on
         // GameState because it is fully rewritten each call and so cannot carry
@@ -375,6 +385,7 @@ namespace Craftwar.Sim
 
         void TickMovement()
         {
+            _repathsThisTick = 0;
             int w = State.Terrain?.Width ?? 0;
             for (int i = 0; i < State.HighestUnitIndex; i++)
             {
@@ -407,10 +418,15 @@ namespace Craftwar.Sim
 
                 if (u.PathCursor >= u.PathLength)
                 {
-                    if (!Repath(ref u, i))
+                    if (!BudgetRepath(ref u, i, false, out bool ran))
                     {
-                        // Nowhere closer to go. Harvest/Build/Repair keep their
-                        // order — their stage logic decides based on adjacency.
+                        // Budget spent this tick: keep the order and try again
+                        // next tick rather than abandoning the move.
+                        if (!ran)
+                            continue;
+                        // A search ran and found nothing closer. Harvest/Build/
+                        // Repair keep their order — their stage logic decides
+                        // based on adjacency.
                         if (u.Order != OrderType.Harvest && u.Order != OrderType.Build
                             && u.Order != OrderType.Repair)
                             u.Order = OrderType.None;
@@ -448,11 +464,15 @@ namespace Craftwar.Sim
                     u.WaitTicks++;
                     if (u.WaitTicks == 4 || u.WaitTicks == 12)
                     {
-                        Repath(ref u, i, strict: false);
+                        // Best-effort; if the budget is spent, deferring to a
+                        // later tick is fine — WaitTicks keeps escalating.
+                        BudgetRepath(ref u, i, false, out _);
                     }
                     else if (u.WaitTicks == 20)
                     {
-                        if (!Repath(ref u, i, strict: true))
+                        // Only give up if a strict search actually ran and failed;
+                        // a budget deferral must not abandon the order.
+                        if (!BudgetRepath(ref u, i, true, out bool ran20) && ran20)
                             u.Order = OrderType.None;
                     }
                     else if (u.WaitTicks >= 32)
@@ -517,11 +537,36 @@ namespace Craftwar.Sim
             }
         }
 
+        /// <summary>
+        /// Budget-gated wrapper around <see cref="Repath"/>. <paramref name="ran"/>
+        /// reports whether a search actually executed; the return value is the
+        /// Repath result and is only meaningful when a search ran. When the
+        /// per-tick budget is exhausted no search runs (ran = false, returns
+        /// false) and the caller must DEFER — keep the order and retry next tick
+        /// — rather than treat it as an unreachable failure.
+        /// </summary>
+        bool BudgetRepath(ref Unit u, int index, bool strict, out bool ran)
+        {
+            if (_repathsThisTick >= MaxRepathsPerTick)
+            {
+                ran = false;
+                return false;
+            }
+            _repathsThisTick++;
+            ran = true;
+            return Repath(ref u, index, strict);
+        }
+
         bool Repath(ref Unit u, int index, bool strict = false)
         {
             MoveDomain domain = State.DomainOf(u.TypeId);
             int size = State.Footprint(u.TypeId);
-            int steps = _pathfinder.FindPath(domain, size, u.TileX, u.TileY, u.OrderX, u.OrderY,
+            // Clamp an unreachable goal to the nearest tile the unit can actually
+            // stand on before spending a search on it. u.OrderX/Y stays the true
+            // goal; we only path to the clamped point for this search.
+            ClampGoalToRegion(domain, u.TileX, u.TileY, u.OrderX, u.OrderY,
+                out int tx, out int ty);
+            int steps = _pathfinder.FindPath(domain, size, u.TileX, u.TileY, tx, ty,
                 _pathScratch, new UnitId((ushort)index, u.Gen).Packed, strict);
             if (steps == 0)
                 return false;
@@ -534,6 +579,59 @@ namespace Craftwar.Sim
             u.PathLength = (ushort)steps;
             u.PathCursor = 0;
             return true;
+        }
+
+        /// <summary>
+        /// If (gx,gy) is unreachable for this domain (a different terrain region
+        /// than the unit sits in), walk the straight line back toward the unit and
+        /// return the first same-region tile — mirroring the original's
+        /// path_find_passable_target. Reachable goals pass through unchanged in
+        /// O(1) (two region lookups), so the walk only runs in the case that would
+        /// otherwise burn a full-budget A* toward somewhere the unit can never
+        /// stand. If nothing on the line is reachable (the unit is boxed in) it
+        /// returns the unit's own tile and FindPath then stops it cleanly.
+        /// </summary>
+        void ClampGoalToRegion(MoveDomain domain, int sx, int sy, int gx, int gy,
+            out int cx, out int cy)
+        {
+            var terrain = State.Terrain;
+            int startRegion = terrain != null ? terrain.RegionOf(domain, sx, sy) : 0;
+            int goalRegion = terrain != null ? terrain.RegionOf(domain, gx, gy) : 0;
+            // Only clamp when the goal is a genuinely different, reachable landmass
+            // (a different non-zero region). A goal tile that is itself impassable
+            // (region 0 — a tree, an occupied mine, a building's tile) is an
+            // APPROACH target: leave it to A*'s closest-node partial path so
+            // harvest / build / attack orders still stop adjacent to it. Clamping
+            // those was pulling peons off their trees and livelocking the economy.
+            if (startRegion == 0 || goalRegion == 0 || goalRegion == startRegion)
+            {
+                cx = gx;
+                cy = gy;
+                return;
+            }
+
+            int dx = gx > sx ? gx - sx : sx - gx;
+            int dy = gy > sy ? gy - sy : sy - gy;
+            int stepX = sx > gx ? 1 : -1;
+            int stepY = sy > gy ? 1 : -1;
+            int err = dx - dy;
+            int x = gx, y = gy;
+            while (true)
+            {
+                if (terrain.RegionOf(domain, x, y) == startRegion)
+                {
+                    cx = x;
+                    cy = y;
+                    return;
+                }
+                if (x == sx && y == sy)
+                    break;
+                int e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x += stepX; }
+                if (e2 < dx) { err += dx; y += stepY; }
+            }
+            cx = sx; // nothing reachable along the line: stop in place
+            cy = sy;
         }
 
         void TickConstruction() { }

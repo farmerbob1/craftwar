@@ -54,6 +54,8 @@ namespace Craftwar.Sim
 
         readonly byte[] _passable;           // bit per MoveDomain
         readonly byte[][] _clearance;        // [domain][tile]
+        readonly int[][] _region;            // [domain][tile]: connected-component label, 0 = impassable
+        readonly int[] _regionStack;         // preallocated flood-fill stack
         readonly byte[] _wood;               // remaining wood units/100 per tile (1 = 100 lumber)
         readonly byte[] _shore;              // 1 = SQ_SHORE: where transports unload and shore buildings sit
 
@@ -63,8 +65,13 @@ namespace Craftwar.Sim
             Height = height;
             _passable = new byte[width * height];
             _clearance = new byte[DomainCount][];
+            _region = new int[DomainCount][];
             for (int d = 0; d < DomainCount; d++)
+            {
                 _clearance[d] = new byte[width * height];
+                _region[d] = new int[width * height];
+            }
+            _regionStack = new int[width * height];
             _wood = new byte[width * height];
             _shore = new byte[width * height];
         }
@@ -116,6 +123,22 @@ namespace Craftwar.Sim
         public int Clearance(MoveDomain domain, int x, int y) =>
             InBounds(x, y) ? _clearance[(int)domain][y * Width + x] : 0;
 
+        /// <summary>Connected-component label for this tile in the domain's
+        /// walkability graph; 0 for impassable or out-of-bounds. Two tiles with
+        /// the same non-zero label are mutually reachable by a size-1 unit.</summary>
+        public int RegionOf(MoveDomain domain, int x, int y) =>
+            InBounds(x, y) ? _region[(int)domain][y * Width + x] : 0;
+
+        /// <summary>Can a size-1 unit of this domain travel between the two tiles?
+        /// Mirrors the original's region-colour compare (path_chk_target_region):
+        /// an O(1) reachability test that avoids running A* toward somewhere the
+        /// unit can never stand.</summary>
+        public bool SameRegion(MoveDomain domain, int ax, int ay, int bx, int by)
+        {
+            int ra = RegionOf(domain, ax, ay);
+            return ra != 0 && ra == RegionOf(domain, bx, by);
+        }
+
         public void SetPassable(MoveDomain domain, int x, int y, bool passable)
         {
             int i = y * Width + x;
@@ -155,6 +178,55 @@ namespace Craftwar.Sim
                         c[i] = (byte)(m >= 255 ? 255 : m + 1);
                     }
                 }
+            }
+            RebuildRegions();
+        }
+
+        /// <summary>
+        /// Label each domain's connected components of passable tiles. 4-connected
+        /// on purpose: diagonal movement forbids corner-cutting, so two tiles that
+        /// are only diagonally adjacent are reachable iff a shared orthogonal
+        /// neighbour is open — which makes them 4-connected too. Runs alongside
+        /// RebuildClearance (setup and tree-chop), O(tiles) per domain, zero
+        /// allocation (preallocated stack). Terrain-only, exactly like the
+        /// original's region map: buildings stay dynamic obstacles handled by the
+        /// occupancy layer during the search.
+        /// </summary>
+        public void RebuildRegions()
+        {
+            for (int d = 0; d < DomainCount; d++)
+            {
+                int[] r = _region[d];
+                System.Array.Clear(r, 0, r.Length);
+                byte bit = (byte)(1 << d);
+                int label = 0;
+                for (int seed = 0; seed < r.Length; seed++)
+                {
+                    if ((_passable[seed] & bit) == 0 || r[seed] != 0)
+                        continue;
+                    label++;
+                    int sp = 0;
+                    _regionStack[sp++] = seed;
+                    r[seed] = label;
+                    while (sp > 0)
+                    {
+                        int cur = _regionStack[--sp];
+                        int cx = cur % Width, cy = cur / Width;
+                        if (cx > 0) Flood(r, bit, label, cur - 1, ref sp);
+                        if (cx < Width - 1) Flood(r, bit, label, cur + 1, ref sp);
+                        if (cy > 0) Flood(r, bit, label, cur - Width, ref sp);
+                        if (cy < Height - 1) Flood(r, bit, label, cur + Width, ref sp);
+                    }
+                }
+            }
+        }
+
+        void Flood(int[] r, byte bit, int label, int n, ref int sp)
+        {
+            if ((_passable[n] & bit) != 0 && r[n] == 0)
+            {
+                r[n] = label;
+                _regionStack[sp++] = n;
             }
         }
     }

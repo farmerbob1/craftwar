@@ -26,6 +26,12 @@ namespace Craftwar.View
         Material _material;
         MeshRenderer _renderer;
 
+        // Fog only changes when the sim advances a tick (TickFog), so there is no
+        // reason to rebuild and re-upload the whole mask texture every render
+        // frame — at 600 fps that was ~600 full SetPixels32+Apply/s over nothing.
+        int _lastUploadedTick = -1;
+        bool _prevReveal;
+
         public void Init(ISimHost host, byte localPlayer, int width, int height)
         {
             _host = host;
@@ -98,7 +104,17 @@ namespace Craftwar.View
             if (_renderer != null)
                 _renderer.enabled = !reveal;
             if (reveal)
+            {
+                _prevReveal = true;
                 return;
+            }
+            // Re-upload only when the sim advanced since the last upload (or the
+            // reveal overlay was just switched back off).
+            int tick = _host.Sim.State.Tick;
+            if (!_prevReveal && tick == _lastUploadedTick)
+                return;
+            _prevReveal = false;
+            _lastUploadedTick = tick;
             UploadMask();
         }
 

@@ -349,6 +349,13 @@ namespace Craftwar.App
             _accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f)
                 * View.GameplaySettings.Current.SpeedMultiplier;
             int safety = 8; // don't spiral after a hitch
+            // Also cap the wall-clock time spent catching up this frame. With the
+            // pathfinding fix a tick is ~1-3 ms so this never bites, but it turns a
+            // transient tick spike into brief slow-motion instead of a frame-time
+            // death spiral (render never gets a look-in) — the failure mode that
+            // used to pin the game at ~20 fps.
+            const double CatchUpBudgetSeconds = 0.010;
+            double frameStart = Time.realtimeSinceStartupAsDouble;
             while (_accumulator >= TickSeconds && safety-- > 0)
             {
                 // AIs think here, at a fixed point per tick, so their commands
@@ -375,6 +382,8 @@ namespace Craftwar.App
                 PendingSimEvents.AddRange(Sim.State.Events);
                 ReconcileTeleports();
                 _accumulator -= TickSeconds;
+                if (Time.realtimeSinceStartupAsDouble - frameStart > CatchUpBudgetSeconds)
+                    break; // yield to rendering; remaining catch-up rolls to next frame
             }
             Alpha = Mathf.Clamp01(_accumulator / TickSeconds);
         }
