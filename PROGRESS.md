@@ -185,6 +185,20 @@ engines — so this externalizes the script layer and strengthens the executor.
   banks more gold than the spiral thanks to the shorter harvest paths. Phases D–F
   still to do.
 
+- **Phase D DONE (green: 282/282 EditMode; 212/212 standalone).**
+  `Ai/AiPlayer.Army.cs` adds the tactical layer the original did in native ICE.C —
+  all gated on tier competences, so Dumb/Normal never call it (M9 baseline).
+  **Active defense** (`TryDefendBase`): an enemy attacker within 12 tiles of any
+  of our buildings recalls the whole army onto it, preempting the muster.
+  **Focus-fire** (`ManageFocusFire`): once the army is within 8 tiles of the foe,
+  concentrate Attack on the lowest-HP enemy in range (lower index breaks ties).
+  **Reinforcement** (`ReinforceFront`): idle combat units are AttackMoved to the
+  stored wave target instead of trickling out. `ThinkMilitary` runs these before
+  the post-wave cooldown gate so an ongoing fight is fought well; the wave target
+  is recorded on every launch. Tests prove focus-fire hits the weakest, defense
+  recalls to the intruder, Normal does neither, and a Smart-vs-Normal match still
+  resolves (tactics don't deadlock). Phases E–F still to do.
+
 **M9 — scripted AI opponent, code complete.** Plan:
 `C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.
 

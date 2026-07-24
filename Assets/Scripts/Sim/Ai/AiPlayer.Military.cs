@@ -130,6 +130,16 @@ namespace Craftwar.Sim.Ai
                 return;
             }
 
+            // Capable tiers fight actively. Defense preempts mustering; focus-fire
+            // and reinforcement run even during the post-wave cooldown so an
+            // ongoing fight is fought well. Dumb/Normal skip all of this (M9).
+            if (_tier.ActiveDefense && TryDefendBase())
+                return;
+            if (_tier.FocusFire)
+                ManageFocusFire();
+            if (_tier.Reinforce)
+                ReinforceFront();
+
             if (_s.Tick < _sleepUntilTick)
                 return;
             var phase = Strategy.Phase(_phase);
@@ -139,6 +149,9 @@ namespace Craftwar.Sim.Ai
                 if (!PickWaveTarget(out int tx, out int ty))
                     return;
                 LaunchWave(tx, ty, everything: false);
+                _waveTargetX = tx;
+                _waveTargetY = ty;
+                _waveActive = true;
                 _sleepUntilTick = _s.Tick + Strategy.PostWaveSleepTicks;
                 _lastWaveTick = _s.Tick;
                 _phase++;
@@ -154,6 +167,9 @@ namespace Craftwar.Sim.Ai
                 && PickWaveTarget(out int dx, out int dy))
             {
                 LaunchWave(dx, dy, everything: true);
+                _waveTargetX = dx;
+                _waveTargetY = dy;
+                _waveActive = true;
                 _sleepUntilTick = _s.Tick + Strategy.PostWaveSleepTicks;
                 _lastWaveTick = _s.Tick;
             }
