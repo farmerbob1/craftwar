@@ -26,6 +26,23 @@ namespace Craftwar.View
 
         public const int NormalSpeedIndex = 2;
 
+        // --- audio -------------------------------------------------------------
+        // Stored 0..1 and applied multiplicatively: every AudioSource ends up at
+        // master * its own channel. Presentation-only, like everything else here.
+
+        public float masterVolume = 1f;
+        public float musicVolume = 0.6f;
+        public float effectsVolume = 1f;
+
+        public float EffectiveMusic => Mathf.Clamp01(masterVolume) * Mathf.Clamp01(musicVolume);
+        public float EffectiveEffects => Mathf.Clamp01(masterVolume) * Mathf.Clamp01(effectsVolume);
+
+        /// <summary>Raised whenever a volume changes, so the live directors can
+        /// re-read it without polling.</summary>
+        public static event Action VolumesChanged;
+
+        public static void RaiseVolumesChanged() => VolumesChanged?.Invoke();
+
         public static readonly string[] SpeedLabels =
             { "Slowest", "Slow", "Normal", "Fast", "Faster", "Fastest" };
 
@@ -36,9 +53,17 @@ namespace Craftwar.View
 
         int ClampedIndex => Mathf.Clamp(speedIndex, 0, SpeedMultipliers.Length - 1);
 
+        /// <summary>Wraps — a single button that walks the whole list.</summary>
         public void CycleSpeed(int delta) =>
             speedIndex = (ClampedIndex + delta + SpeedMultipliers.Length)
                 % SpeedMultipliers.Length;
+
+        /// <summary>
+        /// Clamps — the in-game +/- keys, where wrapping from Fastest round to
+        /// Slowest on one extra keypress would be a nasty surprise.
+        /// </summary>
+        public void StepSpeed(int delta) =>
+            speedIndex = Mathf.Clamp(ClampedIndex + delta, 0, SpeedMultipliers.Length - 1);
 
         // --- Persistence -------------------------------------------------------
 

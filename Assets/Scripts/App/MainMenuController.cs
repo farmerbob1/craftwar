@@ -29,7 +29,8 @@ namespace Craftwar.App
         bool _musicStarted;
 
         // Options panel
-        Button _optFog, _optSpeed;
+        Button _optFog, _optSpeed, _tabGameplay, _tabSound;
+        VisualElement _optPageGameplay, _optPageSound;
 
         // Setup panel
         List<MapEntry> _maps;
@@ -107,6 +108,19 @@ namespace Craftwar.App
                     GameplaySettings.Save();
                     RefreshOptionLabels();
                 };
+            // Sound tab. Built in code from the shared panel so the main menu and
+            // the in-game options screen cannot drift apart.
+            _tabGameplay = root.Q<Button>("tab-gameplay");
+            _tabSound = root.Q<Button>("tab-sound");
+            _optPageGameplay = root.Q("options-page-gameplay");
+            _optPageSound = root.Q("options-page-sound");
+            if (_optPageSound != null)
+                View.SoundOptionsPanel.Build(_optPageSound);
+            if (_tabGameplay != null)
+                _tabGameplay.clicked += () => ShowOptionsTab(soundTab: false);
+            if (_tabSound != null)
+                _tabSound.clicked += () => ShowOptionsTab(soundTab: true);
+
             root.Q<Button>("options-back")?.RegisterCallback<ClickEvent>(_ => ShowMain());
 
             // Setup panel
@@ -196,10 +210,23 @@ namespace Craftwar.App
             if (_panelOptions == null)
                 return;
             RefreshOptionLabels();
+            ShowOptionsTab(soundTab: false);
             Show(_panelMain, false);
             Show(_panelSetup, false);
             Show(_panelWizard, false);
             Show(_panelOptions, true);
+        }
+
+        /// <summary>Swap options pages. The selected tab is the disabled one —
+        /// same rule as the in-game screen, and it is what the USS styles.</summary>
+        void ShowOptionsTab(bool soundTab)
+        {
+            if (_optPageGameplay != null)
+                Show(_optPageGameplay, !soundTab);
+            if (_optPageSound != null)
+                Show(_optPageSound, soundTab);
+            _tabGameplay?.SetEnabled(soundTab);
+            _tabSound?.SetEnabled(!soundTab);
         }
 
         void RefreshOptionLabels()

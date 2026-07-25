@@ -94,6 +94,22 @@ namespace Craftwar.View
             _lastRecallTime = now;
         }
 
+        /// <summary>
+        /// Alt+C in the original: centre on whatever is selected right now,
+        /// group or not. Reuses the double-tap centring maths.
+        /// </summary>
+        public void CenterOnSelection()
+        {
+            var state = _host?.Sim?.State;
+            if (state == null)
+                return;
+            _scratch.Clear();
+            foreach (uint packed in _selection)
+                _scratch.Add(packed);
+            if (_scratch.Count > 0)
+                CenterOn(_scratch, state);
+        }
+
         void CenterOn(List<uint> list, GameState state)
         {
             if (_camera == null)

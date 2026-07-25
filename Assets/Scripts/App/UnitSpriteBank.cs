@@ -48,11 +48,8 @@ namespace Craftwar.App
             if (frames == null || frames.Length == 0)
                 return null;
 
-            // Buildings and other single-pose banks have only a handful of
-            // frames (completed + construction stages); units carry 5-facing
-            // animation blocks (25+ frames).
-            if (frames.Length < 15)
-                return frames[0];
+            if (!LayoutFor(typeId, 0).IsValid)
+                return frames[0]; // single-pose bank: buildings, scenery
 
             // Facings: N=0..NW=7; sprite rows store N,NE,E,SE,S (0-4).
             int spriteDir = facing <= 4 ? facing : 8 - facing;
@@ -61,19 +58,127 @@ namespace Craftwar.App
             return frames[index];
         }
 
+        /// <summary>
+        /// Whether a bank holds 5-facing animation blocks is decided by the
+        /// animation table, not by frame count. A count threshold gets it wrong
+        /// at both ends: the critter banks are ten frames (two blocks) and the
+        /// eye of Kilrogg is five (one), so a "15 or more frames" rule filed all
+        /// three under single-pose art and drew them permanently facing north,
+        /// while a three-frame oil platform is genuinely single-pose.
+        /// </summary>
+        bool IsAnimated(ushort typeId, byte carry = 0) => LayoutFor(typeId, carry).IsValid;
+
         public int BlockCount(ushort typeId, byte player)
         {
             var frames = GetFrames(typeId, player);
-            return frames == null || frames.Length < 15 ? 0 : frames.Length / 5;
+            return frames == null || !IsAnimated(typeId) ? 0 : frames.Length / 5;
+        }
+
+        public AnimLayout LayoutFor(ushort typeId, byte carry)
+        {
+            // Carry art has its own bank (peong/peonl/tankero) with its own
+            // layout, so resolve the same file the frames came from.
+            string file = carry != 0 ? CarryFileOverride(typeId, carry) : null;
+            if (file != null && !_source.Exists(LogicalPath(file)))
+                file = null;
+            return UnitAnimTable.ForFile(file ?? War2Sprites.FileForUnit(typeId, _era));
+        }
+
+        // --- shared banks: the construction site and the corpse ------------------
+
+        /// <summary>
+        /// The building-site art every structure passes through before its own
+        /// scaffold frame. Winter has its own version; the other three eras
+        /// share one. Two frames: broken ground, then stacked timber.
+        /// </summary>
+        string FoundationFile => _era == PudEra.Winter
+            ? "Other/s_build1.grp"
+            : "Other/build_1.grp";
+
+        Sprite[] _foundation;
+        bool _foundationTried;
+
+        public Sprite GetFoundationFrame(int stage)
+        {
+            if (!_foundationTried)
+            {
+                _foundationTried = true;
+                _foundation = DecodeShared(FoundationFile, "foundation");
+            }
+            if (_foundation == null || _foundation.Length == 0)
+                return null;
+            int i = stage < 0 ? 0 : stage >= _foundation.Length ? _foundation.Length - 1 : stage;
+            return _foundation[i];
+        }
+
+        Sprite[] _corpse;
+        bool _corpseTried;
+
+        Sprite[] Corpse()
+        {
+            if (!_corpseTried)
+            {
+                _corpseTried = true;
+                _corpse = DecodeShared("Other/death.grp", "corpse");
+            }
+            return _corpse;
+        }
+
+        public int CorpseBlockCount
+        {
+            get
+            {
+                var frames = Corpse();
+                return frames == null ? 0 : frames.Length / 5;
+            }
+        }
+
+        public Sprite GetCorpseFrame(int block, byte facing, out bool flipX)
+        {
+            flipX = false;
+            var frames = Corpse();
+            if (frames == null || frames.Length == 0)
+                return null;
+            int spriteDir = facing <= 4 ? facing : 8 - facing;
+            flipX = facing > 4;
+            int index = block * 5 + spriteDir;
+            if (index < 0 || index >= frames.Length)
+                index = spriteDir < frames.Length ? spriteDir : 0;
+            return frames[index];
+        }
+
+        /// <summary>
+        /// A bank that belongs to nobody: no team colour, one copy for the
+        /// match. Returns null (with a warning) rather than throwing, so a
+        /// partial installation still runs.
+        /// </summary>
+        Sprite[] DecodeShared(string file, string label)
+        {
+            if (_palette == null)
+                return null;
+            if (!_source.TryRead(LogicalPath(file), out var data))
+            {
+                Debug.LogWarning($"[Craftwar] {label} art not found: {file}");
+                return null;
+            }
+            try
+            {
+                return BuildSprites(War2Sprites.Decode(data), file, playerColor: 0);
+            }
+            catch (War2FormatException e)
+            {
+                Debug.LogWarning($"[Craftwar] {label} decode failed: {e.Message}");
+                return null;
+            }
         }
 
         public int BuildingFrameCount(ushort typeId, byte player)
         {
             var frames = GetFrames(typeId, player);
-            // Animated unit banks (>=15 frames) aren't buildings: report 0 so
-            // the view uses BlockCount instead. WC2 building GRPs carry 2:
+            // Animated banks aren't buildings: report 0 so the view uses
+            // BlockCount instead. WC2 building GRPs carry 2 frames:
             // [0] completed, [1] half-built construction frame.
-            return frames == null || frames.Length >= 15 ? 0 : frames.Length;
+            return frames == null || IsAnimated(typeId) ? 0 : frames.Length;
         }
 
         public Sprite GetBuildingFrame(ushort typeId, byte player, int frameIndex, out bool flipX)
@@ -127,7 +232,7 @@ namespace Craftwar.App
             var frames = GetFrames(typeId, player, carry);
             if (frames == null || frames.Length == 0)
                 return null;
-            if (frames.Length < 15)
+            if (!IsAnimated(typeId, carry))
                 return frames[0];
             int spriteDir = facing <= 4 ? facing : 8 - facing;
             flipX = facing > 4;
@@ -172,6 +277,17 @@ namespace Craftwar.App
                 _cache[key] = null;
                 return null;
             }
+
+            var sprites = BuildSprites(bank, key, playerColor);
+            _cache[key] = sprites;
+            return sprites;
+        }
+
+        /// <summary>Pack a decoded bank into one point-filtered atlas, one sprite
+        /// per frame, each sized to the bank's full frame box so a sprite's pivot
+        /// is the same place in every frame.</summary>
+        Sprite[] BuildSprites(SpriteBank bank, string key, int playerColor)
+        {
             int cols = Mathf.CeilToInt(Mathf.Sqrt(bank.FrameCount));
             int rows = (bank.FrameCount + cols - 1) / cols;
             int cw = bank.MaxWidth, ch = bank.MaxHeight;
@@ -217,8 +333,6 @@ namespace Craftwar.App
                 sprites[f].name = $"{key}_f{f}";
             }
             atlas.Apply(false, false);
-
-            _cache[key] = sprites;
             return sprites;
         }
     }

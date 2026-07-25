@@ -110,6 +110,91 @@ namespace Craftwar.Sim.Tests
                 Assert.AreEqual(0u, sim.State.Units[i].AttackTarget, "nobody should have engaged");
         }
 
+        /// <summary>Issue an explicit Attack order on unit slot 1 to slot 0.</summary>
+        static unsafe GameCommand AttackOrder(GameSim sim, int attacker, int target)
+        {
+            var cmd = new GameCommand
+            {
+                Op = CommandOp.Attack,
+                Player = sim.State.Units[attacker].Player,
+                TargetUnit = new UnitId((ushort)target, sim.State.Units[target].Gen).Packed,
+                SelectionCount = 1,
+            };
+            cmd.Selection.Ids[0] =
+                new UnitId((ushort)attacker, sim.State.Units[attacker].Gen).Packed;
+            return cmd;
+        }
+
+        /// <summary>
+        /// An attacker holding an Attack order on something it is already in
+        /// range of must not move at all. Movement runs before combat in the
+        /// tick order, so without a gate the unit paths at its target's tile
+        /// every tick, takes whatever step A* offers (a corner of a building's
+        /// footprint is always reachable even when the goal tile is not), and
+        /// has the path cancelled by TickCombat a moment later — the "units pace
+        /// around while fighting" bug, most visible against buildings.
+        /// </summary>
+        [Test]
+        public void EngagedAndInRange_TheAttackerNeverMoves()
+        {
+            // The hall covers 12..15 x 10..13. Standing off its north-west
+            // corner is in range (footprint distance 1) but NOT adjacent to the
+            // origin tile in a way that blocks the first step, so this is the
+            // case that used to orbit.
+            var pud = MakeMap(
+                (UnitTypeId.Footman, 0, 11, 9),
+                (UnitTypeId.TownHall, 1, 12, 10));
+            var rules = RuleSet.CreateDefault();
+            var sim = new GameSim(5);
+            sim.Setup(pud, rules);
+            sim.Advance(new List<GameCommand> { AttackOrder(sim, 0, 1) });
+
+            var none = new List<GameCommand>();
+            for (int t = 0; t < 600 && sim.State.Units[1].IsAlive; t++)
+            {
+                sim.Advance(none);
+                Assert.AreEqual(11, sim.State.Units[0].TileX,
+                    "an attacker already in range must hold its tile");
+                Assert.AreEqual(9, sim.State.Units[0].TileY);
+            }
+            Assert.Less(sim.State.Units[1].Hp, rules.Units[(int)UnitTypeId.TownHall].Hp,
+                "and it must actually be hitting the hall");
+        }
+
+        /// <summary>
+        /// A chase aimed at a building's ORIGIN tile marches the attacker to the
+        /// far side of the footprint. Coming at a 4x4 hall from the south-west,
+        /// the attacker must stop on the nearest face, not walk up to the
+        /// north-west corner where the origin tile happens to be.
+        /// </summary>
+        [Test]
+        public void ChasingABuilding_ApproachesTheNearestFace()
+        {
+            // Hall covers 12..15 x 10..13, origin (12,10) at the NW corner.
+            var pud = MakeMap(
+                (UnitTypeId.Footman, 0, 4, 13),
+                (UnitTypeId.TownHall, 1, 12, 10));
+            var rules = RuleSet.CreateDefault();
+            var sim = new GameSim(5);
+            sim.Setup(pud, rules);
+            sim.Advance(new List<GameCommand> { AttackOrder(sim, 0, 1) });
+
+            var none = new List<GameCommand>();
+            int stoppedAt = -1;
+            for (int t = 0; t < 1500 && sim.State.Units[1].IsAlive; t++)
+            {
+                sim.Advance(none);
+                ref var footman = ref sim.State.Units[0];
+                if (footman.IsMoving || footman.TileX != 11)
+                    continue;
+                stoppedAt = footman.TileY;
+                break;
+            }
+            Assert.GreaterOrEqual(stoppedAt, 0, "the footman never reached the hall");
+            Assert.GreaterOrEqual(stoppedAt, 12,
+                "it must stop on the face it approached, not walk round to the origin corner");
+        }
+
         [Test]
         public unsafe void AttackMove_EngagesEnemiesAlongPath()
         {

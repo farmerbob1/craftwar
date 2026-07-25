@@ -21,7 +21,8 @@ namespace Craftwar.View
 
         readonly VisualElement _single;
         readonly Label _portraitInitials, _name, _level, _hpText;
-        readonly VisualElement _hpFill;
+        readonly VisualElement _hpFill, _portrait;
+        IIconProvider _icons;
 
         readonly VisualElement[] _statRows = new VisualElement[(int)Stat.Count];
         readonly Label[] _statValues = new Label[(int)Stat.Count];
@@ -34,7 +35,8 @@ namespace Craftwar.View
         readonly VisualElement _grid;
         readonly UnitTileView[] _tiles = new UnitTileView[GameCommand.MaxSelection];
 
-        string _lastName, _lastLevel, _lastHpText, _lastProgress, _lastInitials;
+        string _lastName, _lastLevel, _lastHpText, _lastProgress;
+        ushort _lastPortraitType = ushort.MaxValue;
         bool _levelShown = true;
         int _lastHpPercent = -1;
         HpBand _lastBand = HpBand.None;
@@ -54,10 +56,10 @@ namespace Craftwar.View
             var header = Row("sel-header");
             var portraitCol = Column("sel-portrait-col");
 
-            var portrait = new VisualElement { pickingMode = PickingMode.Ignore };
-            portrait.AddToClassList("sel-portrait");
-            _portraitInitials = AddLabel(portrait, "sel-portrait__initials");
-            portraitCol.Add(portrait);
+            _portrait = new VisualElement { pickingMode = PickingMode.Ignore };
+            _portrait.AddToClassList("sel-portrait");
+            _portraitInitials = AddLabel(_portrait, "sel-portrait__initials");
+            portraitCol.Add(_portrait);
 
             var hpBar = new VisualElement { pickingMode = PickingMode.Ignore };
             hpBar.AddToClassList("bar");
@@ -132,6 +134,19 @@ namespace Craftwar.View
 
             SetSingleVisible(false);
             SetGridVisible(false);
+        }
+
+        /// <summary>
+        /// Injected once the atlas resolves; null keeps the initials boxes. The
+        /// panel is built long before the installation's art is decoded, so this
+        /// is a hand-over rather than a constructor argument.
+        /// </summary>
+        public void SetIconProvider(IIconProvider icons)
+        {
+            _icons = icons;
+            _lastPortraitType = ushort.MaxValue; // force a repaint
+            for (int i = 0; i < _tiles.Length; i++)
+                _tiles[i].SetIconProvider(icons);
         }
 
         static VisualElement Column(string cls)
@@ -231,11 +246,13 @@ namespace Craftwar.View
             ref var row = ref state.Rules.Units[u.TypeId];
             var type = (UnitTypeId)u.TypeId;
 
-            string initials = UnitNames.InitialsOf(type);
-            if (initials != _lastInitials)
+            // Portrait art, or the initials box where the type has no icon.
+            // Keyed on the type so this costs nothing while the same unit stays
+            // selected.
+            if (u.TypeId != _lastPortraitType)
             {
-                _lastInitials = initials;
-                _portraitInitials.text = initials;
+                _lastPortraitType = u.TypeId;
+                UnitPortrait.Apply(_portrait, _portraitInitials, _icons, type);
             }
 
             string name = UnitNames.Of(type);

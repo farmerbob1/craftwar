@@ -36,6 +36,18 @@ namespace Craftwar.View
         /// </summary>
         public void SetMinimap(MinimapView view) => _minimapView = view;
 
+        /// <summary>
+        /// Hand the HUD icon atlas to everything that draws unit art — the
+        /// command card, the selection portrait and the multi-selection tiles.
+        /// Arrives after Attach, because the installation's art is decoded well
+        /// after the HUD is built.
+        /// </summary>
+        public void SetIconProvider(IIconProvider icons)
+        {
+            _card?.SetIconProvider(icons);
+            _selection?.SetIconProvider(icons);
+        }
+
         public HudScreen(ISimHost host, UIState ui, VisualElement notifyLayer)
         {
             _host = host;

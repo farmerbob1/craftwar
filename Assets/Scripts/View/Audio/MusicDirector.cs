@@ -30,6 +30,11 @@ namespace Craftwar.View
         Coroutine _transition;
         float _volume = 0.6f;
 
+        void OnEnable() => GameplaySettings.VolumesChanged += ApplySettingsVolume;
+        void OnDisable() => GameplaySettings.VolumesChanged -= ApplySettingsVolume;
+
+        void ApplySettingsVolume() => Volume = GameplaySettings.Current.EffectiveMusic;
+
         /// <summary>
         /// The one director, created on first use. A second scene asking for
         /// music reuses it rather than starting a competing track.
@@ -52,6 +57,7 @@ namespace Craftwar.View
         {
             _current = CreateSource();
             _next = CreateSource();
+            _volume = GameplaySettings.Current.EffectiveMusic;
         }
 
         AudioSource CreateSource()

@@ -38,6 +38,7 @@ namespace Craftwar.View
         public bool Enabled;            // affordability; recomputed every frame
         public int BuildingSlot;        // unit index that receives the command (-1 = worker placement)
         public string Label;            // button text + tooltip, baked at rebuild
+        public char Hotkey;             // WC2 shortcut letter; 0 = none (see CommandHotkeys)
     }
 
     /// <summary>
@@ -88,7 +89,80 @@ namespace Craftwar.View
             return h;
         }
 
+        /// <summary>
+        /// Lays out the card, then stamps each slot's WC2 shortcut letter. The
+        /// letters come last and in one pass so every construction site below
+        /// gets them, and so the uniqueness check sees the finished face.
+        /// </summary>
         public void Rebuild(GameSim sim, GameState state, SelectionState sel, byte player)
+        {
+            RebuildSlots(sim, state, sel, player);
+            StampHotkeys();
+        }
+
+        void StampHotkeys()
+        {
+            for (int i = 0; i < SlotCount; i++)
+            {
+                ref var s = ref Slots[i];
+                s.Hotkey = s.Kind == CommandSlotKind.None
+                    ? CommandHotkeys.None
+                    : CommandHotkeys.For(s.Kind, s.Param);
+            }
+#if UNITY_EDITOR
+            AssertHotkeysUnique();
+#endif
+        }
+
+        /// <summary>
+        /// Index of the slot answering to <paramref name="key"/> (case-insensitive),
+        /// or -1. The letters are unique per face, so first match is the match.
+        /// </summary>
+        public int FindHotkey(char key)
+        {
+            char upper = char.ToUpperInvariant(key);
+            if (upper == CommandHotkeys.None)
+                return -1;
+            for (int i = 0; i < SlotCount; i++)
+                if (Slots[i].Hotkey == upper && Slots[i].Kind != CommandSlotKind.None)
+                    return i;
+            return -1;
+        }
+
+        /// <summary>Index of the slot Escape activates (Cancel/Back), or -1.</summary>
+        public int FindEscapeSlot()
+        {
+            for (int i = 0; i < SlotCount; i++)
+                if (Slots[i].Kind is CommandSlotKind.Cancel or CommandSlotKind.BackToActions)
+                    return i;
+            return -1;
+        }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Two buttons sharing a letter would make one of them unreachable, and
+        /// the tech tree is the only thing that decides which buttons meet. A
+        /// warning here is how a bad table entry surfaces.
+        /// </summary>
+        void AssertHotkeysUnique()
+        {
+            for (int i = 0; i < SlotCount; i++)
+            {
+                if (Slots[i].Hotkey == CommandHotkeys.None)
+                    continue;
+                for (int j = i + 1; j < SlotCount; j++)
+                {
+                    if (Slots[j].Hotkey != Slots[i].Hotkey)
+                        continue;
+                    UnityEngine.Debug.LogWarning(
+                        $"[Craftwar] Command card hotkey '{Slots[i].Hotkey}' is claimed by both " +
+                        $"'{Slots[i].Label}' and '{Slots[j].Label}'. Fix CommandHotkeys.");
+                }
+            }
+        }
+#endif
+
+        void RebuildSlots(GameSim sim, GameState state, SelectionState sel, byte player)
         {
             // A new selection always lands on the action page — leaving a build
             // sub-page open across a selection change is disorienting.
@@ -116,7 +190,11 @@ namespace Craftwar.View
                 ref var row = ref state.Rules.Units[u.TypeId];
                 if ((u.Flags & UnitFlags.Building) != 0)
                 {
-                    building = idx;
+                    // Enemy and neutral buildings are selectable so their health
+                    // and stats can be read, but they take no orders — leaving
+                    // `building` unset gives them an empty card.
+                    if (u.Player == player)
+                        building = idx;
                     continue;
                 }
                 if (u.Player != player)
@@ -149,8 +227,9 @@ namespace Craftwar.View
         }
 
         /// <summary>
-        /// Fixed slot positions so the grid hotkeys stay stable per unit kind:
-        /// Move/Stop/Attack/Patrol on the top rows, worker jobs below.
+        /// Fixed slot positions so a card keeps its shape as abilities come and
+        /// go: Move/Stop/Attack/Patrol on the top rows, worker jobs below. The
+        /// shortcut letters ride the commands, not these positions.
         /// </summary>
         void BuildActionMenu(bool hasWorker, bool canAttack,
             GameSim sim, GameState state, byte player,

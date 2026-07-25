@@ -249,7 +249,7 @@ namespace Craftwar.App
             View.UnitNames.SetStringTable(Wc2StringTable.Load(assets, paths?.locale ?? "enUS"));
             var icons = IconAtlas.Load(assets, _map.Era);
             if (icons != null)
-                _ui.Hud?.Card?.SetIconProvider(icons);
+                _ui.Hud?.SetIconProvider(icons);
 
             var music = MusicLibrary.Create(paths, dataRoot);
             if (music != null)
@@ -262,10 +262,24 @@ namespace Craftwar.App
 
         void WireInput()
         {
-            // Card hotkeys and the F3 overlay ride the same router as the world.
-            _input.OnCardSlot += slot => _ui.Hud?.Card?.Activate(slot);
+            // Everything keyboard-driven rides the same router as the world.
+            _input.OnCommandHotkey += key => _ui.Hud?.Card?.ActivateHotkey(key);
+            _input.CardEscapeHandler = () => _ui.Hud?.Card?.ActivateEscape() ?? false;
             _input.OnGroupKey += _groups.HandleKey;
+            _input.OnCenterOnSelection += _groups.CenterOnSelection;
+            _input.OnViewportKey += cameraRig.HandleViewportKey;
+            _input.OnSpeedStep += StepGameSpeed;
             _input.OnToggleDebug += _debugOverlay.Toggle;
+        }
+
+        /// <summary>
+        /// The original's +/- keys. Persisted immediately so the choice
+        /// survives a quit, exactly as the options screen does it.
+        /// </summary>
+        static void StepGameSpeed(int delta)
+        {
+            View.GameplaySettings.Current.StepSpeed(delta);
+            View.GameplaySettings.Save();
         }
 
         void CenterCamera(string mapPath, RuntimeTileCatalog catalog)

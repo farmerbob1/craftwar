@@ -55,6 +55,28 @@ namespace Craftwar.View
             // FindFirst is deprecated for depending on instance-ID ordering.
             if (FindAnyObjectByType<AudioListener>() == null)
                 gameObject.AddComponent<AudioListener>();
+
+            ApplyVolume();
+        }
+
+        void OnEnable() => GameplaySettings.VolumesChanged += ApplyVolume;
+        void OnDisable() => GameplaySettings.VolumesChanged -= ApplyVolume;
+
+        /// <summary>
+        /// Effects volume rides on the sources rather than a mixer: the pool is
+        /// eight plain AudioSources and the options screen is the only thing that
+        /// changes it, so pushing the value in on change costs nothing per frame.
+        /// Applied to already-playing voices too, so dragging the slider is
+        /// audible immediately.
+        /// </summary>
+        void ApplyVolume()
+        {
+            if (_voices == null)
+                return;
+            float v = GameplaySettings.Current.EffectiveEffects;
+            for (int i = 0; i < _voices.Length; i++)
+                if (_voices[i] != null)
+                    _voices[i].volume = v;
         }
 
         public void Play(SoundId id)
@@ -99,6 +121,7 @@ namespace Craftwar.View
                 _next = (_next + 1) % _voices.Length;
             }
             voice.clip = clip;
+            voice.volume = GameplaySettings.Current.EffectiveEffects;
             voice.Play();
         }
 

@@ -35,16 +35,22 @@
             <ui:Button name="setup-back" class="menu__button" text="Back" />
         </ui:VisualElement>
 
-        <!-- Options. One tab so far (Gameplay); the tab row is where
-             Audio/Video join later. Both controls write GameplaySettings,
-             which the game loop and the fog/minimap/unit views read live. -->
+        <!-- Options. Gameplay and Sound; Video joins the tab row later. Every
+             control writes GameplaySettings, which the game loop, the audio
+             directors and the fog/minimap/unit views read live. The sound page
+             is filled by SoundOptionsPanel so this menu and the in-game options
+             screen cannot drift apart. -->
         <ui:VisualElement name="panel-options" class="menu">
             <ui:Label class="menu__title" text="Options" picking-mode="Ignore" />
-            <ui:VisualElement name="options-tabs" style="flex-direction: row;">
-                <ui:Button name="tab-gameplay" class="menu__button" text="Gameplay" enabled="false" />
+            <ui:VisualElement name="options-tabs" class="options-tabs">
+                <ui:Button name="tab-gameplay" class="menu__button options-tab" text="Gameplay" />
+                <ui:Button name="tab-sound" class="menu__button options-tab" text="Sound" />
             </ui:VisualElement>
-            <ui:Button name="opt-fog" class="menu__button" />
-            <ui:Button name="opt-speed" class="menu__button" />
+            <ui:VisualElement name="options-page-gameplay">
+                <ui:Button name="opt-fog" class="menu__button" />
+                <ui:Button name="opt-speed" class="menu__button" />
+            </ui:VisualElement>
+            <ui:VisualElement name="options-page-sound" />
             <ui:Button name="options-back" class="menu__button" text="Back" />
         </ui:VisualElement>
 

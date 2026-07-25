@@ -11,10 +11,6 @@ namespace Craftwar.View
     /// </summary>
     public sealed class CommandCardView
     {
-        /// <summary>Fixed 3x3 grid hotkeys; slot index maps straight to these.</summary>
-        public static readonly string[] HotkeyLabels =
-            { "Q", "W", "E", "A", "S", "D", "Z", "X", "C" };
-
         const int SafetyRecheckTicks = 25;   // 2 Hz at 50 Hz
 
         readonly ISimHost _host;
@@ -24,7 +20,7 @@ namespace Craftwar.View
 
         readonly VisualElement[] _buttons = new VisualElement[CommandCardModel.SlotCount];
         readonly Label[] _icons = new Label[CommandCardModel.SlotCount];
-        readonly Label[] _costs = new Label[CommandCardModel.SlotCount];
+        readonly Label[] _keys = new Label[CommandCardModel.SlotCount];
         readonly CommandSlotKind[] _lastKind = new CommandSlotKind[CommandCardModel.SlotCount];
         readonly bool[] _lastEnabled = new bool[CommandCardModel.SlotCount];
 
@@ -68,13 +64,21 @@ namespace Craftwar.View
 
                 _buttons[i] = btn;
                 _icons[i] = btn.Q<Label>("icon");
-                _costs[i] = btn.Q<Label>("cost");
-                var key = btn.Q<Label>("key");
-                if (key != null)
-                    key.text = HotkeyLabels[i];
+                // Filled per rebuild: the letter belongs to whatever command
+                // lands in this slot, not to the slot.
+                _keys[i] = btn.Q<Label>("key");
 
                 int slot = i; // capture
                 btn.RegisterCallback<ClickEvent>(_ => Activate(slot));
+                // The button is the icon now, so the cost has nowhere to live on
+                // it; the original put it on the status line under the card
+                // while the cursor is over the button, which is what this does.
+                btn.RegisterCallback<PointerEnterEvent>(_ => _hoverSlot = slot);
+                btn.RegisterCallback<PointerLeaveEvent>(_ =>
+                {
+                    if (_hoverSlot == slot)
+                        _hoverSlot = -1;
+                });
                 btn.AddToClassList("command-button--empty");
                 _lastKind[i] = CommandSlotKind.None;
             }
@@ -91,12 +95,8 @@ namespace Craftwar.View
             var key = new Label { name = "key" };
             key.AddToClassList("command-button__key");
             key.pickingMode = PickingMode.Ignore;
-            var cost = new Label { name = "cost" };
-            cost.AddToClassList("command-button__cost");
-            cost.pickingMode = PickingMode.Ignore;
             btn.Add(icon);
             btn.Add(key);
-            btn.Add(cost);
             return btn;
         }
 
@@ -137,7 +137,35 @@ namespace Craftwar.View
             return true;
         }
 
-        /// <summary>Called by a click or the slot's grid hotkey.</summary>
+        /// <summary>
+        /// A WC2 shortcut letter arrived. True if the live card claimed it —
+        /// the letters are per-command, so the same key does nothing at all on
+        /// a card that has no button for it.
+        /// </summary>
+        public bool ActivateHotkey(char key)
+        {
+            int slot = _model.FindHotkey(key);
+            if (slot < 0)
+                return false;
+            Activate(slot);
+            return true;
+        }
+
+        /// <summary>
+        /// Escape drives the card's Cancel / Back button, as in the original.
+        /// True if there was one to press. Called after the pending-order and
+        /// build-page checks, both of which outrank it.
+        /// </summary>
+        public bool ActivateEscape()
+        {
+            int slot = _model.FindEscapeSlot();
+            if (slot < 0)
+                return false;
+            Activate(slot);
+            return true;
+        }
+
+        /// <summary>Called by a click, a shortcut letter, or Escape.</summary>
         public void Activate(int slot)
         {
             if ((uint)slot >= CommandCardModel.SlotCount)
@@ -251,12 +279,14 @@ namespace Craftwar.View
                 bool empty = s.Kind == CommandSlotKind.None;
                 _buttons[i].EnableInClassList("command-button--empty", empty);
                 _lastKind[i] = s.Kind;
+                if (_keys[i] != null)
+                    _keys[i].text = empty
+                        ? string.Empty
+                        : CommandHotkeys.LabelFor(s.Kind, s.Hotkey);
                 if (empty)
                     continue;
 
                 ApplyIcon(_icons[i], ref s);
-                if (_costs[i] != null)
-                    _costs[i].text = CostText(ref s);
                 _buttons[i].tooltip = s.Label;
             }
         }
@@ -294,11 +324,24 @@ namespace Craftwar.View
                     return UnitIconTable.IconFor((UnitTypeId)s.Param);
                 case CommandSlotKind.Research:
                     // Upgrades carry their icon in the data (UGRD offset 364),
-                    // so unlike units this needs no hand-authored table.
+                    // indexing the same bank as the table.
                     var rules = _host?.Sim?.State.Rules;
                     return rules == null ? UnitIconTable.None : rules.Upgrades[s.Param].Icon;
                 default:
-                    return UnitIconTable.None;
+                    // Orders (Move/Stop/Attack/...) have their own art, and the
+                    // original drew a human and an orc version of most of them.
+                    return UnitIconTable.IconFor(s.Kind, LocalRace);
+            }
+        }
+
+        Race LocalRace
+        {
+            get
+            {
+                var state = _host?.Sim?.State;
+                return state != null && _player < SimConstants.MaxPlayers
+                    ? state.Players[_player].Race
+                    : Race.Human;
             }
         }
 
@@ -311,16 +354,13 @@ namespace Craftwar.View
             Render();
         }
 
-        static string CostText(ref CommandSlot s)
+        /// <summary>"Footman  60 gold" — the hovered button's name and price.</summary>
+        static string HoverText(ref CommandSlot s)
         {
-            if (s.Gold == 0 && s.Lumber == 0 && s.Oil == 0)
-                return string.Empty;
-            // Built once per rebuild, not per frame.
-            string t = s.Gold.ToString();
-            if (s.Lumber > 0)
-                t = t + "/" + s.Lumber;
-            if (s.Oil > 0)
-                t = t + "/" + s.Oil;
+            string t = s.Label ?? string.Empty;
+            if (s.Gold > 0) t += "  " + s.Gold + " gold";
+            if (s.Lumber > 0) t += "  " + s.Lumber + " lumber";
+            if (s.Oil > 0) t += "  " + s.Oil + " oil";
             return t;
         }
 
@@ -339,6 +379,7 @@ namespace Craftwar.View
         }
 
         string _lastStatus = string.Empty;
+        int _hoverSlot = -1;
 
         void UpdateStatus(GameState state)
         {
@@ -358,6 +399,14 @@ namespace Craftwar.View
                     _ => string.Empty,
                 };
                 SetStatus(prompt);
+                return;
+            }
+
+            // Hovering a live button: name and price, as the original did.
+            if ((uint)_hoverSlot < CommandCardModel.SlotCount
+                && _model.Slots[_hoverSlot].Kind != CommandSlotKind.None)
+            {
+                SetStatus(HoverText(ref _model.Slots[_hoverSlot]));
                 return;
             }
 

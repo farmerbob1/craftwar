@@ -680,6 +680,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc8bb7aea7c79d446b20e94a2f718c1b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Craftwar.View::Craftwar.View.InputRouter
+  controls: {fileID: -944628639613478452, guid: 2aa18e8811533e14a87c7f5dc769dd40, type: 3}
 --- !u!114 &1923795498
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -704,7 +705,7 @@ MonoBehaviour:
   m_Script: {fileID: 19102, guid: 0000000000000000e000000000000000, type: 0}
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.dll::UnityEngine.UIElements.UIDocument
-  m_PanelSettings: {fileID: 0}
+  m_PanelSettings: {fileID: 11400000, guid: 1a006ad7331a6ec49be00179153676e6, type: 2}
   m_ParentUI: {fileID: 0}
   sourceAsset: {fileID: 0}
   m_SortingOrder: 0

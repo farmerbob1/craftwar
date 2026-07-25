@@ -93,8 +93,13 @@ namespace Craftwar.Sim
                     {
                         u.ChaseX = target.TileX;
                         u.ChaseY = target.TileY;
-                        u.OrderX = target.TileX;
-                        u.OrderY = target.TileY;
+                        // Walk at the NEAREST tile of the target's footprint,
+                        // not its top-left corner. A 4x4 keep attacked from the
+                        // south-east would otherwise send the attacker marching
+                        // all the way round the building to reach the corner
+                        // tile, only for TickCombat to cancel the path the
+                        // moment it was already in range — the pacing.
+                        NearestFootprintTile(ref u, ref target, out u.OrderX, out u.OrderY);
                         u.PathLength = 0;
                         u.PathCursor = 0;
                     }
@@ -103,6 +108,38 @@ namespace Craftwar.Sim
         }
 
         static int Sign(int v) => v > 0 ? 1 : v < 0 ? -1 : 0;
+
+        /// <summary>
+        /// The tile of <paramref name="target"/>'s footprint closest to
+        /// <paramref name="u"/> — the tile an attacker should actually walk at.
+        /// </summary>
+        void NearestFootprintTile(ref Unit u, ref Unit target, out ushort x, out ushort y)
+        {
+            int size = State.Footprint(target.TypeId);
+            int lo = target.TileX, hi = target.TileX + size - 1;
+            x = (ushort)(u.TileX < lo ? lo : u.TileX > hi ? hi : u.TileX);
+            lo = target.TileY;
+            hi = target.TileY + size - 1;
+            y = (ushort)(u.TileY < lo ? lo : u.TileY > hi ? hi : u.TileY);
+        }
+
+        /// <summary>
+        /// True when the unit holds a live target that is already inside its
+        /// weapon range. TickMovement runs BEFORE TickCombat, so without this
+        /// gate an engaged unit spends every tick stepping toward the target's
+        /// tile and having the step cancelled a moment later — the "units pace
+        /// around while fighting" bug, and a standing drain on the per-tick
+        /// pathfinding budget.
+        /// </summary>
+        bool EngagedInRange(ref Unit u)
+        {
+            if (u.AttackTarget == 0)
+                return false;
+            if (!State.TryGetUnitIndex(UnitId.FromPacked(u.AttackTarget), out int ti))
+                return false;
+            ref Unit target = ref State.Units[ti];
+            return FootprintDistance(ref u, ref target) <= EffectiveRange(ref u);
+        }
 
         /// <summary>Chebyshev distance between unit footprints, in tiles.</summary>
         int FootprintDistance(ref Unit a, ref Unit b)

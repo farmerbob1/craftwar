@@ -37,7 +37,10 @@ namespace Craftwar.View
             _mapHeight = mapHeight;
         }
 
-        /// <summary>Driven by InputRouter's ToggleDebug action (F3).</summary>
+        /// <summary>
+        /// Driven by InputRouter's ToggleDebug action. Backquote, not F3: F3 is
+        /// the original's second map bookmark.
+        /// </summary>
         public void Toggle() => _visible = !_visible;
 
         void OnGUI()

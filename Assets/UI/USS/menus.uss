@@ -60,3 +60,47 @@
     color: var(--cw-text-dim);
     background-color: var(--cw-btn-bg-disabled);
 }
+
+/* --- options screen --- */
+
+.options-tabs {
+    flex-direction: row;
+    margin-bottom: 12px;
+}
+
+/* Tabs share the row; the selected one is the one you cannot press. */
+.options-tab {
+    flex-grow: 1;
+    margin-right: 4px;
+    margin-bottom: 0;
+}
+
+.options-tab:disabled {
+    color: var(--cw-accent);
+    background-color: var(--cw-btn-bg-hover);
+}
+
+.options-row {
+    flex-direction: row;
+    align-items: center;
+    height: 30px;
+    margin-bottom: 6px;
+}
+
+.options-row__label {
+    width: 80px;
+    color: var(--cw-text);
+    font-size: 13px;
+}
+
+.options-row__slider {
+    flex-grow: 1;
+    margin-right: 8px;
+}
+
+.options-row__value {
+    width: 44px;
+    color: var(--cw-text-dim);
+    font-size: 12px;
+    -unity-text-align: middle-right;
+}

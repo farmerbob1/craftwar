@@ -22,8 +22,31 @@ namespace Craftwar.View
         const float RefreshInterval = 1f / 8f;
 
         static readonly Color32 OwnColor = new Color32(60, 220, 70, 255);
-        static readonly Color32 EnemyColor = new Color32(220, 50, 50, 255);
         static readonly Color32 NeutralColor = new Color32(230, 200, 60, 255);
+
+        /// <summary>
+        /// One dot colour per player slot, in PUD slot order — red, blue, teal,
+        /// violet, orange, black, white, yellow. The original's minimap uses
+        /// `gbUnitTeamColorTbl` (PSX <c>unitdraw.c</c>), a table of one palette
+        /// index per slot picked to stay legible against the terrain: slot 1
+        /// takes a brighter blue than the sprite ramp's base because "Base Blue
+        /// team color blends in with water too much", and slot 7 likewise. These
+        /// are the on-screen colours of those entries.
+        ///
+        /// Black (slot 5) is lifted off pure black so it still reads on the
+        /// unexplored mask, exactly as the original's index does.
+        /// </summary>
+        static readonly Color32[] PlayerColors =
+        {
+            new Color32(200, 0, 0, 255),      // 0 red
+            new Color32(40, 80, 255, 255),    // 1 blue
+            new Color32(44, 180, 148, 255),   // 2 teal
+            new Color32(152, 72, 176, 255),   // 3 violet
+            new Color32(240, 132, 20, 255),   // 4 orange
+            new Color32(64, 64, 76, 255),     // 5 black
+            new Color32(232, 232, 232, 255),  // 6 white
+            new Color32(252, 252, 72, 255),   // 7 yellow
+        };
         /// <summary>Explored but not currently in sight: dimmed, as on the map.</summary>
         const float ExploredDim = 0.5f;
 
@@ -181,9 +204,11 @@ namespace Craftwar.View
                 if (!own && !reveal && !sim.IsUnitVisible(_player, ref u))
                     continue;
 
+                // The original: your own units are green whatever your colour,
+                // everyone else wears their slot's colour, neutral is yellow.
                 Color32 dot = own ? OwnColor
                     : u.Player >= SimConstants.MaxPlayers ? NeutralColor
-                    : EnemyColor;
+                    : PlayerColors[u.Player & 7];
 
                 int size = state.Footprint(u.TypeId);
                 for (int dy = 0; dy < size; dy++)

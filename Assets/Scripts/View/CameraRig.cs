@@ -8,7 +8,8 @@ namespace Craftwar.View
     /// clamped to map bounds. View-only — never touches the sim. All the math
     /// is unchanged from M1; only the input source moved to InputRouter, which
     /// also means panning goes dead under a modal along with the rest of the
-    /// Camera map. WASD no longer pans — those keys are command-card hotkeys.
+    /// Camera map. WASD does not pan — the original pans on arrows, and the
+    /// letters belong to the command card.
     /// </summary>
     [RequireComponent(typeof(Camera))]
     public sealed class CameraRig : MonoBehaviour
@@ -89,6 +90,28 @@ namespace Craftwar.View
             var p = transform.position;
             transform.position = new Vector3(worldX, worldY, p.z);
             ClampToBounds();
+        }
+
+        /// <summary>
+        /// The original's three map bookmarks: Shift+F2..F4 store the current
+        /// position, F2..F4 jump back to it. Empty slots ignore the recall
+        /// rather than snapping to the map origin.
+        /// </summary>
+        readonly Vector2[] _bookmarks = new Vector2[InputRouter.ViewportSlots];
+        readonly bool[] _bookmarkSet = new bool[InputRouter.ViewportSlots];
+
+        public void HandleViewportKey(int slot, bool save)
+        {
+            if ((uint)slot >= _bookmarks.Length)
+                return;
+            if (save)
+            {
+                _bookmarks[slot] = transform.position;
+                _bookmarkSet[slot] = true;
+                return;
+            }
+            if (_bookmarkSet[slot])
+                CenterOn(_bookmarks[slot].x, _bookmarks[slot].y);
         }
 
         /// <summary>Half-height of the view in world units (= tiles).</summary>

@@ -1,19 +1,23 @@
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Craftwar.View
 {
     /// <summary>
-    /// In-game options, pushed from the pause menu. One tab so far — Gameplay
-    /// (fog of war, game speed) — with the tab bar in place so Audio/Video can
-    /// join later. Everything writes <see cref="GameplaySettings"/>, which the
-    /// views and the game loop read live, so changes apply the moment the
-    /// pause menu closes (fog even sooner — the views keep drawing while
-    /// paused).
+    /// In-game options, pushed from the pause menu. Two tabs: Gameplay (fog of
+    /// war, game speed) and Sound (master / music / effects). Everything writes
+    /// <see cref="GameplaySettings"/>, which the views, the audio directors and
+    /// the game loop read live, so changes apply the moment they are made (fog
+    /// even sooner — the views keep drawing while paused).
     /// </summary>
     public sealed class OptionsScreen : UIScreen
     {
+        enum Tab { Gameplay = 0, Sound }
+
         readonly UIManager _manager;
 
+        Button _gameplayTab, _soundTab;
+        VisualElement _gameplayPage, _soundPage;
         Button _fogButton;
         Button _speedButton;
 
@@ -34,29 +38,54 @@ namespace Craftwar.View
             title.AddToClassList("menu__title");
             menu.Add(title);
 
-            // Tab bar. A single selected tab today; more tabs slot in here.
-            var tabs = new VisualElement { style = { flexDirection = FlexDirection.Row } };
-            var gameplayTab = new Button { text = "Gameplay" };
-            gameplayTab.AddToClassList("menu__button");
-            gameplayTab.SetEnabled(false); // the one and only tab is always active
-            tabs.Add(gameplayTab);
+            var tabs = new VisualElement();
+            tabs.AddToClassList("options-tabs");
+            _gameplayTab = TabButton(tabs, "Gameplay", Tab.Gameplay);
+            _soundTab = TabButton(tabs, "Sound", Tab.Sound);
             menu.Add(tabs);
 
+            // --- gameplay page ---
+            _gameplayPage = new VisualElement();
             _fogButton = new Button(ToggleFog);
             _fogButton.AddToClassList("menu__button");
-            menu.Add(_fogButton);
+            _gameplayPage.Add(_fogButton);
 
             _speedButton = new Button(() => CycleSpeed(1));
             _speedButton.AddToClassList("menu__button");
-            menu.Add(_speedButton);
+            _gameplayPage.Add(_speedButton);
+            menu.Add(_gameplayPage);
+
+            // --- sound page ---
+            _soundPage = new VisualElement();
+            SoundOptionsPanel.Build(_soundPage);
+            menu.Add(_soundPage);
 
             var back = new Button(() => _manager.Pop()) { text = "Back" };
             back.AddToClassList("menu__button");
             menu.Add(back);
 
             RefreshLabels();
+            ShowTab(Tab.Gameplay);
             layerRoot.Add(scrim);
             Root = scrim;
+        }
+
+        Button TabButton(VisualElement parent, string text, Tab tab)
+        {
+            var b = new Button(() => ShowTab(tab)) { text = text };
+            b.AddToClassList("menu__button");
+            b.AddToClassList("options-tab");
+            parent.Add(b);
+            return b;
+        }
+
+        void ShowTab(Tab tab)
+        {
+            _gameplayPage.style.display = tab == Tab.Gameplay ? DisplayStyle.Flex : DisplayStyle.None;
+            _soundPage.style.display = tab == Tab.Sound ? DisplayStyle.Flex : DisplayStyle.None;
+            // The active tab is the one you cannot press.
+            _gameplayTab.SetEnabled(tab != Tab.Gameplay);
+            _soundTab.SetEnabled(tab != Tab.Sound);
         }
 
         void ToggleFog()

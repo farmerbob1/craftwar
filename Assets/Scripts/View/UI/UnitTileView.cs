@@ -13,6 +13,7 @@ namespace Craftwar.View
 
         readonly Label _initials;
         readonly VisualElement _hpFill;
+        IIconProvider _icons;
 
         ushort _lastType = ushort.MaxValue;
         int _lastPercent = -1;
@@ -33,6 +34,13 @@ namespace Craftwar.View
             _hpFill = root.Q("hp-fill");
             Root.AddToClassList("unit-tile--empty");
             _hidden = true;
+        }
+
+        /// <summary>Injected once the atlas resolves; null keeps the initials box.</summary>
+        public void SetIconProvider(IIconProvider icons)
+        {
+            _icons = icons;
+            _lastType = ushort.MaxValue; // force a repaint on the next Show
         }
 
         public void Hide()
@@ -56,7 +64,7 @@ namespace Craftwar.View
             if (u.TypeId != _lastType)
             {
                 _lastType = u.TypeId;
-                _initials.text = UnitNames.InitialsOf((UnitTypeId)u.TypeId);
+                UnitPortrait.Apply(Root, _initials, _icons, (UnitTypeId)u.TypeId);
                 Root.tooltip = UnitNames.Of((UnitTypeId)u.TypeId);
             }
             HpBarUtil.Apply(_hpFill, u.Hp, row.Hp, ref _lastPercent, ref _lastBand);

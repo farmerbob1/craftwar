@@ -5,55 +5,74 @@ using UnityEngine.InputSystem;
 namespace Craftwar.View
 {
     /// <summary>
-    /// The single owner of gameplay input. Builds two action maps (Gameplay and
-    /// Camera), turns them into typed events plus polled values, and disables
-    /// both while a modal screen is up.
+    /// The single owner of gameplay input. Reads the bindings from the
+    /// <c>CraftwarControls</c> InputActionAsset, turns them into typed events
+    /// plus polled values, and disables the world while a modal screen is up.
     ///
-    /// The maps are built in code rather than loaded from a .inputactions asset:
-    /// the asset route needs Unity's C# code generator to run, and the layout
-    /// here is the same one the asset would hold. Bindings stay rebindable at
-    /// runtime through InputActionAsset's override APIs.
+    /// Three maps:
+    ///   Gameplay — pointer, selection, orders, command-card letters, groups.
+    ///   Camera   — arrow pan, wheel zoom, viewport bookmarks, Alt+C centering.
+    ///   System   — menu / options / speed / debug. Stays live under a modal so
+    ///              F10 can close what F10 opened.
     ///
-    /// Hotkeys are a fixed 3x3 grid (QWE/ASD/ZXC -> card slots 0-8) rather than
-    /// per-command WC2 letters: the card is dynamic, so letter hotkeys would
-    /// need conflict management. The card already renders a per-slot hotkey
-    /// label, so WC2 letters become a data swap later.
+    /// Command-card shortcuts are the original's per-command letters, not a
+    /// fixed grid: one CommandHotkey action carries every letter A-Z and the
+    /// pressed letter is resolved against the live card (see CommandHotkeys).
+    /// A letter chorded with Ctrl or Alt is not a card shortcut and is dropped
+    /// here, which is what keeps Alt+C (centre) off the Cannon Tower button.
     ///
-    /// WASD camera panning is gone — those keys are hotkeys now, and arrows +
-    /// edge scroll is the WC2-faithful pan. That is a deliberate feel change and
-    /// one rebind away from reverting.
+    /// WASD does not pan — arrows plus edge scroll is the original's camera.
     /// </summary>
     public sealed class InputRouter : MonoBehaviour
     {
-        public const int CardSlots = 9;
-        static readonly string[] SlotKeys =
-            { "q", "w", "e", "a", "s", "d", "z", "x", "c" };
-
         /// <summary>Control groups 1-9 then 0, in key order.</summary>
         public const int GroupCount = 10;
-        static readonly string[] GroupKeys =
-            { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
+
+        /// <summary>Saved camera positions on F2/F3/F4, as in the original.</summary>
+        public const int ViewportSlots = 3;
+
+        const string ControlsResource = "CraftwarControls";
+
+        [Tooltip("Bindings asset. Left empty, it is loaded from Resources/" + ControlsResource + ".")]
+        [SerializeField] InputActionAsset controls;
 
         UIState _ui;
         UIManager _manager;
 
         InputActionAsset _asset;
-        InputActionMap _gameplay, _camera;
-        InputAction _point, _select, _order, _additive, _attackMove, _cancel, _toggleDebug;
-        InputAction _groupModifier;
-        InputAction _pan, _zoom;
-        readonly InputAction[] _cardSlots = new InputAction[CardSlots];
-        readonly InputAction[] _groups = new InputAction[GroupCount];
+        InputActionMap _gameplay, _camera, _system;
+        InputAction _point, _select, _order, _additive, _attackMove, _cancel;
+        InputAction _groupModifier, _altModifier;
+        InputAction _commandHotkey, _controlGroup;
+        InputAction _pan, _zoom, _viewport, _centerOnSelection;
+        InputAction _gameMenu, _options, _speedUp, _speedDown, _toggleDebug;
 
         public event Action OnSelectPressed;
         public event Action OnSelectReleased;
         public event Action OnOrderPressed;
-        public event Action<int> OnCardSlot;
         public event Action OnEscape;
         public event Action OnToggleDebug;
 
+        /// <summary>A command-card shortcut letter was pressed (always upper case).</summary>
+        public event Action<char> OnCommandHotkey;
+
+        /// <summary>
+        /// Escape reached the card. Returns true if the card consumed it by
+        /// pressing its Cancel button — a plain event cannot report that back.
+        /// </summary>
+        public Func<bool> CardEscapeHandler;
+
         /// <summary>Control group key pressed: (group index, ctrl held).</summary>
         public event Action<int, bool> OnGroupKey;
+
+        /// <summary>Viewport bookmark: (slot 0-2, shift held = save instead of recall).</summary>
+        public event Action<int, bool> OnViewportKey;
+
+        /// <summary>Alt+C — centre the camera on the current selection.</summary>
+        public event Action OnCenterOnSelection;
+
+        /// <summary>Game speed stepped by +1 or -1.</summary>
+        public event Action<int> OnSpeedStep;
 
         public Vector2 PointerPosition => _point?.ReadValue<Vector2>() ?? Vector2.zero;
         public Vector2 Pan => _pan?.ReadValue<Vector2>() ?? Vector2.zero;
@@ -61,73 +80,168 @@ namespace Craftwar.View
         public bool Additive => _additive != null && _additive.IsPressed();
         public bool AttackMove => _attackMove != null && _attackMove.IsPressed();
         public bool GroupModifier => _groupModifier != null && _groupModifier.IsPressed();
+        bool AltHeld => _altModifier != null && _altModifier.IsPressed();
 
         public void Init(UIState ui, UIManager manager)
         {
             _ui = ui;
             _manager = manager;
-            BuildActions();
+            if (!BindActions())
+                return;
             _gameplay.Enable();
             _camera.Enable();
+            _system.Enable();
         }
 
-        void BuildActions()
+        /// <summary>
+        /// Resolves every action the router drives. A missing map or action is a
+        /// broken asset rather than a runtime condition, so it fails loudly and
+        /// disables the component instead of silently swallowing input.
+        /// </summary>
+        bool BindActions()
         {
-            _asset = ScriptableObject.CreateInstance<InputActionAsset>();
-
-            _gameplay = _asset.AddActionMap("Gameplay");
-            _point = _gameplay.AddAction("Point", InputActionType.PassThrough, "<Mouse>/position");
-            _select = _gameplay.AddAction("Select", InputActionType.Button, "<Mouse>/leftButton");
-            _order = _gameplay.AddAction("Order", InputActionType.Button, "<Mouse>/rightButton");
-            _additive = _gameplay.AddAction("AdditiveModifier", InputActionType.Button, "<Keyboard>/shift");
-            _attackMove = _gameplay.AddAction("AttackMoveModifier", InputActionType.Button, "<Keyboard>/ctrl");
-            // Control groups share the Ctrl modifier with attack-move and do
-            // not collide: attack-move needs Ctrl + a mouse click, a group
-            // assignment needs Ctrl + a number key. Ctrl (not leftCtrl) so the
-            // right-hand key works too. Rebinding attack-move to the original's
-            // A is deliberately NOT done here — 'a' is command-card slot 3.
-            _groupModifier = _gameplay.AddAction("GroupModifier", InputActionType.Button, "<Keyboard>/ctrl");
-            _cancel = _gameplay.AddAction("CancelOrMenu", InputActionType.Button, "<Keyboard>/escape");
-            _toggleDebug = _gameplay.AddAction("ToggleDebug", InputActionType.Button, "<Keyboard>/f3");
-
-            for (int i = 0; i < CardSlots; i++)
+            _asset = controls != null ? controls : Resources.Load<InputActionAsset>(ControlsResource);
+            if (_asset == null)
             {
-                var action = _gameplay.AddAction("CardSlot" + i, InputActionType.Button,
-                    "<Keyboard>/" + SlotKeys[i]);
-                int slot = i; // capture
-                action.performed += _ => OnCardSlot?.Invoke(slot);
-                _cardSlots[i] = action;
+                Debug.LogError($"[Craftwar] Input asset '{ControlsResource}' not found. " +
+                               "Assign it on InputRouter or restore " +
+                               $"Assets/Resources/{ControlsResource}.inputactions.");
+                enabled = false;
+                return false;
             }
 
-            for (int i = 0; i < GroupCount; i++)
+            // Cloned so runtime rebinds and the enabled/disabled state belong to
+            // this match and never write back into the project asset.
+            _asset = Instantiate(_asset);
+
+            _gameplay = RequireMap("Gameplay");
+            _camera = RequireMap("Camera");
+            _system = RequireMap("System");
+            if (_gameplay == null || _camera == null || _system == null)
             {
-                var action = _gameplay.AddAction("Group" + i, InputActionType.Button,
-                    "<Keyboard>/" + GroupKeys[i]);
-                int group = i; // capture
-                action.performed += _ => OnGroupKey?.Invoke(group, GroupModifier);
-                _groups[i] = action;
+                enabled = false;
+                return false;
             }
 
-            _camera = _asset.AddActionMap("Camera");
-            _pan = _camera.AddAction("Pan", InputActionType.PassThrough);
-            _pan.AddCompositeBinding("2DVector")
-                .With("Up", "<Keyboard>/upArrow")
-                .With("Down", "<Keyboard>/downArrow")
-                .With("Left", "<Keyboard>/leftArrow")
-                .With("Right", "<Keyboard>/rightArrow");
-            _zoom = _camera.AddAction("Zoom", InputActionType.PassThrough, "<Mouse>/scroll/y");
+            _point = Require(_gameplay, "Point");
+            _select = Require(_gameplay, "Select");
+            _order = Require(_gameplay, "Order");
+            _additive = Require(_gameplay, "AdditiveModifier");
+            _attackMove = Require(_gameplay, "AttackMoveModifier");
+            _groupModifier = Require(_gameplay, "GroupModifier");
+            _altModifier = Require(_gameplay, "AltModifier");
+            _cancel = Require(_gameplay, "Cancel");
+            _commandHotkey = Require(_gameplay, "CommandHotkey");
+            _controlGroup = Require(_gameplay, "ControlGroup");
+
+            _pan = Require(_camera, "Pan");
+            _zoom = Require(_camera, "Zoom");
+            _viewport = Require(_camera, "Viewport");
+            _centerOnSelection = Require(_camera, "CenterOnSelection");
+
+            _gameMenu = Require(_system, "GameMenu");
+            _options = Require(_system, "Options");
+            _speedUp = Require(_system, "SpeedUp");
+            _speedDown = Require(_system, "SpeedDown");
+            _toggleDebug = Require(_system, "ToggleDebug");
+
+            if (_missing)
+            {
+                enabled = false;
+                return false;
+            }
 
             _select.started += _ => OnSelectPressed?.Invoke();
             _select.canceled += _ => OnSelectReleased?.Invoke();
             _order.started += _ => OnOrderPressed?.Invoke();
             _cancel.performed += _ => HandleEscape();
+            _commandHotkey.performed += HandleCommandHotkey;
+            _controlGroup.performed += HandleControlGroup;
+            _viewport.performed += HandleViewport;
+            _centerOnSelection.performed += _ => OnCenterOnSelection?.Invoke();
+
+            _gameMenu.performed += _ => _manager?.OpenPauseMenu();
+            _options.performed += _ => OpenOptions();
+            _speedUp.performed += _ => OnSpeedStep?.Invoke(1);
+            _speedDown.performed += _ => OnSpeedStep?.Invoke(-1);
             _toggleDebug.performed += _ => OnToggleDebug?.Invoke();
+            return true;
+        }
+
+        bool _missing;
+
+        InputActionMap RequireMap(string name)
+        {
+            var map = _asset.FindActionMap(name, throwIfNotFound: false);
+            if (map == null)
+            {
+                Debug.LogError($"[Craftwar] Input asset has no '{name}' action map.");
+                _missing = true;
+            }
+            return map;
+        }
+
+        InputAction Require(InputActionMap map, string name)
+        {
+            var action = map.FindAction(name, throwIfNotFound: false);
+            if (action == null)
+            {
+                Debug.LogError($"[Craftwar] Input map '{map.name}' has no '{name}' action.");
+                _missing = true;
+            }
+            return action;
         }
 
         /// <summary>
-        /// Escape priority: cancel placement, then close the card's advanced
-        /// page, then let the screen stack consume it, and only then open the
-        /// pause menu.
+        /// A-Z go to the command card. Ctrl and Alt chords are other people's
+        /// shortcuts (Alt+C centres, Ctrl+N assigns a group), so a held modifier
+        /// means this is not a card press.
+        /// </summary>
+        void HandleCommandHotkey(InputAction.CallbackContext ctx)
+        {
+            if (GroupModifier || AltHeld)
+                return;
+            string name = ctx.control?.name;
+            if (string.IsNullOrEmpty(name) || name.Length != 1)
+                return;
+            OnCommandHotkey?.Invoke(char.ToUpperInvariant(name[0]));
+        }
+
+        /// <summary>Digits 1-9 then 0 map onto groups 0-9.</summary>
+        void HandleControlGroup(InputAction.CallbackContext ctx)
+        {
+            string name = ctx.control?.name;
+            if (string.IsNullOrEmpty(name) || name.Length != 1)
+                return;
+            char c = name[0];
+            if (c < '0' || c > '9')
+                return;
+            int group = c == '0' ? GroupCount - 1 : c - '1';
+            OnGroupKey?.Invoke(group, GroupModifier);
+        }
+
+        /// <summary>F2/F3/F4 recall a saved camera position; Shift+Fn saves one.</summary>
+        void HandleViewport(InputAction.CallbackContext ctx)
+        {
+            string name = ctx.control?.name;
+            if (string.IsNullOrEmpty(name) || name.Length != 2 || name[0] != 'f')
+                return;
+            int slot = name[1] - '2';
+            if ((uint)slot >= ViewportSlots)
+                return;
+            OnViewportKey?.Invoke(slot, Additive);
+        }
+
+        void OpenOptions()
+        {
+            if (_manager != null && !_manager.HasScreen<OptionsScreen>())
+                _manager.Push(new OptionsScreen(_manager));
+        }
+
+        /// <summary>
+        /// Escape priority: cancel placement, then the screen stack (which
+        /// closes the card's build page), then the card's own Cancel button,
+        /// and only then open the game menu.
         /// </summary>
         void HandleEscape()
         {
@@ -141,42 +255,43 @@ namespace Craftwar.View
                 return;
             if (_manager.RouteEscape())
                 return;
+            if (CardEscapeHandler != null && CardEscapeHandler())
+                return;
             _manager.OpenPauseMenu();
         }
 
         void Update()
         {
             // A modal owns the keyboard and mouse; world and camera go dead.
+            // The System map stays live so F10/F5 can close what they opened.
             bool shouldEnable = _ui == null || !_ui.ModalOpen;
-            if (shouldEnable != _gameplayEnabled)
+            if (shouldEnable == _gameplayEnabled)
+                return;
+            _gameplayEnabled = shouldEnable;
+
+            if (shouldEnable)
             {
-                _gameplayEnabled = shouldEnable;
-                // Escape must survive so the menu can close itself.
-                if (shouldEnable)
-                {
-                    _gameplay.Enable();
-                    _camera.Enable();
-                }
-                else
-                {
-                    _camera.Disable();
-                    foreach (var a in _cardSlots)
-                        a.Disable();
-                    foreach (var a in _groups)
-                        a.Disable();
-                    _select.Disable();
-                    _order.Disable();
-                }
+                _gameplay.Enable();
+                _camera.Enable();
+                return;
             }
+
+            _camera.Disable();
+            _commandHotkey.Disable();
+            _controlGroup.Disable();
+            _select.Disable();
+            _order.Disable();
+            // Escape must survive so the menu can close itself.
         }
 
         bool _gameplayEnabled = true;
 
         void OnDestroy()
         {
-            _asset?.Disable();
-            if (_asset != null)
-                Destroy(_asset);
+            if (_asset == null)
+                return;
+            _asset.Disable();
+            Destroy(_asset);
         }
     }
 }

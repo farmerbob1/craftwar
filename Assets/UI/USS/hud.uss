@@ -112,44 +112,29 @@
     border-bottom-color: var(--cw-panel-border);
 }
 
+/* 3x3 grid of 62x52 cells (2px gutters) = 192 x 162. The cell keeps the
+   icon art's 46x38 aspect ratio, because the icon IS the button. */
 .command-card {
     margin-top: 8px;
     flex-direction: row;
     flex-wrap: wrap;
     width: 192px;
-    height: 192px;
+    height: 162px;
 }
 
-/* 3x3 grid of 60px cells with 2px gutters = 192px. */
 .command-button {
-    width: 60px;
-    height: 60px;
+    width: 62px;
+    height: 50px;
     margin-right: 2px;
     margin-bottom: 2px;
     align-items: center;
     justify-content: center;
-    /* Room for the hotkey letter above and the cost below the wrapped name. */
-    padding-top: 11px;
-    padding-bottom: 11px;
-    padding-left: 2px;
-    padding-right: 2px;
     background-color: var(--cw-btn-bg);
-    border-left-width: 1px;
-    border-right-width: 1px;
-    border-top-width: 1px;
-    border-bottom-width: 1px;
-    border-left-color: var(--cw-panel-border);
-    border-right-color: var(--cw-panel-border);
-    border-top-color: var(--cw-panel-border);
-    border-bottom-color: var(--cw-panel-border);
 }
 
+/* No border of its own: hover draws one so the cursor target still reads. */
 .command-button:hover {
     background-color: var(--cw-btn-bg-hover);
-    border-left-color: var(--cw-accent);
-    border-right-color: var(--cw-accent);
-    border-top-color: var(--cw-accent);
-    border-bottom-color: var(--cw-accent);
 }
 
 .command-button--empty {
@@ -161,48 +146,44 @@
     background-color: var(--cw-btn-bg-disabled);
 }
 
-/* Doubles as the icon and the text fallback. As text it is the full command
-   name, wrapped ("Elven Lumber Mill" takes three lines; the tooltip carries the
-   same text for anything that still clips). As an icon it must fill the button:
-   flex-grow claims the whole interior height instead of collapsing to the empty
-   label's zero height (which was crushing the art), and background-size: contain
-   scales the 46x38 icon to fit without distortion. */
+/* Doubles as the icon and the text fallback. As an icon it fills the button
+   edge to edge (the cell already carries the art's aspect ratio, so scaling to
+   100% x 100% cannot distort it). As text — an install with no icon art, or a
+   type the table has no entry for — it is the full command name, wrapped, with
+   the tooltip carrying the same text for anything that clips. */
 .command-button__icon {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
     color: var(--cw-text);
     font-size: 10px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     white-space: normal;
-    flex-grow: 1;
-    width: 100%;
-    min-height: 0;
-    background-size: contain;
+    background-size: 100% 100%;
     background-position: center;
     background-repeat: no-repeat;
 }
 
 .command-button--disabled .command-button__icon {
     color: var(--cw-text-dim);
+    -unity-background-image-tint-color: rgb(112, 112, 112);
 }
 
+/* Sits over the top-left corner of the art, with a dark plate behind it so it
+   stays legible against a bright icon. */
 .command-button__key {
     position: absolute;
-    top: 1px;
-    left: 3px;
+    top: 0;
+    left: 0;
+    padding-left: 2px;
+    padding-right: 2px;
     color: var(--cw-accent);
     font-size: 10px;
     -unity-font-style: bold;
-}
-
-.command-button__cost {
-    position: absolute;
-    bottom: 1px;
-    color: var(--cw-text-dim);
-    font-size: 9px;
-}
-
-.command-button--disabled .command-button__cost {
-    color: var(--cw-warn);
+    background-color: rgba(0, 0, 0, 0.6);
 }
 
 /* --- drag selection --- */
@@ -257,12 +238,17 @@
     align-items: center;
 }
 
+/* 56x47 keeps the 46x38 icon's aspect ratio once the 1px border is taken off,
+   so the portrait art scales without distorting. */
 .sel-portrait {
     width: 56px;
-    height: 50px;
+    height: 47px;
     align-items: center;
     justify-content: center;
     background-color: var(--cw-btn-bg);
+    background-size: 100% 100%;
+    background-position: center;
+    background-repeat: no-repeat;
     border-left-width: 1px;
     border-right-width: 1px;
     border-top-width: 1px;
@@ -355,14 +341,19 @@
     flex-wrap: wrap;
 }
 
+/* 42x35 for the same reason as .sel-portrait: the tile carries the icon's
+   aspect ratio so the art is not squashed. Four still fit per row. */
 .unit-tile {
     width: 42px;
-    height: 42px;
+    height: 35px;
     margin-right: 3px;
     margin-bottom: 3px;
     align-items: center;
     justify-content: center;
     background-color: var(--cw-btn-bg);
+    background-size: 100% 100%;
+    background-position: center;
+    background-repeat: no-repeat;
     border-left-width: 1px;
     border-right-width: 1px;
     border-top-width: 1px;

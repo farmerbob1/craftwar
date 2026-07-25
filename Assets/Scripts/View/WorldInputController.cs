@@ -434,30 +434,30 @@ namespace Craftwar.View
                 }
             }
 
-            // Click with no mobile units hit: select the building under the
-            // cursor. A building selection is always exclusive — the original
-            // never mixes buildings with units, and the command card has no
-            // sensible card for a mixed selection.
+            // Click with nothing of ours under it: fall back to whatever else is
+            // on that tile — an enemy unit, an enemy building, a gold mine. That
+            // selection is exclusive and read-only: the panel shows its health
+            // and stats, and the command card refuses to build a card for a unit
+            // that is not ours, so there is nothing to order it to do.
             if (_selection.Count == 0)
             {
                 int tileX = Mathf.FloorToInt(rect.center.x);
                 int tileY = _mapHeight - 1 - Mathf.FloorToInt(rect.center.y);
                 if (state.Terrain != null && state.Terrain.InBounds(tileX, tileY))
                 {
-                    uint occ = state.OccupancySurface[tileY * state.Terrain.Width + tileX];
-                    if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi))
-                    {
-                        ref var occupant = ref state.Units[bi];
-                        bool ownBuilding = occupant.Player == LocalPlayer
-                            && (occupant.Flags & UnitFlags.Building) != 0;
-                        // Neutral gold mines and oil patches select for anyone,
-                        // read-only, so their remaining resources are visible.
-                        bool resource = state.Rules != null
-                            && state.Rules.Units[occupant.TypeId].Is(
-                                UnitTypeFlags.GoldMine | UnitTypeFlags.OilPatch);
-                        if (ownBuilding || resource)
-                            _selection.SetSingle(occ);
-                    }
+                    int t = tileY * state.Terrain.Width + tileX;
+                    uint occ = state.OccupancyAir[t];
+                    if (occ == 0)
+                        occ = state.OccupancySurface[t];
+                    if (occ != 0 && state.TryGetUnitIndex(UnitId.FromPacked(occ), out int bi)
+                        && (state.Units[bi].Flags & UnitFlags.Hidden) == 0
+                        // You can only inspect what you can see. Own units always
+                        // resolve; neutral mines and enemies need line of sight,
+                        // or the cursor becomes a probe for hidden units.
+                        && (state.Units[bi].Player == LocalPlayer
+                            || GameplaySettings.Current.revealMap
+                            || _host.Sim.IsUnitVisible(LocalPlayer, ref state.Units[bi])))
+                        _selection.SetSingle(occ);
                 }
                 return;
             }

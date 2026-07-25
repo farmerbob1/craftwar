@@ -88,8 +88,8 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   selection is a 9-sliced green rectangle under the sprite, not a tint.
 
 - **UI framework** (83b1228, 4cf70bd): UI Toolkit HUD (UXML/USS in `Assets/UI`),
-  `UIManager` + screen stack + four layers, InputRouter owning both action maps
-  (built in code, not a .inputactions asset), sim→UI event channel drained via
+  `UIManager` + screen stack + four layers, InputRouter owning the action maps,
+  sim→UI event channel drained via
   `GameLoopRunner.PendingSimEvents`, patrol order, unit action card, WC2-style
   selection panel.
 - **M6** fog/minimap/groups/sound: per-player `Visible`/`Explored` byte grids on
@@ -128,6 +128,22 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   Laden-tanker art found at entries 126/127 by silhouette comparison against
   59/60 (100% hull containment + ~7% new pixels; cross-pairings don't match).
   152/152 EditMode.
+- **Input rebuilt on the original's keys.** Bindings now live in
+  `Assets/Resources/CraftwarControls.inputactions` (three maps: Gameplay,
+  Camera, System) instead of being assembled in code; `InputRouter` resolves it
+  by name and fails loudly if an action is missing. The command card dropped
+  the placeholder QWE/ASD/ZXC grid for WC2's per-command letters — Move M,
+  Stop S, Attack A, Build B, Advanced V, Farm F, Barracks B, Peasant P, and so
+  on, per `Keybindings.txt`. The letter belongs to the *command*, so
+  `CommandHotkeys` is the lookup and one `CommandHotkey` action carrying A-Z
+  resolves the pressed key against the live card; a Ctrl/Alt chord is never a
+  card press. Also wired: F10 menu, F5 options, +/- speed, Alt+C centre on
+  selection, F2-F4 map bookmarks (Shift+Fn saves), Escape driving the card's
+  Cancel button. Debug overlay moved F3 → backquote, since F3 is bookmark 2.
+  The letters must stay unique per card face; `CommandCardModel` warns in the
+  editor if they ever aren't. Two entries are inferred rather than quoted (the
+  human Stables, absent from the reference, takes A) and both are flagged in
+  `CommandHotkeys`.
 
 ## In flight
 **M9.5 — Scriptable, tiered AI (rework of M9).** Plan:
@@ -363,7 +379,7 @@ The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
 `Orc/x_sub.grp` the turtle (527).
 
 ## Known gaps / decisions
-- Sim system order: commands → production → movement → combat → harvest →
+- Sim system order: commands → production → critters → movement → combat → harvest →
   transport → construction(stub) → fog → victory. Tick = 50Hz, turn = 4.
   `TickConstruction` is the only remaining stub (real construction lives in
   `TickProduction` + `TickBuilderWalk`); `TickVictory` runs a full scan once a

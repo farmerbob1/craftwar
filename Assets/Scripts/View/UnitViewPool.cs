@@ -29,6 +29,9 @@ namespace Craftwar.View
         Sprite GetAnimFrame(ushort typeId, byte player, byte facing, int block, byte carry, out bool flipX);
         /// <summary>Number of 5-facing animation blocks (0 for single-pose banks).</summary>
         int BlockCount(ushort typeId, byte player);
+        /// <summary>Which blocks are walk / attack / death for this bank. Invalid
+        /// for single-pose banks; see <see cref="AnimLayout"/>.</summary>
+        AnimLayout LayoutFor(ushort typeId, byte carry);
         /// <summary>Raw frame count for a single-pose (building) bank; 0 for
         /// animated unit banks (use BlockCount for those). WC2 building GRPs
         /// hold [0] = completed, [last] = half-built construction frame.</summary>
@@ -37,6 +40,13 @@ namespace Craftwar.View
         /// clamped to range. 0 = completed sprite, higher = construction
         /// stages.</summary>
         Sprite GetBuildingFrame(ushort typeId, byte player, int frameIndex, out bool flipX);
+        /// <summary>The shared building-site art (WC2's build_1 bank): stage 0 is
+        /// broken ground, stage 1 the stacked timber. Null when unavailable.</summary>
+        Sprite GetFoundationFrame(int stage);
+        /// <summary>A frame of the shared corpse bank. Null when unavailable.</summary>
+        Sprite GetCorpseFrame(int block, byte facing, out bool flipX);
+        /// <summary>Number of 5-facing blocks in the corpse bank, 0 if absent.</summary>
+        int CorpseBlockCount { get; }
     }
 
     /// <summary>
@@ -97,6 +107,8 @@ namespace Craftwar.View
         Sprite _fallback;
         Sprite _selBoxSprite;
         static readonly Color SelectionGreen = new Color(0.16f, 0.9f, 0.22f, 1f);
+        static readonly Color SelectionRed = new Color(0.9f, 0.2f, 0.18f, 1f);
+        static readonly Color SelectionYellow = new Color(0.92f, 0.8f, 0.24f, 1f);
 
         /// <summary>Shared with input and the UI; the pool only reads it.</summary>
         public SelectionState Selected { get; private set; }
@@ -133,18 +145,49 @@ namespace Craftwar.View
         }
 
         readonly Dictionary<int, SpriteRenderer> _projectileViews = new Dictionary<int, SpriteRenderer>();
-        readonly List<(SpriteRenderer sr, float diedAt, ushort typeId, byte player, byte facing)> _corpses
-            = new List<(SpriteRenderer, float, ushort, byte, byte)>();
+
+        /// <summary>
+        /// A unit that has left the sim but is still on screen: first its own
+        /// death animation, then — for the types that leave one — a corpse out of
+        /// the shared bank, rotting through the decay blocks before it fades.
+        /// </summary>
+        struct Corpse
+        {
+            public SpriteRenderer Renderer;
+            public float DiedAt;
+            public ushort TypeId;
+            public byte Player;
+            public byte Facing;
+            public AnimLayout Layout;
+            public CorpseKind Kind;
+        }
+
+        readonly List<Corpse> _corpses = new List<Corpse>();
         readonly Dictionary<int, (ushort typeId, byte player, byte facing)> _lastPose
             = new Dictionary<int, (ushort, byte, byte)>();
         Sprite _projectileSprite;
-        const float CorpseSeconds = 2f;
+
+        /// <summary>Seconds per frame of a death animation.</summary>
+        const float DeathFrameSeconds = 0.12f;
+        /// <summary>Fade for something whose bank has no death frames at all.</summary>
+        const float NoDeathFadeSeconds = 0.6f;
+        /// <summary>How long a corpse lies there before it has finished rotting.</summary>
+        const float CorpseSeconds = 30f;
+        /// <summary>Tail of <see cref="CorpseSeconds"/> spent fading out.</summary>
+        const float CorpseFadeSeconds = 3f;
 
         /// <summary>
-        /// WC2 frame convention: blocks of 5 facings. Blocks 0-4 = walk cycle
-        /// (block 0 doubles as the stand pose), then attack blocks, with the
-        /// death animation in the last blocks. Returns -1 for single-pose banks.
+        /// The corpse bank's blocks: [0] a fresh human body, [1] a fresh orc one,
+        /// then four shared stages of decay down to scattered bone, and [6] the
+        /// spreading ring of water a hull leaves. A land corpse therefore walks
+        /// 0 (or 1) then 2, 3, 4, 5; a wreck holds 6 and just fades.
         /// </summary>
+        const int CorpseHumanBlock = 0;
+        const int CorpseOrcBlock = 1;
+        const int CorpseDecayFirst = 2;
+        const int CorpseDecayLast = 5;
+        const int CorpseShipBlock = 6;
+
         /// <summary>
         /// A flyer's shadow: the same sprite flattened onto the deck, tinted
         /// black, drawn just under the ground band so it never covers a unit.
@@ -176,84 +219,81 @@ namespace Craftwar.View
             sh.enabled = true;
         }
 
-        int PickAnimBlock(ref Unit u, GameState state)
+        /// <summary>
+        /// Which frame block to draw this instant, from the bank's real layout
+        /// (see <see cref="AnimLayout"/>). Returns -1 for single-pose banks.
+        /// </summary>
+        int PickAnimBlock(ref Unit u, GameState state, in AnimLayout layout)
         {
-            int blocks = _sprites.BlockCount(u.TypeId, u.Player);
-            if (blocks <= 0)
-                return -1;
+            if (!layout.IsValid)
+                return _sprites.BlockCount(u.TypeId, u.Player) > 0 ? 0 : -1;
 
-            // Ships and flyers have no gait: they turn in place and the hull or
-            // airframe is a single pose per facing. Cycling "walk" blocks over
-            // them animates whatever happens to sit in those slots.
-            if (state.DomainOf(u.TypeId) != MoveDomain.Land)
-                return 0;
-
-            // Attacking / chopping: play attack blocks while the swing timer
-            // is fresh (first ~40% of the cooldown window).
+            // Attacking / chopping: play the attack blocks while the swing timer
+            // is fresh (first ~40% of the cooldown window). Banks with no attack
+            // art (ships, submarines) fall through to the gait.
             bool swinging = u.Cooldown > SimConstants.AttackCooldownTicks * 3 / 5
                 || u.Harvest == HarvestStage.Chopping;
-            if (swinging && blocks > 6)
-            {
-                int attackStart = 5;
-                int attackCount = Mathf.Max(1, Mathf.Min(4, blocks - 8));
-                int step = (int)(Time.time * 10f) % attackCount;
-                return attackStart + step;
-            }
+            if (swinging && layout.HasAttack)
+                return layout.AttackBlock((int)(Time.time * 10f));
 
-            // Walking: cycle blocks 0..4 — only while actually mid-step.
-            // A unit that is merely holding a path (blocked, waiting, or
-            // between orders) stands; otherwise stuck units tread air.
+            // Walking: only while actually mid-step. A unit that is merely
+            // holding a path (blocked, waiting, or between orders) stands;
+            // otherwise stuck units tread air.
             if (u.IsMoving)
-            {
-                int walkBlocks = Mathf.Min(5, blocks);
-                return (int)(Time.time * 9f) % walkBlocks;
-            }
+                return layout.WalkBlock((int)(Time.time * 9f));
 
-            return 0; // stand
+            return layout.WalkBlock(0); // stand
         }
 
         /// <summary>
         /// Construction-site rendering for a building carrying the
-        /// UnderConstruction flag. WC2 building GRPs hold two frames —
-        /// [0] the finished building, [last] a half-built scaffold frame.
-        /// Progress runs 0..1 as TrainTicks counts down from BuildTicks:
-        ///   - first slice: the dug-ground stage. No dedicated site art
-        ///     decodes out of maindat.war (war2tools maps every building to
-        ///     its 2-frame GRP; the only small rubble banks are destruction
-        ///     debris), so we show the half-built frame briefly translucent.
-        ///   - middle: the half-built scaffold frame at full opacity.
-        ///   - near done: the finished frame at full opacity.
-        /// Falls back to the old flat-alpha placeholder if the bank has no
-        /// distinct construction frame.
+        /// UnderConstruction flag, following the original's own three-stage rule
+        /// (PSX <c>unit.c</c>, <c>update_frame</c>, where <c>unitMP</c> is percent
+        /// complete):
+        ///
+        ///     &lt; 25%  -> foundation frame 0   (broken ground)
+        ///     &lt; 50%  -> foundation frame 1   (stacked timber)
+        ///     &lt; 100% -> the building's own frame 1, "almost complete"
+        ///     done    -> the building's frame 0
+        ///
+        /// The foundation frames are the shared `build_1` bank, not the
+        /// building's art — that is the small pile of materials every WC2
+        /// building starts as, and it is why the site used to look like a
+        /// faded copy of the finished structure.
+        ///
+        /// Nothing here is translucent. The old fade was standing in for the
+        /// site art; with the real bank there is nothing left to stand in for,
+        /// and a completed building must never be drawn before it is complete.
         /// </summary>
         Sprite ConstructionSprite(ref Unit u, GameState state, Sprite fallbackSprite,
             ref Color color, ref bool flipX)
         {
-            int frames = _sprites != null ? _sprites.BuildingFrameCount(u.TypeId, u.Player) : 0;
-            if (frames < 2)
-            {
-                // No construction frame available: keep a light scaffolding tint.
-                color.a = 0.55f;
-                return fallbackSprite;
-            }
-
             ref var row = ref state.Rules.Units[u.TypeId];
             int total = GameSim.BuildTicksFor(row.BuildTime);
             if (total < 1) total = 1;
-            float progress = 1f - (float)u.TrainTicks / total;
-            progress = Mathf.Clamp01(progress);
+            float progress = Mathf.Clamp01(1f - (float)u.TrainTicks / total);
 
-            int halfIdx = frames - 1;                    // last frame = scaffold stage
-            if (progress < 0.75f)
+            if (progress < 0.5f)
             {
-                // Broke-ground -> half-built. The very first slice stands in for
-                // the (unavailable) dug-ground site with a translucent scaffold.
-                color.a = progress < 0.30f ? 0.6f : 1f;
-                return _sprites.GetBuildingFrame(u.TypeId, u.Player, halfIdx, out flipX);
+                var site = _sprites?.GetFoundationFrame(progress < 0.25f ? 0 : 1);
+                if (site != null)
+                {
+                    flipX = false;
+                    return site;
+                }
             }
 
-            // Nearly finished: show the completed sprite at full opacity.
-            return _sprites.GetBuildingFrame(u.TypeId, u.Player, 0, out flipX);
+            // The building's own scaffold frame. WC2 building banks hold
+            // [0] completed and [last] under-construction.
+            int frames = _sprites != null ? _sprites.BuildingFrameCount(u.TypeId, u.Player) : 0;
+            if (frames < 2)
+            {
+                // Single-frame bank and no site art: a tint is all that is left
+                // to say "not finished".
+                color.a = 0.55f;
+                return fallbackSprite;
+            }
+            return _sprites.GetBuildingFrame(u.TypeId, u.Player, frames - 1, out flipX);
         }
 
         void LateUpdate()
@@ -307,7 +347,8 @@ namespace Craftwar.View
                 Sprite sprite = null;
                 if (_sprites != null && _sprites.Has(u.TypeId))
                 {
-                    int block = PickAnimBlock(ref u, state);
+                    var layout = _sprites.LayoutFor(u.TypeId, (byte)u.Carry);
+                    int block = PickAnimBlock(ref u, state, layout);
                     sprite = block >= 0
                         ? _sprites.GetAnimFrame(u.TypeId, u.Player, u.Facing, block, (byte)u.Carry, out flipX)
                         : _sprites.Get(u.TypeId, u.Player, u.Facing, out flipX);
@@ -350,7 +391,8 @@ namespace Craftwar.View
                 }
 
                 UpdateSelectionBox(i, sr, footprint,
-                    inSight && Selected.Contains(packed) && (u.Flags & UnitFlags.Hidden) == 0);
+                    inSight && Selected.Contains(packed) && (u.Flags & UnitFlags.Hidden) == 0,
+                    SelectionColor(u.Player));
             }
 
             UpdateRememberedBuildings(state);
@@ -391,9 +433,23 @@ namespace Craftwar.View
                 }
                 sr.gameObject.name = "corpse";
                 sr.color = Color.white;
+                sr.enabled = true;
+                // The living walk over the dead: drop out of the ground band so
+                // a body never wins the row tie-break against a unit.
+                sr.sortingOrder -= GroundBand;
                 var pose = _lastPose.TryGetValue(key, out var p) ? p : ((ushort)0, (byte)0, (byte)0);
                 _lastPose.Remove(key);
-                _corpses.Add((sr, Time.time, pose.Item1, pose.Item2, pose.Item3));
+                _corpses.Add(new Corpse
+                {
+                    Renderer = sr,
+                    DiedAt = Time.time,
+                    TypeId = pose.Item1,
+                    Player = pose.Item2,
+                    Facing = pose.Item3,
+                    Layout = _sprites != null
+                        ? _sprites.LayoutFor(pose.Item1, 0) : default,
+                    Kind = UnitCorpseTable.For((UnitTypeId)pose.Item1),
+                });
             }
         }
 
@@ -469,7 +525,18 @@ namespace Craftwar.View
             }
         }
 
-        void UpdateSelectionBox(int slot, SpriteRenderer unitSr, int footprint, bool selected)
+        /// <summary>
+        /// Green for ours, yellow for neutral, red for everyone else — the same
+        /// three-way split the minimap makes, so an inspected enemy reads as
+        /// "not yours" at a glance.
+        /// </summary>
+        static Color SelectionColor(byte player) =>
+            player == LocalPlayer ? SelectionGreen
+            : player >= SimConstants.MaxPlayers ? SelectionYellow
+            : SelectionRed;
+
+        void UpdateSelectionBox(int slot, SpriteRenderer unitSr, int footprint,
+            bool selected, Color color)
         {
             if (!selected)
             {
@@ -485,21 +552,37 @@ namespace Craftwar.View
                 box = go.AddComponent<SpriteRenderer>();
                 box.sprite = _selBoxSprite;
                 box.drawMode = SpriteDrawMode.Sliced;
-                box.color = SelectionGreen;
                 _selBoxes[slot] = box;
             }
+            box.color = color;
             box.enabled = true;
             box.size = new Vector2(footprint, footprint);
             box.sortingOrder = unitSr.sortingOrder - 1; // frame sits under the sprite
         }
 
+        /// <summary>
+        /// Two phases, as in the original: the unit's own death frames play once
+        /// at a fixed rate, and then — only for the types that leave a body —
+        /// the shared corpse bank rots on the spot for half a minute before it
+        /// fades. Everything else is gone the moment its death animation ends.
+        /// </summary>
         void UpdateCorpses()
         {
             for (int i = _corpses.Count - 1; i >= 0; i--)
             {
-                var (sr, diedAt, typeId, player, facing) = _corpses[i];
-                float t = Time.time - diedAt;
-                if (sr == null || t >= CorpseSeconds)
+                var corpse = _corpses[i];
+                var sr = corpse.Renderer;
+                float t = Time.time - corpse.DiedAt;
+                float deathSeconds = corpse.Layout.DieSteps * DeathFrameSeconds;
+                // Banks with no death frames at all — buildings, siege engines —
+                // still get a moment to fade rather than blinking out.
+                if (deathSeconds <= 0f && corpse.Kind == CorpseKind.None)
+                    deathSeconds = NoDeathFadeSeconds;
+
+                bool expired = corpse.Kind == CorpseKind.None
+                    ? t >= deathSeconds
+                    : t >= deathSeconds + CorpseSeconds;
+                if (sr == null || expired)
                 {
                     if (sr != null)
                         Destroy(sr.gameObject);
@@ -507,24 +590,65 @@ namespace Craftwar.View
                     continue;
                 }
 
-                int blocks = _sprites != null ? _sprites.BlockCount(typeId, player) : 0;
-                if (blocks > 8 && t < 1f)
+                float alpha = 1f;
+                if (t < deathSeconds)
                 {
-                    // Death animation: the last ~3 blocks, once through.
-                    int deathCount = Mathf.Min(3, blocks - 5);
-                    int deathStart = blocks - deathCount;
-                    int step = Mathf.Min(deathCount - 1, (int)(t * deathCount / 0.8f));
-                    var sprite = _sprites.GetAnimFrame(typeId, player, facing, deathStart + step, 0, out bool flip);
+                    // Death throes: the bank's own die blocks, once through.
+                    if (_sprites != null && corpse.Layout.HasDeath)
+                    {
+                        int step = (int)(t / DeathFrameSeconds);
+                        var sprite = _sprites.GetAnimFrame(corpse.TypeId, corpse.Player,
+                            corpse.Facing, corpse.Layout.DieBlock(step), 0, out bool flip);
+                        if (sprite != null)
+                        {
+                            sr.sprite = sprite;
+                            sr.flipX = flip;
+                        }
+                    }
+                    // A unit that leaves nothing fades out over its last moments
+                    // rather than blinking away.
+                    if (corpse.Kind == CorpseKind.None)
+                        alpha = Mathf.Clamp01((deathSeconds - t)
+                            / Mathf.Min(deathSeconds, NoDeathFadeSeconds));
+                }
+                else
+                {
+                    float rot = t - deathSeconds;
+                    var sprite = CorpseSprite(ref corpse, rot, out bool flip);
                     if (sprite != null)
                     {
                         sr.sprite = sprite;
                         sr.flipX = flip;
                     }
+                    alpha = Mathf.Clamp01((CorpseSeconds - rot) / CorpseFadeSeconds);
                 }
+
                 var c = sr.color;
-                c.a = Mathf.Clamp01((CorpseSeconds - t) / CorpseSeconds);
+                c.a = alpha;
                 sr.color = c;
             }
+        }
+
+        /// <summary>
+        /// The corpse block for a body that has been lying there
+        /// <paramref name="rot"/> seconds: the fresh body for the first fifth of
+        /// its life, then evenly through the shared decay stages. A wreck holds
+        /// its single water block and only fades.
+        /// </summary>
+        Sprite CorpseSprite(ref Corpse corpse, float rot, out bool flipX)
+        {
+            flipX = false;
+            if (_sprites == null || _sprites.CorpseBlockCount <= CorpseShipBlock)
+                return null;
+
+            if (corpse.Kind == CorpseKind.Ship)
+                return _sprites.GetCorpseFrame(CorpseShipBlock, corpse.Facing, out flipX);
+
+            int fresh = corpse.Kind == CorpseKind.Orc ? CorpseOrcBlock : CorpseHumanBlock;
+            const int stages = CorpseDecayLast - CorpseDecayFirst + 2; // fresh + decay
+            int stage = Mathf.Clamp((int)(rot / CorpseSeconds * stages), 0, stages - 1);
+            int block = stage == 0 ? fresh : CorpseDecayFirst + stage - 1;
+            return _sprites.GetCorpseFrame(block, corpse.Facing, out flipX);
         }
 
         void UpdateProjectiles(GameState state)

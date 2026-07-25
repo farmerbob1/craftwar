@@ -162,6 +162,7 @@ namespace Craftwar.Sim
 
             // Fixed system order — the spine of determinism.
             TickProduction();
+            TickCritters();   // before movement, so a new wander starts this tick
             TickMovement();
             TickCombat();
             TickHarvest();
@@ -402,6 +403,18 @@ namespace Craftwar.Sim
 
                 if (u.Order == OrderType.None || UnitSpeeds.Get(u.TypeId) == 0)
                     continue;
+
+                // Engaged and already in range: stand and fight. TickCombat
+                // clears the path every tick for exactly this case, but it runs
+                // AFTER movement, so without the gate here the unit takes one
+                // step toward its target every tick and shuffles on the spot.
+                if (u.AttackTarget != 0 && EngagedInRange(ref u))
+                {
+                    u.PathLength = 0;
+                    u.PathCursor = 0;
+                    u.WaitTicks = 0;
+                    continue;
+                }
 
                 if (u.TileX == u.OrderX && u.TileY == u.OrderY)
                 {
