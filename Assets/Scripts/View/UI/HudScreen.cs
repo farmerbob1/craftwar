@@ -1,3 +1,4 @@
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Craftwar.View
@@ -69,11 +70,43 @@ namespace Craftwar.View
             layerRoot.Add(container);
             Root = container;
 
+            _sidebar = Root.Q<VisualElement>("sidebar");
+            _resourceBar = Root.Q<VisualElement>("resource-bar");
+
             _resources = new ResourcePanelView(Root);
             Minimap = new MinimapFrameView(Root);
             _card = new CommandCardView(Root, _host, _ui, assets, LocalPlayer);
             _selection = new SelectionPanelView(Root, _ui, assets);
             _notifications = new NotificationFeedView(NotifyLayer, LocalPlayer);
+        }
+
+        VisualElement _sidebar, _resourceBar;
+
+        /// <summary>
+        /// Screen-pixel margins the opaque HUD chrome paints over the camera's
+        /// render target, as (left, top, right, bottom). The camera uses this to
+        /// keep the whole map reachable instead of leaving its left and top
+        /// edges stranded behind the sidebar and the resource bar.
+        ///
+        /// Panel coordinates are not screen pixels — PanelSettings scales the
+        /// HUD by height — so everything is converted through the ratio between
+        /// the root's resolved height and the real screen height. Returns zero
+        /// until UI Toolkit has run its first layout pass.
+        /// </summary>
+        public Vector4 ChromeInsetsPixels()
+        {
+            if (Root == null || _sidebar == null || _resourceBar == null)
+                return Vector4.zero;
+            float panelHeight = Root.resolvedStyle.height;
+            if (panelHeight <= 0f || float.IsNaN(panelHeight))
+                return Vector4.zero;
+
+            float scale = Screen.height / panelHeight;
+            float left = _sidebar.worldBound.xMax;
+            float top = _resourceBar.worldBound.yMax;
+            if (float.IsNaN(left) || float.IsNaN(top))
+                return Vector4.zero;
+            return new Vector4(left * scale, top * scale, 0f, 0f);
         }
 
         /// <summary>Drained once per frame by UIManager from the runner's batch.</summary>

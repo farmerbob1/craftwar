@@ -238,9 +238,11 @@ namespace Craftwar.View
             if (box.width <= 0f || box.height <= 0f)
                 return;
 
+            // The unobscured view, not the whole render target — the white box
+            // has to mark what the player can actually see past the HUD.
             float halfW = _camera.HalfWidthWorld;
             float halfH = _camera.HalfHeightWorld;
-            Vector3 c = _camera.transform.position;
+            Vector2 c = _camera.ViewCenterWorld;
             // World Y is flipped relative to sim rows.
             float simCenterY = _height - c.y;
 

@@ -149,9 +149,6 @@ namespace Craftwar.App
 
             tilemapView.LoadMap(_map, catalog);
             cameraRig.SetMapBounds(_map.Width, _map.Height);
-#if UNITY_EDITOR
-            cameraRig.SetEdgeScroll(false);
-#endif
 
             BuildSim(mapBytes);
             BuildView(assets, catalog);
@@ -219,6 +216,10 @@ namespace Craftwar.App
             _world.Init(this, uiState, cameraRig.GetComponent<Camera>(), _map.Height,
                 _input, new View.DragSelectOverlayView(_ui.OverlayLayer));
             cameraRig.Init(_input);
+            // The HUD covers the camera's left and top edges; the rig has to
+            // know how much so the map under the chrome stays reachable.
+            cameraRig.SetChromeInsetSource(() =>
+                _ui.Hud != null ? _ui.Hud.ChromeInsetsPixels() : Vector4.zero);
 
             fogOfWar.Init(this, View.HudScreen.LocalPlayer, _map.Width, _map.Height);
             buildGhost.Init(this, spriteBank, cameraRig.GetComponent<Camera>(), _map.Height, uiState);
@@ -290,8 +291,7 @@ namespace Craftwar.App
                 if ((e.Type == (byte)UnitTypeId.HumanStart || e.Type == (byte)UnitTypeId.OrcStart)
                     && e.Owner == 0)
                 {
-                    cameraRig.transform.position = new Vector3(e.X, _map.Height - 1 - e.Y,
-                        cameraRig.transform.position.z);
+                    cameraRig.CenterOn(e.X, _map.Height - 1 - e.Y);
                     break;
                 }
             }

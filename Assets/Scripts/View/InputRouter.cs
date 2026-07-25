@@ -76,6 +76,14 @@ namespace Craftwar.View
 
         public Vector2 PointerPosition => _point?.ReadValue<Vector2>() ?? Vector2.zero;
         public Vector2 Pan => _pan?.ReadValue<Vector2>() ?? Vector2.zero;
+
+        /// <summary>
+        /// False while a modal owns the input. Edge scroll has to consult this
+        /// directly: it is driven by pointer position rather than by an action,
+        /// so disabling the Camera map does not switch it off on its own.
+        /// </summary>
+        public bool CameraInputActive => _gameplayEnabled;
+
         public float Zoom => _zoom?.ReadValue<float>() ?? 0f;
         public bool Additive => _additive != null && _additive.IsPressed();
         public bool AttackMove => _attackMove != null && _attackMove.IsPressed();
