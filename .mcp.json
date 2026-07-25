@@ -1,13 +1,8 @@
 {
   "mcpServers": {
-    "unity-csharp-docs": {
-      "command": "python",
-      "args": ["C:\\Users\\mattc\\Desktop\\codebot\\unity-csharp-mcp\\server.py"],
-      "transport": "stdio"
-    },
-    "unity": {
-      "command": "node",
-      "args": ["C:\\Users\\mattc\\Desktop\\unitymcp\\server\\dist\\index.mjs"]
+    "ai-game-developer": {
+      "type": "http",
+      "url": "https://ai-game.dev/mcp/p/9bd1c010"
     }
   }
 }
