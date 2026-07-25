@@ -145,8 +145,25 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   human Stables, absent from the reference, takes A) and both are flagged in
   `CommandHotkeys`.
 
+- **M8/M9/M9.5 playtested and fixed** (587deec + this pass). The M8 checklist that
+  used to sit at the bottom of this file is DONE: menu/music/voice flow, real
+  command-card icons verified against the running game, victory *and* defeat
+  paths, surrender, per-match replays, fresh-machine import. Playtest fixes that
+  landed: pacing, real icons + animations, corpses, critters, and the camera fix
+  below. **Do not re-run that checklist — it is closed.**
+- **Camera/HUD viewport** (59383be): the rig clamped against the whole render
+  target while the HUD paints a 208px sidebar + 34px resource bar over it, so the
+  map's left columns and top rows were unreachable. `CameraRig` now polls
+  `HudScreen.ChromeInsetsPixels()` and does every clamp, centring and half-extent
+  against the unobscured sub-rect (minimap viewport box included). Edge scroll had
+  been disabled outright under `UNITY_EDITOR`; re-enabled, gated on window focus
+  and `InputRouter.CameraInputActive` instead.
+
 ## In flight
-**M9.5 — Scriptable, tiered AI (rework of M9).** Plan:
+Nothing. **M10 (LAN lockstep) is next** — see "Next milestones".
+
+## Done, continued
+**M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
 `C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled
 with the user): declarative strategy DATA (not a bytecode VM / not a rule engine),
 difficulty = skill scaling + optional handicap cheats, executor scope = base
@@ -245,10 +262,13 @@ engines — so this externalizes the script layer and strengthens the executor.
   from `persistentDataPath/Ai/` and parses them (a broken mod falls back to the
   default, never bricks the lobby). The skirmish rows gained per-Computer-slot
   strategy and difficulty cycle-buttons (`MainMenuController`; rows are built in
-  C#, so no UXML change). **Manual playtest (win + lose vs each tier, a dropped
-  player strategy) is the remaining human step** — inherently outside the gate.
+  C#, so no UXML change). **Manual playtest done.**
 
-**M9 — scripted AI opponent, code complete.** Plan:
+- **Post-phase rework** (feec72f): the linear phase-script executor was replaced
+  by a data-driven utility + influence stack. See the `ai-utility-architecture`
+  note for the cadence/tier tuning gotchas.
+
+**M9 — scripted AI opponent, superseded by M9.5 above.** Plan:
 `C:\Users\mattc\.claude\plans\abundant-launching-hammock.md`.
 
 - **Architecture: the AI runs OUTSIDE `GameSim.Advance`** as a command-emitting
@@ -313,11 +333,7 @@ engines — so this externalizes the script layer and strengthens the executor.
   `LockstepDriverTests` (canonical sort stability). 185/185 in the standalone
   harness.
 
-Still to do for M9: run the batch EditMode gate (editor must be closed), play a
-real 1v1 vs the AI in the editor (win and lose), and the M8 playtest checklist
-below remains outstanding.
-
-**M8 — all phases landed, needs a playtest pass.** 234/234 EditMode. Plan:
+**M8 — all phases landed and playtested.** 234/234 EditMode. Plan:
 `C:\Users\mattc\.claude\plans\synchronous-booping-bengio.md`.
 
 - **Phase 0** — repaired `UIAssetCatalog` (three UXML refs had been null since
@@ -351,11 +367,10 @@ below remains outstanding.
   copies nothing.
 
 **Known incomplete:** `UnitIconTable` is hand-authored (no icon field exists
-anywhere in UDTA) and covers only unambiguous art — everything else still shows
-the initials box. It is **unverified in play**; check entries against the real
-game before extending it. Portraits, the WC2 HUD skin (`ThemeWc2.tss`) and the
-Options screen are not started. `PauseMenuScreen`'s Save button is still
-disabled — there is no `SimSerializer`, and that is M10 reconnect work.
+anywhere in UDTA); the mapped entries were verified in play during the playtest
+pass, but unmapped types still fall back to the initials box. Portraits and the
+WC2 HUD skin (`ThemeWc2.tss`) are not started. `PauseMenuScreen`'s Save button is
+still disabled — there is no `SimSerializer`, and that is M10 reconnect work.
 
 ## The asset situation (supersedes several older notes below)
 **Everything ships loose and decoder-free in the Remastered install** under
@@ -451,20 +466,16 @@ The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
     `.seq` pass is still the standing backlog item.
 
 ## Next milestones (per plan)
-- M9 code-complete (see "In flight"); playtest it plus the M8 checklist.
-  M10 LAN lockstep. M11 online + team vision. (Details in plan file.)
+**M10 — LAN lockstep** is the current milestone. M8/M9/M9.5 are done and
+playtested; their checklists are closed. M11 = online + team vision.
+(Details in the plan file.)
 
-## Playtest checklist for M8
-Nothing below is covered by the test gate — it all needs eyes on the running game.
-1. Launch to `Menu.unity`: main menu appears, menu music plays.
-2. Skirmish → pick a map → match loads, in-game music starts per race.
-3. Select units: correct voice lines, one bark per selection, not twelve.
-4. Command card: icons where mapped, initials elsewhere, and **check the mapped
-   icons are the right units** — `UnitIconTable` was derived by eye.
-5. Play to victory *and* to defeat: screen appears, sting plays, Restart and
-   Main Menu both work and leave nothing behind.
-6. Surrender from the pause menu resolves the match.
-7. Replays: each finished match writes its own timestamped `.cwrp`.
-8. **Fresh-machine simulation** — move `LocalAssetPaths.json` out of the repo
-   root, clear `persistentDataPath`, and confirm the wizard finds the install
-   and hands over to a playable menu.
+M10 scope, as it stands:
+- Unity Transport net driver behind the existing `ILockstepDriver` (the local
+  driver's canonical command sort is already the shape this needs).
+- Turn scheduling with real input delay (turn = 4 ticks today, zero delay).
+- Per-turn desync detection. **`ComputeHash` must become a rolling checksum
+  first** — it currently walks 2 fog grids x W*H per in-game player (~262 KB on a
+  128x128 8-player map), which is free only because tests are its only caller.
+- `SimSerializer` for join/reconnect — also what unblocks the pause menu's
+  disabled Save button.
