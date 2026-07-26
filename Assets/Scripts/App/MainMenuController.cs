@@ -20,7 +20,7 @@ namespace Craftwar.App
     /// Replaces MenuBootstrap and the three code-built menu UIScreens.
     /// </summary>
     [RequireComponent(typeof(UIDocument))]
-    public sealed class MainMenuController : MonoBehaviour
+    public sealed partial class MainMenuController : MonoBehaviour
     {
         public const string GameSceneName = "Game";
 
@@ -88,6 +88,7 @@ namespace Craftwar.App
             // Main panel
             root.Q<Button>("single-player").clicked += ShowSetup;
             root.Q<Button>("locate").clicked += ShowWizard;
+            InitLan(root);
             root.Q<Button>("quit").clicked += Quit;
             root.Q<Button>("options").clicked += ShowOptions;
 
@@ -170,6 +171,7 @@ namespace Craftwar.App
             Show(_panelWizard, false);
             if (_panelOptions != null)
                 Show(_panelOptions, false);
+            HideLanPanels();
 
             bool haveData = _paths != null && _paths.HasData;
             _panelMain.Q<Button>("single-player").SetEnabled(haveData);

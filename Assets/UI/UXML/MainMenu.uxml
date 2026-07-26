@@ -10,6 +10,7 @@
         <ui:VisualElement name="panel-main" class="menu">
             <ui:Label class="menu__title" text="Craftwar" picking-mode="Ignore" />
             <ui:Button name="single-player" class="menu__button" text="Single Player" />
+            <ui:Button name="multiplayer" class="menu__button" text="Multiplayer (LAN)" />
             <ui:Button name="locate" class="menu__button" text="Locate Game Data" />
             <ui:Button name="options" class="menu__button" text="Options" />
             <ui:Button name="quit" class="menu__button" text="Quit" />
@@ -52,6 +53,38 @@
             </ui:VisualElement>
             <ui:VisualElement name="options-page-sound" />
             <ui:Button name="options-back" class="menu__button" text="Back" />
+        </ui:VisualElement>
+
+        <!-- LAN browser: games heard on the network, plus host / join-by-IP.
+             The game list and the lobby roster are both built in C#
+             (MainMenuController), like the skirmish slot rows and the wizard's
+             candidate list. -->
+        <ui:VisualElement name="panel-lan" class="menu menu--wide">
+            <ui:Label class="menu__title" text="Multiplayer (LAN)" picking-mode="Ignore" />
+            <ui:TextField name="lan-name" label="Your name" />
+            <ui:Label name="lan-status" class="text text--dim" picking-mode="Ignore"
+                      style="white-space: normal;" />
+            <ui:VisualElement name="lan-games" />
+            <ui:VisualElement name="lan-direct-row" style="flex-direction: row;">
+                <ui:TextField name="lan-address" label="Or join by address"
+                              style="flex-grow: 1;" />
+                <ui:Button name="lan-connect" class="menu__button" text="Connect" />
+            </ui:VisualElement>
+            <ui:Label class="text text--dim" picking-mode="Ignore" style="white-space: normal;"
+                      text="If nobody appears, allow Craftwar through Windows Firewall on private networks — UDP 27015 for the game and 27016 for discovery." />
+            <ui:Button name="lan-host" class="menu__button" text="Host a Game" />
+            <ui:Button name="lan-back" class="menu__button" text="Back" />
+        </ui:VisualElement>
+
+        <!-- The room itself, once hosting or joined. -->
+        <ui:VisualElement name="panel-lobby" class="menu menu--wide">
+            <ui:Label name="lobby-title" class="menu__title" text="Lobby" picking-mode="Ignore" />
+            <ui:Label name="lobby-map" class="text" picking-mode="Ignore" />
+            <ui:VisualElement name="lobby-slots" />
+            <ui:Label name="lobby-status" class="text text--dim" picking-mode="Ignore"
+                      style="white-space: normal;" />
+            <ui:Button name="lobby-start" class="menu__button" text="Start" />
+            <ui:Button name="lobby-leave" class="menu__button" text="Leave" />
         </ui:VisualElement>
 
         <!-- Locate game data (first run and re-runnable) -->

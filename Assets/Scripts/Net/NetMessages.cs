@@ -17,6 +17,11 @@ namespace Craftwar.Net
         SlotToAi,
         SnapshotChunk,
         Heartbeat,
+        LobbyState,
+        StartMatch,
+        /// <summary>Client's map/rules fingerprint, sent once it has been told
+        /// which map the host is playing.</summary>
+        IdentityConfirm,
     }
 
     public enum JoinRejectReason : byte
@@ -87,6 +92,18 @@ namespace Craftwar.Net
         /// mismatch — rather than a bare "incompatible" — is the difference
         /// between "you have a different map" and an evening of guessing.
         /// </summary>
+        /// <summary>
+        /// Only the parts a joiner can know before the host has told it which map
+        /// is being played. Checked first so an incompatible build is turned away
+        /// immediately, without occupying a seat.
+        /// </summary>
+        public JoinRejectReason CompareVersionsTo(in BuildIdentity other)
+        {
+            if (ProtocolVersion != other.ProtocolVersion) return JoinRejectReason.ProtocolVersion;
+            if (SimVersion != other.SimVersion) return JoinRejectReason.SimVersion;
+            return JoinRejectReason.None;
+        }
+
         public JoinRejectReason CompareTo(in BuildIdentity other)
         {
             if (ProtocolVersion != other.ProtocolVersion) return JoinRejectReason.ProtocolVersion;
@@ -167,6 +184,38 @@ namespace Craftwar.Net
         {
             w.WriteByte((byte)NetMessageKind.JoinReject);
             w.WriteByte((byte)reason);
+        }
+
+        public static void WriteJoinAccept(ref ByteWriter w, byte yourSlot, LobbyPayload payload)
+        {
+            w.WriteByte((byte)NetMessageKind.JoinAccept);
+            w.WriteByte(yourSlot);
+            payload.Write(ref w);
+        }
+
+        public static void ReadJoinAccept(ref ByteReader r, out byte yourSlot, out LobbyPayload payload)
+        {
+            yourSlot = r.ReadByte();
+            payload = LobbyPayload.Read(ref r);
+        }
+
+        public static void WriteIdentityConfirm(ref ByteWriter w, in BuildIdentity identity)
+        {
+            w.WriteByte((byte)NetMessageKind.IdentityConfirm);
+            var id = identity;
+            id.Write(ref w);
+        }
+
+        public static void WriteLobbyState(ref ByteWriter w, LobbyPayload payload)
+        {
+            w.WriteByte((byte)NetMessageKind.LobbyState);
+            payload.Write(ref w);
+        }
+
+        public static void WriteStartMatch(ref ByteWriter w, LobbyPayload payload)
+        {
+            w.WriteByte((byte)NetMessageKind.StartMatch);
+            payload.Write(ref w);
         }
 
         public static void WriteDesyncHalt(ref ByteWriter w, in DesyncReport report)

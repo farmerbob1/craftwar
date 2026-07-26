@@ -295,26 +295,38 @@ harness baseline was 246/246; now **257/257**.
   Verified in the editor: all eight assemblies compile and a real UDP socket
   binds, polls and disposes.
 
-  **STILL TO DO in phase 4** (nothing reaches these paths yet — `NetSession` is
-  never populated, so `_net` is always null and single player is byte-identical
-  to before):
-  1. **Lobby UI** — `panel-lobby` in `MainMenu.uxml` + `ShowLobby()`, server
-     browser modelled on the import wizard's candidate list, connect-by-IP box,
-     firewall hint, host-generated seed (the menu still never sets one, so every
-     skirmish runs seed 42), and the join handshake actually exchanging
-     `BuildIdentity` and assigning seats into `NetSession.SlotByPeerId`.
-  2. **MP pause semantics.** `CommandOp.Pause`/`Resume` exist and the sim
-     correctly ignores them, but `TurnLockstepDriver` does not yet act on them.
+- **Phase 4 (part 2) DONE — the lobby.** 289/289. `LobbyPayload` (map, host-picked
+  seed, turn params, per-seat controller/race/team/tier/name) is the wire shape;
+  `LobbyHost`/`LobbyClient` run the negotiation, both pure and loopback-tested.
+  Menu: `panel-lan` (browser + join-by-IP + firewall hint) and `panel-lobby`
+  (roster) in `MainMenu.uxml`, driven by `MainMenuController.Lan.cs` — the class
+  is now `partial` since the LAN half is a different job and owns a socket.
+  **The host finally picks a seed** (`Random.Range`); every skirmish had run 42.
+  Empty seats stay computer players, so an unfilled lobby is still a full match.
+
+  **The handshake is deliberately TWO-PHASE, and this was a real bug found while
+  wiring it:** a joiner cannot hash the host's map before being told which map it
+  is, so a single-shot `BuildIdentity` check rejected *every* client with
+  `MapMismatch`. Now `JoinRequest` carries only protocol + `SimVersion`
+  (`CompareVersionsTo`), the host seats the client and sends the roster, the
+  client hashes its own copy of that map and sends `IdentityConfirm`, and a
+  mismatch there takes the seat back with a reason. Both paths are tested.
+
+  **STILL TO DO in phase 4:**
+  1. **MP pause semantics.** `CommandOp.Pause`/`Resume` exist and the sim
+     correctly ignores them, but `TurnLockstepDriver` does not act on them.
      **Known design problem:** paused turns are supposed to keep committing while
-     executing zero sim ticks, but the driver currently derives the turn number
-     from the tick, so a paused sim also stops the turn clock and a `Resume`
-     could never travel. Fix needs the turn counter decoupled from the tick
-     counter. Until then `SetPaused` is still a local-only toggle.
-  3. **Defeated peer must keep simulating as an observer.** `VictoryScreen`
-     pauses on push (`VictoryScreen.cs:231-232`) via `CheckMatchOver`, so as it
-     stands the first player eliminated in a 4v4 would freeze the match for
-     everyone once MP is reachable.
-  4. Net stats readout on `DebugOverlay` (turn, confirmed turn, RTT, starving).
+     executing zero sim ticks, but the driver derives the turn number from the
+     tick, so a paused sim also stops the turn clock and a `Resume` could never
+     travel. The fix needs the turn counter decoupled from the tick counter.
+     Until then `SetPaused` is a local-only toggle.
+  2. **Defeated peer must keep simulating as an observer.** `VictoryScreen`
+     pauses on push (`VictoryScreen.cs:231-232`) via `CheckMatchOver`, so the
+     first player eliminated in a 4v4 would freeze the match for everyone.
+  3. Net stats readout on `DebugOverlay` (turn, confirmed turn, RTT, starving).
+  4. **Never played on real hardware yet** — two machines, or two builds on one
+     box. Everything above is proven in-process; the socket is proven only as far
+     as binding, polling and disposing.
 
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
