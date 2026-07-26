@@ -228,8 +228,21 @@ namespace Craftwar.View
             parent.Add(button);
         }
 
-        public override void OnPush() => _host?.SetPaused(true);
-        public override void OnPop() => _host?.SetPaused(false);
+        // Single player freezes behind the score table. A networked match must
+        // NOT: a defeated player keeps simulating as an observer and keeps
+        // feeding the turn schedule, or the first elimination in a 4v4 stalls
+        // everyone still playing.
+        public override void OnPush()
+        {
+            if (_host != null && _host.CanPauseLocally)
+                _host.SetPaused(true);
+        }
+
+        public override void OnPop()
+        {
+            if (_host != null && _host.CanPauseLocally)
+                _host.SetPaused(false);
+        }
 
         /// <summary>Escape dismisses back to the board rather than closing the match.</summary>
         public override bool HandleEscape()

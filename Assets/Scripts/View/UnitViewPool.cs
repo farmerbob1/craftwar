@@ -17,6 +17,15 @@ namespace Craftwar.View
         /// Networked lockstep (M10) cannot pause this way.</summary>
         bool Paused { get; }
         void SetPaused(bool paused);
+
+        /// <summary>False in a networked match, where one peer cannot stop the
+        /// world. Screens that pause as a side effect must check this.</summary>
+        bool CanPauseLocally { get; }
+
+        /// <summary>One line of connection state for the debug overlay, or null
+        /// in single player. A string rather than the driver itself so the view
+        /// keeps knowing nothing about the net layer.</summary>
+        string NetStatusLine { get; }
     }
 
     /// <summary>Resolves unit sprites; implemented by the asset layer.</summary>

@@ -434,11 +434,49 @@ namespace Craftwar.App
 
         public void SetPaused(bool paused)
         {
+            // Networked: a pause is an agreement, not a local toggle. It travels
+            // as a command so every peer stops on the same turn, and the driver
+            // holds the set of pausing slots. Stopping our own clock here instead
+            // would just make this peer stall everyone else.
+            if (_net != null)
+            {
+                SubmitCommand(new GameCommand
+                {
+                    Op = paused ? CommandOp.Pause : CommandOp.Resume,
+                    Player = _config?.localSlot ?? 0,
+                });
+                return;
+            }
+
             if (Paused == paused)
                 return;
             Paused = paused;
             if (paused)
                 _accumulator = 0f;
+        }
+
+        /// <summary>
+        /// Whether this peer may stop the world on its own. False in a networked
+        /// match, where screens that pause as a side effect — the victory screen
+        /// above all — would otherwise freeze everybody: the first player
+        /// eliminated in a 4v4 must keep simulating as an observer, and keep
+        /// feeding the turn schedule, or the rest of the match stalls.
+        /// </summary>
+        public bool CanPauseLocally => _net == null;
+
+        public string NetStatusLine
+        {
+            get
+            {
+                if (_net == null)
+                    return null;
+                string state = _desyncHalted ? "DESYNC"
+                    : _net.IsPaused ? "PAUSED"
+                    : Starving ? "WAITING"
+                    : _net.Status.ToString().ToUpperInvariant();
+                return $"NET {state}  seat {_net.LocalSlot}  turn {_net.CurrentTurn}" +
+                       $"/{_net.ConfirmedTurn}  delay {Net.Unity.NetSession.InputDelayTurns}t";
+            }
         }
 
         void Update()

@@ -128,11 +128,16 @@ namespace Craftwar.Sim.Tests
             a.SubmitLocalCommand(Cmd(0, CommandOp.Move, 2));
             b.SubmitLocalCommand(Cmd(1, CommandOp.Train, 3));
 
-            // Slot 1 publishes first; the bundle must still come out slot-ordered.
-            RunTurn(b, 0);
-            RunTurn(a, 0);
-            RunTurn(b, 1);
-            Assert.IsTrue(a.TryGetTickCommands(4, got));
+            // Slot 1 publishes first each turn; the bundle must still come out
+            // slot-ordered. Run both peers forward until the delayed commands
+            // land.
+            for (int turn = 0; turn < 6; turn++)
+            {
+                PumpTurn(b, got);
+                var bundle = PumpTurn(a, got);
+                if (bundle != null && bundle.Count > 0)
+                    break;
+            }
 
             Assert.AreEqual(3, got.Count);
             Assert.AreEqual(new byte[] { 0, 0, 1 }, new[] { got[0].Player, got[1].Player, got[2].Player });
@@ -241,6 +246,102 @@ namespace Craftwar.Sim.Tests
             Assert.IsNull(simB.State.VerifyChecksums());
         }
 
+        // --- Pause ----------------------------------------------------------------
+
+        [Test]
+        public void APausedMatch_StopsTheSimClockButNotTheTurnClock()
+        {
+            // This is the whole reason the turn counter is not derived from the
+            // tick: if a pause stopped the turn clock too, the Resume would have
+            // nothing to travel in and the match could never restart.
+            const int TicksPerTurn = 4;
+            var driver = LocalDriver(TicksPerTurn, 1);
+            var got = new List<GameCommand>();
+
+            Assert.IsTrue(driver.TryGetTickCommands(0, got));
+            driver.SubmitLocalCommand(Cmd(0, CommandOp.Pause));
+
+            // Run out the current turn, then the pause takes effect.
+            int tick = 1;
+            for (; tick < 40 && !driver.IsPaused; tick++)
+                driver.TryGetTickCommands(tick, got);
+
+            Assert.IsTrue(driver.IsPaused, "the pause command should have been committed");
+            int turnWhenPaused = driver.CurrentTurn;
+
+            // The sim may not advance...
+            for (int i = 0; i < 10; i++)
+                Assert.IsFalse(driver.TryGetTickCommands(tick, got),
+                    "no sim tick may execute while paused");
+
+            // ...but turns must keep being agreed, or nothing can un-pause us.
+            Assert.Greater(driver.CurrentTurn, turnWhenPaused,
+                "the turn clock has to keep running so a Resume can reach us");
+        }
+
+        [Test]
+        public void ResumeAfterAPause_LetsTheSimRunAgain()
+        {
+            var driver = LocalDriver(4, 1);
+            var got = new List<GameCommand>();
+            driver.TryGetTickCommands(0, got);
+
+            driver.SubmitLocalCommand(Cmd(0, CommandOp.Pause));
+            int tick = 1;
+            for (; tick < 40 && !driver.IsPaused; tick++)
+                driver.TryGetTickCommands(tick, got);
+            Assert.IsTrue(driver.IsPaused);
+
+            driver.SubmitLocalCommand(Cmd(0, CommandOp.Resume));
+            for (int i = 0; i < 40 && driver.IsPaused; i++)
+                driver.TryGetTickCommands(tick, got);
+
+            Assert.IsFalse(driver.IsPaused, "the Resume travelled through the paused turns");
+            Assert.IsTrue(driver.TryGetTickCommands(tick, got), "and the sim runs again");
+        }
+
+        [Test]
+        public void TwoPlayersPausing_BothMustResume()
+        {
+            // A set, not a flag: if one player's Resume cleared someone else's
+            // pause, a player could un-pause a match they never paused.
+            var driver = LocalDriver(1, 1);
+            var got = new List<GameCommand>();
+            driver.TryGetTickCommands(0, got);
+
+            driver.SubmitLocalCommand(Cmd(0, CommandOp.Pause));
+            driver.SubmitLocalCommand(Cmd(1, CommandOp.Pause));
+            for (int i = 1; i < 10 && !driver.IsPaused; i++)
+                driver.TryGetTickCommands(i, got);
+            Assert.IsTrue(driver.IsPaused);
+
+            driver.SubmitLocalCommand(Cmd(0, CommandOp.Resume));
+            for (int i = 0; i < 10; i++)
+                driver.TryGetTickCommands(1, got);
+            Assert.IsTrue(driver.IsPaused, "player 1 is still holding a pause");
+
+            driver.SubmitLocalCommand(Cmd(1, CommandOp.Resume));
+            for (int i = 0; i < 10 && driver.IsPaused; i++)
+                driver.TryGetTickCommands(1, got);
+            Assert.IsFalse(driver.IsPaused, "now both have released it");
+        }
+
+        [Test]
+        public void ADroppedPlayersPause_CanBeReleased()
+        {
+            // Otherwise one peer vanishing mid-pause freezes the match forever.
+            var driver = LocalDriver(1, 1);
+            var got = new List<GameCommand>();
+            driver.TryGetTickCommands(0, got);
+            driver.SubmitLocalCommand(Cmd(3, CommandOp.Pause));
+            for (int i = 1; i < 10 && !driver.IsPaused; i++)
+                driver.TryGetTickCommands(i, got);
+            Assert.IsTrue(driver.IsPaused);
+
+            driver.ReleasePause(3);
+            Assert.IsFalse(driver.IsPaused);
+        }
+
         static List<string> Describe(List<GameCommand> commands)
         {
             var result = new List<string>(commands.Count);
@@ -270,10 +371,20 @@ namespace Craftwar.Sim.Tests
             return cmd;
         }
 
-        static void RunTurn(TurnLockstepDriver driver, int turn)
+        /// <summary>
+        /// Drive one whole turn, returning the bundle delivered on its first
+        /// tick (or null if the driver stalled). The tick argument no longer
+        /// selects the turn — the driver tracks its own position, because a
+        /// paused match advances turns without advancing ticks.
+        /// </summary>
+        static List<GameCommand> PumpTurn(TurnLockstepDriver driver, List<GameCommand> into)
         {
-            var got = new List<GameCommand>();
-            driver.TryGetTickCommands(turn * driver.TicksPerTurn, got);
+            if (!driver.TryGetTickCommands(0, into))
+                return null;
+            var scratch = new List<GameCommand>();
+            for (int i = 1; i < driver.TicksPerTurn; i++)
+                driver.TryGetTickCommands(0, scratch);
+            return into;
         }
     }
 }

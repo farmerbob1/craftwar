@@ -69,6 +69,9 @@ namespace Craftwar.View
         {
             ref var p = ref state.Players[LocalPlayer];
             _sb.Append("== DEBUG (F3) ==  tick ").Append(state.Tick).Append('\n');
+            string net = _host?.NetStatusLine;
+            if (!string.IsNullOrEmpty(net))
+                _sb.Append(net).Append('\n');
             _sb.Append("Player ").Append(LocalPlayer).Append(":  Gold ").Append(p.Gold)
                .Append("   Lumber ").Append(p.Lumber)
                .Append("   Oil ").Append(p.Oil)

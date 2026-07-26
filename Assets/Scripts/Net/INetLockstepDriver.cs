@@ -39,6 +39,10 @@ namespace Craftwar.Net
         /// <summary>Turn the sim is currently executing.</summary>
         int CurrentTurn { get; }
 
+        /// <summary>True while any player holds a pause. Distinct from starving:
+        /// the turn clock is still running, the sim clock is not.</summary>
+        bool IsPaused { get; }
+
         /// <summary>
         /// Hand the driver this peer's state hash for a turn it is about to
         /// execute, so it can be compared against everyone else's. Detection

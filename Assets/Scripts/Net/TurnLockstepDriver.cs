@@ -41,6 +41,14 @@ namespace Craftwar.Net
         int _confirmedTurn = -1;
         int _currentTurn;
 
+        /// <summary>
+        /// Next turn to agree. Deliberately NOT derived from the sim tick: while
+        /// paused the turn clock keeps running and the tick clock does not, so
+        /// the two genuinely diverge. Deriving one from the other is what made an
+        /// earlier design unable to deliver a Resume.
+        /// </summary>
+        int _turn;
+
         public TurnLockstepDriver(int ticksPerTurn, int inputDelayTurns, byte localSlot,
             ITurnExchange exchange, int hashRingSize = 256)
         {
@@ -100,36 +108,115 @@ namespace Craftwar.Net
                 yield return _hashRing[(start + i) % _hashRing.Length];
         }
 
+        /// <summary>
+        /// True while at least one player has paused. The turn clock keeps
+        /// running — see <see cref="TryGetTickCommands"/> — but no sim tick
+        /// executes.
+        /// </summary>
+        public bool IsPaused => _pausingCount > 0;
+
+        /// <summary>Slots currently holding a pause. A SET, not a flag: two
+        /// players pausing at once must not cancel each other out.</summary>
+        readonly bool[] _pausingSlots = new bool[SimConstants.MaxPlayers];
+        int _pausingCount;
+        readonly List<GameCommand> _commitScratch = new List<GameCommand>();
+
+        /// <summary>How far through the current turn the sim is.</summary>
+        int _tickInTurn;
+
         public bool TryGetTickCommands(int tick, List<GameCommand> commands)
         {
             commands.Clear();
-            int turn = tick / _ticksPerTurn;
 
-            if (tick % _ticksPerTurn != 0)
+            // Mid-turn ticks: the turn they belong to is already agreed, and they
+            // carry nothing.
+            if (_tickInTurn > 0)
             {
-                // Mid-turn ticks carry nothing, but must not run ahead of the
-                // turn they belong to.
-                return turn <= _confirmedTurn;
+                _tickInTurn++;
+                if (_tickInTurn >= _ticksPerTurn)
+                {
+                    _tickInTurn = 0;
+                    _turn++;
+                }
+                return true;
             }
 
             // Close the buffer filled during the previous turn and publish it as
-            // this turn's contribution to a turn `inputDelayTurns` ahead. Doing it
-            // here — before asking for the commit — is what keeps every peer's
-            // publish order identical and gapless.
-            PublishInputFor(turn + _inputDelayTurns - 1);
+            // our contribution to a turn `inputDelayTurns` ahead. Doing it here —
+            // before asking for the commit — keeps every peer's publish sequence
+            // identical and gapless.
+            PublishInputFor(_turn + _inputDelayTurns - 1);
 
             _exchange.Poll();
-            if (!_exchange.TryGetCommit(turn, commands))
+            _commitScratch.Clear();
+            if (!_exchange.TryGetCommit(_turn, _commitScratch))
             {
                 Status = _exchange.Status == NetStatus.Local ? NetStatus.Local : NetStatus.Waiting;
                 return false;
             }
 
-            _confirmedTurn = turn;
-            _currentTurn = turn;
+            // Pause/Resume are read here, by the driver, because the sim ignores
+            // them: pausing must not touch simulation state or the tick a replay
+            // resumes on would depend on when somebody paused.
+            ApplyPauseCommands(_commitScratch);
+
+            _confirmedTurn = _turn;
+            _currentTurn = _turn;
             Status = _exchange.Status;
+
+            if (IsPaused)
+            {
+                // THE reason the turn counter is not derived from the tick:
+                // a paused match must keep agreeing turns so that a Resume issued
+                // during the pause has something to travel in. So consume the
+                // turn, execute no sim tick, and drop its other commands — every
+                // peer does exactly the same, from the same committed bundle, so
+                // the decision stays deterministic.
+                _turn++;
+                return false;
+            }
+
+            commands.AddRange(_commitScratch);
             LocalLockstepDriver.SortCanonically(commands);
+
+            _tickInTurn = 1;
+            if (_tickInTurn >= _ticksPerTurn)
+            {
+                _tickInTurn = 0;
+                _turn++;
+            }
             return true;
+        }
+
+        void ApplyPauseCommands(List<GameCommand> bundle)
+        {
+            for (int i = 0; i < bundle.Count; i++)
+            {
+                var cmd = bundle[i];
+                if (cmd.Player >= SimConstants.MaxPlayers)
+                    continue;
+                if (cmd.Op == CommandOp.Pause && !_pausingSlots[cmd.Player])
+                {
+                    _pausingSlots[cmd.Player] = true;
+                    _pausingCount++;
+                }
+                else if (cmd.Op == CommandOp.Resume && _pausingSlots[cmd.Player])
+                {
+                    _pausingSlots[cmd.Player] = false;
+                    _pausingCount--;
+                }
+            }
+        }
+
+        /// <summary>Release a dropped player's pause, so one peer disappearing
+        /// mid-pause cannot freeze the match forever.</summary>
+        public void ReleasePause(byte slot)
+        {
+            if (slot < SimConstants.MaxPlayers && _pausingSlots[slot])
+            {
+                _pausingSlots[slot] = false;
+                _pausingCount--;
+            }
         }
 
         void PublishInputFor(int turn)

@@ -312,21 +312,30 @@ harness baseline was 246/246; now **257/257**.
   client hashes its own copy of that map and sends `IdentityConfirm`, and a
   mismatch there takes the seat back with a reason. Both paths are tested.
 
-  **STILL TO DO in phase 4:**
-  1. **MP pause semantics.** `CommandOp.Pause`/`Resume` exist and the sim
-     correctly ignores them, but `TurnLockstepDriver` does not act on them.
-     **Known design problem:** paused turns are supposed to keep committing while
-     executing zero sim ticks, but the driver derives the turn number from the
-     tick, so a paused sim also stops the turn clock and a `Resume` could never
-     travel. The fix needs the turn counter decoupled from the tick counter.
-     Until then `SetPaused` is a local-only toggle.
-  2. **Defeated peer must keep simulating as an observer.** `VictoryScreen`
-     pauses on push (`VictoryScreen.cs:231-232`) via `CheckMatchOver`, so the
-     first player eliminated in a 4v4 would freeze the match for everyone.
-  3. Net stats readout on `DebugOverlay` (turn, confirmed turn, RTT, starving).
-  4. **Never played on real hardware yet** — two machines, or two builds on one
-     box. Everything above is proven in-process; the socket is proven only as far
-     as binding, polling and disposing.
+- **Phase 4 (part 3) DONE — pause, observers, net readout.** 293/293.
+  **The pause design problem is fixed properly.** `TurnLockstepDriver` no longer
+  derives the turn number from the sim tick: it owns `_turn` and `_tickInTurn`.
+  While paused the turn clock keeps running and the tick clock does not, so the
+  two genuinely diverge — and that is exactly what lets a `Resume` travel, which
+  the tick-derived design could never have done. A paused turn is consumed, its
+  non-pause commands dropped (identically on every peer, from the same committed
+  bundle), and no sim tick executes. Pausing slots are a SET, so two players
+  pausing at once cannot cancel each other; `ReleasePause(slot)` exists so a peer
+  vanishing mid-pause cannot freeze the match forever. Four tests cover it.
+  `GameLoopRunner.SetPaused` now emits a `Pause`/`Resume` command in a networked
+  match instead of stopping its own clock. New `ISimHost.CanPauseLocally` — the
+  **victory screen no longer pauses in MP**, so a defeated player keeps
+  simulating as an observer and keeps feeding the turn schedule. New
+  `ISimHost.NetStatusLine` renders seat/turn/confirmed-turn/delay/state on the
+  debug overlay (a string, so the view still knows nothing about the net layer).
+  **Note:** `TryGetTickCommands`'s `tick` argument is now advisory for this
+  driver — it tracks its own turn position. The local and replay drivers still
+  use it.
+
+  **Not done:** never played on real hardware. Everything is proven in-process;
+  the socket is proven only as far as binding, polling and disposing. Two builds
+  on one box is the next real test, and the first place the firewall prompt and
+  the discovery beacon either work or don't.
 
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
