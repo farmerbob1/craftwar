@@ -1,8 +1,10 @@
 # Craftwar — Progress Log
 
 Continuation guide for any session. Read `CLAUDE.md` (architecture rules,
-licensing, conventions) first. Full plan:
-`C:\Users\mattc\.claude\plans\linear-stirring-moler.md` (M0-M13 roadmap).
+licensing, conventions) first. **This file is the milestone scope of record** —
+the old `~/.claude/plans/linear-stirring-moler.md` M0-M13 roadmap was overwritten
+by a session summary and no longer exists. Per-milestone plans still live in
+`~/.claude/plans/` (M10 = `delightful-hugging-bee.md`).
 
 ## Verify loop
 Editor must be CLOSED for batch runs:
@@ -160,7 +162,56 @@ pure test and ad-hoc repro harnesses in ~1 s without touching Unity.
   and `InputRouter.CameraInputActive` instead.
 
 ## In flight
-Nothing. **M10 (LAN lockstep) is next** — see "Next milestones".
+**M10 — LAN lockstep.** Plan: `C:\Users\mattc\.claude\plans\delightful-hugging-bee.md`
+(phases 0-6; decisions settled with the user are listed there). Standalone
+harness baseline was 246/246; now **257/257**.
+
+- **Phase 0 DONE — driver seam hardened.** `GameLoopRunner.Update` no longer
+  banks wall-clock debt: the accumulator is clamped to `MaxTickDebt` ticks, and a
+  driver that withholds a tick clamps it to one tick, so a 10 s network stall
+  resumes at real speed instead of fast-forwarding ~500 ticks. `Starving` is
+  exposed and freezes `Alpha` rather than interpolating into an unconfirmed tick.
+  AI `Think` is now guarded by `_lastAiThinkTick` — a stalled driver used to
+  re-think the same tick every rendered frame and resubmit the same orders.
+  **The guard is per-TICK on purpose:** quantizing `Think` to the 4-tick command
+  turn would break the AI outright, since `AiPlayer` gates on
+  `(Tick + Slot*7) % ThinkPeriod` with periods {22, 25, 50} — Normal/Smart would
+  lose 3 of 4 thinks and the odd slots at Dumb/God would never think at all.
+  `ByteWriter` grew `Ensure`/`ToArray`/`WriteBytes` (variable-size payloads no
+  longer need size estimation); **this fixed a live latent bug** — `Replay.ToBytes`
+  pre-sized its header at 50 bytes while writing 54, so a replay with 0 entries,
+  or 1 entry carrying a full 18-unit selection, threw `IndexOutOfRange`. Only the
+  app's early-return on an empty log hid it. Both existing pre-size callers
+  (`Replay`, `AiProfile`) copied out of their *local* buffer and had to move to
+  `ToArray()` or growth would have silently truncated them. New
+  `ReplayLockstepDriver` (with a `StarveFor` hook, so the starvation path is
+  testable without a socket) and `DelayedLockstepDriver` — the app finally has a
+  replay *playback* path, and the swap-the-driver seam is proven before any
+  networking exists.
+
+- **Phase 1 DONE — rolling hash.** `ComputeHash` walked ~555 KB per call (32 KB
+  tiles, ~125 KB units, ~393 KB fog); it is now per-entity walks plus running
+  checksums, cheap enough to run every command turn. `Visible`/`Detected` are
+  **dropped** from the hash: `TickFog` clears and rebuilds both every tick, so
+  each is exactly `F(hashed state at end of tick)` — memoryless. Combat does read
+  `Detected` one tick stale, but a divergence there implies a divergence in its
+  already-hashed inputs, caught on the earlier tick before it can reach
+  `AttackTarget`. `Explored` accumulates so it stays hashed, via a per-player
+  checksum stamped **only on the unexplored→explored transition** —
+  `GameSim.Fog.cs` writes `explored[t] = 1` unconditionally every tick, so an
+  unguarded commutative add could never match a recompute. `Tiles` is now private
+  behind `Tile()`/`SetTile()`/`InstallTiles()` with an invertible checksum (two
+  write sites); `TerrainMap` gained `TerrainChecksum` over `_wood` + `_passable`.
+  **Occupancy is now hashed, which it never was** — it gates pathing, target
+  acquisition and build placement, and because `Occupy` overwrites while `Vacate`
+  only clears cells matching its own id, it is a function of write *history*, not
+  of current unit positions. It was the one grid that could genuinely diverge on
+  its own. `VerifyChecksums()` recomputes every maintained value from scratch and
+  is asserted in tests; **it caught a real bug on its first run** (a fresh
+  all-zero grid's true checksum was non-zero while the running total started at
+  0 — `CellMix` now maps 0 to 0). `SimPurityTests` gained two guards: `Net`
+  sources must stay UnityEngine-free (this is what protects the standalone
+  harness), and no file outside `GameState.cs` may write `Tiles[...]` directly.
 
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:

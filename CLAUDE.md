@@ -1,7 +1,9 @@
 # Craftwar — Warcraft 2 remake in Unity 6.5
 
 Faithful WC2 remake (original balance + modern UX) targeting online 1v1–4v4
-deterministic lockstep. Full plan: `C:\Users\mattc\.claude\plans\linear-stirring-moler.md`.
+deterministic lockstep. Milestone scope and history: `PROGRESS.md` in the repo
+root. (The old `~/.claude/plans/linear-stirring-moler.md` roadmap was overwritten
+by a session summary and is gone; `PROGRESS.md` is the surviving record.)
 
 ## The three hard rules
 
