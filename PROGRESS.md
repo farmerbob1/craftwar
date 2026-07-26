@@ -337,6 +337,37 @@ harness baseline was 246/246; now **257/257**.
   on one box is the next real test, and the first place the firewall prompt and
   the discovery beacon either work or don't.
 
+- **Phase 5 DONE — `SimSerializer`, and the Save button finally works.** 301/301.
+  `Sim/Core/SimSerializer.cs`, magic `"CWSV"` v1, self-contained: rules, terrain
+  planes and the tile layer all travel with it, so a save survives the player
+  moving or uninstalling Warcraft II (most map paths resolve into that install).
+  RLE'd grids keep a 2000-tick save well under 400 KB.
+  Written because they are authoritative, not derivable: **all** unit slots up to
+  `HighestUnitIndex` (a dead slot's `Gen` decides the next spawn's `UnitId`), the
+  free-slot recycle stack, **both occupancy layers** (a rebuild cannot reproduce
+  them — `Occupy` overwrites while `Vacate` only clears its own id), path
+  contents, and `TerrainMap._shore` (gates `IsBeachable`, not derivable from
+  passability). Rebuilt on load: clearance/regions, `Visible`/`Detected` via one
+  `TickFog`, the pathfinder, and the running checksums via new
+  `GameState.ReseedChecksums()` — a bulk load bypasses the funnels, so without it
+  the first desync compare after a load would fail against peers who built the
+  same state incrementally. The RNG stream is restored, never re-derived:
+  `NextUInt(bound)` uses rejection sampling so draw counts are data-dependent.
+  A save from a different `SimVersion` is refused rather than loaded.
+  **The strong test is `ALoadedSnapshot_KeepsMatchingAsBothRunOn`**: live and
+  loaded sims advance independently for 1200 ticks and stay bit-identical — which
+  is what reconnect actually needs. Others compare occupancy, paths and terrain
+  planes *directly*, since a hash-only check would pass while they were wrong.
+  Wiring: `ISimHost.SaveGame`, `MatchConfig.savePath` (set → `BuildSim` restores
+  instead of calling `Setup`), and `PauseMenuScreen`'s Save button enabled after
+  two milestones disabled. Disabled in multiplayer: a save is one peer's private
+  copy and reloading it would drop them out of the shared turn schedule.
+  **Gotcha worth remembering:** the serializer's accessors are `internal`, and
+  the standalone harness compiles Sim + tests into ONE assembly, so it never
+  needed `InternalsVisibleTo` — the editor did. Added `Sim/AssemblyInfo.cs`.
+  **Still to do:** a Load Game entry in the main menu (`savePath` works; nothing
+  sets it yet).
+
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
 `C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled

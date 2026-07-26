@@ -52,6 +52,20 @@ namespace Craftwar.Sim
         /// spawn like any unit; start-location markers become nothing (they
         /// seed camera/AI placement at the app layer).
         /// </summary>
+        /// <summary>
+        /// Finish standing up a sim whose state came from a snapshot rather than
+        /// from a map. Everything here is derived data that <see cref="Setup"/>
+        /// would otherwise have built: the pathfinder and its scratch buffer, and
+        /// the sight grids, which TickFog rebuilds from scratch every tick and so
+        /// are never stored.
+        /// </summary>
+        internal void AdoptLoadedState(int width, int height)
+        {
+            _pathfinder = new Pathfinder(State.Terrain, State);
+            _pathScratch = new ushort[width * height];
+            TickFog();
+        }
+
         public void Setup(PudFile pud, RuleSet rules)
             => Setup(pud, rules, MatchSetup.FromPud(pud));
 

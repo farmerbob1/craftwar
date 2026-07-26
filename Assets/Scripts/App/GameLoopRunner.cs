@@ -179,14 +179,25 @@ namespace Craftwar.App
 
         void BuildSim(byte[] mapBytes)
         {
-            var rules = RuleSet.CreateDefault();
-            rules.ApplyMapOverrides(_map);
-            var sim = new GameSim(_config.seed);
-            var setup = _config.ToMatchSetup();
-            if (setup.HasValue)
-                sim.Setup(_map, rules, setup.Value);
+            GameSim sim;
+            if (!string.IsNullOrEmpty(_config.savePath)
+                && TryReadSave(_config.savePath, out _, out _, out byte[] snapshot))
+            {
+                // Restored rather than built: the snapshot carries its own rules
+                // and terrain, so Setup must not run over the top of it.
+                sim = SimSerializer.Load(snapshot);
+            }
             else
-                sim.Setup(_map, rules); // no lobby: the map's own OWNR/SIDE
+            {
+                var rules = RuleSet.CreateDefault();
+                rules.ApplyMapOverrides(_map);
+                sim = new GameSim(_config.seed);
+                var setup = _config.ToMatchSetup();
+                if (setup.HasValue)
+                    sim.Setup(_map, rules, setup.Value);
+                else
+                    sim.Setup(_map, rules); // no lobby: the map's own OWNR/SIDE
+            }
 
             // A lobby that already negotiated seats hands its live connection
             // over through NetSession; otherwise this is single player, which is
@@ -463,6 +474,72 @@ namespace Craftwar.App
         /// feeding the turn schedule, or the rest of the match stalls.
         /// </summary>
         public bool CanPauseLocally => _net == null;
+
+        public static string SaveDir => Path.Combine(Application.persistentDataPath, "Saves");
+
+        /// <summary>
+        /// Write a snapshot of the running match. The sim snapshot is
+        /// self-contained, but the view still needs the map file to draw tiles,
+        /// so the map path travels alongside it.
+        ///
+        /// Disabled in multiplayer: a save is one peer's private copy, and
+        /// reloading it would drop that peer out of the shared turn schedule.
+        /// </summary>
+        public bool SaveGame(out string path)
+        {
+            path = null;
+            if (Sim == null || _net != null)
+                return false;
+            try
+            {
+                Directory.CreateDirectory(SaveDir);
+                path = Path.Combine(SaveDir, $"save-{System.DateTime.Now:yyyyMMdd-HHmmss}.cws");
+
+                byte[] snapshot = SimSerializer.Save(Sim);
+                string mapPath = _config?.mapPath ?? "";
+                var w = new ByteWriter(snapshot.Length + 256);
+                var mapBytes = System.Text.Encoding.UTF8.GetBytes(mapPath);
+                w.WriteUShort((ushort)mapBytes.Length);
+                for (int i = 0; i < mapBytes.Length; i++)
+                    w.WriteByte(mapBytes[i]);
+                w.WriteByte(_config?.localSlot ?? 0);
+                w.WriteBytes(snapshot, 0, snapshot.Length);
+                File.WriteAllBytes(path, w.ToArray());
+                Debug.Log($"[craftwar] saved to {path}");
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[craftwar] save failed: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>Read back what <see cref="SaveGame"/> wrote.</summary>
+        public static bool TryReadSave(string path, out string mapPath, out byte snapshotSlot,
+            out byte[] snapshot)
+        {
+            mapPath = null;
+            snapshotSlot = 0;
+            snapshot = null;
+            try
+            {
+                var r = new ByteReader(File.ReadAllBytes(path));
+                int nameLength = r.ReadUShort();
+                var nameBytes = new byte[nameLength];
+                for (int i = 0; i < nameLength; i++)
+                    nameBytes[i] = r.ReadByte();
+                mapPath = System.Text.Encoding.UTF8.GetString(nameBytes);
+                snapshotSlot = r.ReadByte();
+                snapshot = r.ReadBytes();
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[craftwar] could not read {path}: {e.Message}");
+                return false;
+            }
+        }
 
         public string NetStatusLine
         {

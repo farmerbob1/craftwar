@@ -156,6 +156,31 @@ namespace Craftwar.Sim
             return map;
         }
 
+        // --- Serialization access ------------------------------------------------
+        //
+        // Only the planes that are authoritative. _clearance and _region are pure
+        // functions of _passable and are rebuilt on load; _regionStack is scratch.
+        // _shore looks static but MUST be saved: it gates IsBeachable, is set
+        // only from the PUD's SQM, and is not derivable from _passable, so a
+        // snapshot loaded without it would refuse every transport unload.
+        internal byte[] PassablePlane => _passable;
+        internal byte[] WoodPlane => _wood;
+        internal byte[] ShorePlane => _shore;
+
+        /// <summary>Rebuild a map from saved planes. Clearance and regions are
+        /// recomputed rather than stored.</summary>
+        internal static TerrainMap FromPlanes(int width, int height,
+            byte[] passable, byte[] wood, byte[] shore)
+        {
+            var map = new TerrainMap(width, height);
+            System.Array.Copy(passable, map._passable, passable.Length);
+            System.Array.Copy(wood, map._wood, wood.Length);
+            System.Array.Copy(shore, map._shore, shore.Length);
+            map.RebuildClearance();
+            map.SeedTerrainChecksum();
+            return map;
+        }
+
         public bool InBounds(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
 
         public bool IsPassable(MoveDomain domain, int x, int y) =>

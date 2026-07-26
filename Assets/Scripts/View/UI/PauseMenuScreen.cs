@@ -47,10 +47,27 @@ namespace Craftwar.View
             Bind("surrender", Surrender);
             Bind("options", () => _manager.Push(new OptionsScreen(_manager)));
 
-            // Placeholder: visible so the shape of the menu is honest, but
-            // disabled because nothing behind it exists yet (Save is M10's
-            // SimSerializer work).
-            Disable("save");
+            // Live at last (M10 SimSerializer). Still disabled in multiplayer: a
+            // save is one peer's private copy, and reloading it would drop that
+            // peer out of the shared turn schedule.
+            if (_host != null && _host.CanPauseLocally)
+                Bind("save", SaveGame);
+            else
+                Disable("save");
+        }
+
+        void SaveGame()
+        {
+            if (_host == null)
+                return;
+            var button = Root.Q<Button>("save");
+            bool saved = _host.SaveGame(out string path);
+            if (button != null)
+                button.text = saved
+                    ? $"Saved  ({System.IO.Path.GetFileNameWithoutExtension(path)})"
+                    : "Save failed";
+            if (button != null)
+                button.SetEnabled(!saved);
         }
 
         void Bind(string name, System.Action action)

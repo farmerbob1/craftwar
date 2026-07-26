@@ -51,6 +51,11 @@ namespace Craftwar.App
         /// <summary>Which slot the local client drives. Must be a slot with a Human controller.</summary>
         public byte localSlot;
 
+        /// <summary>When set, the sim is restored from this snapshot instead of
+        /// being built from the map. The map is still loaded, because the view
+        /// draws tiles from it.</summary>
+        public string savePath = "";
+
         /// <summary>Length SimConstants.MaxPlayers, or null to take the map's own OWNR/SIDE.</summary>
         public SlotConfig[] slots;
 

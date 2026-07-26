@@ -63,6 +63,20 @@ namespace Craftwar.Sim
         /// <summary>Internal bulk read for the serializer. Never hand this out.</summary>
         internal ushort[] TileArray => _tiles;
 
+        // Slot recycling, for the serializer only. This is NOT cosmetic state:
+        // it decides which index the next SpawnUnit takes, so a loaded game that
+        // rebuilt it differently would hand out different UnitIds and diverge
+        // from a live peer at the very next spawn.
+        internal int FreeCount => _freeCount;
+        internal ushort FreeSlotAt(int i) => _freeList[i];
+
+        internal void RestoreFreeList(ushort[] slots, int count)
+        {
+            _freeCount = count;
+            for (int i = 0; i < count; i++)
+                _freeList[i] = slots[i];
+        }
+
         /// <summary>Tile mutations this tick, for the view to patch. Not hashed (derived from Tiles).</summary>
         public readonly System.Collections.Generic.List<(ushort x, ushort y, ushort tile)> TileChanges
             = new System.Collections.Generic.List<(ushort, ushort, ushort)>();
@@ -389,6 +403,46 @@ namespace Craftwar.Sim
             for (int p = 0; p < Players.Length; p++)
                 h.Add(ExploredChecksum[p]);
             return h.Value;
+        }
+
+        /// <summary>
+        /// Recompute every running checksum from the grids' current contents.
+        /// A snapshot load installs grids wholesale rather than through
+        /// Occupy/Reveal/SetTile, so the funnels never see those writes and the
+        /// totals would otherwise stay zero — making the first desync comparison
+        /// after a load fail against peers that built the same state
+        /// incrementally.
+        /// </summary>
+        internal void ReseedChecksums()
+        {
+            unchecked
+            {
+                TilesChecksum = 0;
+                if (_tiles != null)
+                    for (int i = 0; i < _tiles.Length; i++)
+                        TilesChecksum += CellMix(i, _tiles[i]);
+
+                OccupancySurfaceChecksum = 0;
+                if (OccupancySurface != null)
+                    for (int i = 0; i < OccupancySurface.Length; i++)
+                        OccupancySurfaceChecksum += CellMix(i, OccupancySurface[i]);
+
+                OccupancyAirChecksum = 0;
+                if (OccupancyAir != null)
+                    for (int i = 0; i < OccupancyAir.Length; i++)
+                        OccupancyAirChecksum += CellMix(i, OccupancyAir[i]);
+
+                for (int p = 0; p < Players.Length; p++)
+                {
+                    ExploredChecksum[p] = 0;
+                    byte[] g = Explored?[p];
+                    if (g == null)
+                        continue;
+                    for (int i = 0; i < g.Length; i++)
+                        if (g[i] != 0)
+                            ExploredChecksum[p] += CellMix(i, 1);
+                }
+            }
         }
 
         /// <summary>

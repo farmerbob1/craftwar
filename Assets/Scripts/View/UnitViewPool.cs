@@ -26,6 +26,10 @@ namespace Craftwar.View
         /// in single player. A string rather than the driver itself so the view
         /// keeps knowing nothing about the net layer.</summary>
         string NetStatusLine { get; }
+
+        /// <summary>Snapshot the match to disk. False (with a null path) when the
+        /// match cannot be saved — currently any networked game.</summary>
+        bool SaveGame(out string path);
     }
 
     /// <summary>Resolves unit sprites; implemented by the asset layer.</summary>
