@@ -385,13 +385,23 @@ namespace Craftwar.App
 
         void CenterCamera(string mapPath, RuntimeTileCatalog catalog)
         {
-            // Center the camera on player 0's start location.
-            foreach (var e in _map.Units)
+            // Centre on OUR start location, not seat 0's. This was hardcoded to
+            // owner 0 back when the human was always seat 0; a client playing any
+            // other seat opened the match looking at somebody else's base.
+            byte seat = _config?.localSlot ?? 0;
+            bool centred = false;
+            for (int pass = 0; pass < 2 && !centred; pass++)
             {
-                if ((e.Type == (byte)UnitTypeId.HumanStart || e.Type == (byte)UnitTypeId.OrcStart)
-                    && e.Owner == 0)
+                // Second pass ignores ownership, so a map with no start marker
+                // for our seat still puts the camera somewhere sensible.
+                foreach (var e in _map.Units)
                 {
+                    bool isStart = e.Type == (byte)UnitTypeId.HumanStart
+                                   || e.Type == (byte)UnitTypeId.OrcStart;
+                    if (!isStart || (pass == 0 && e.Owner != seat))
+                        continue;
                     cameraRig.CenterOn(e.X, _map.Height - 1 - e.Y);
+                    centred = true;
                     break;
                 }
             }
