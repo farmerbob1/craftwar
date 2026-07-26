@@ -54,6 +54,49 @@ namespace Craftwar.Net
                 _participating[slot] = participating;
         }
 
+        /// <summary>Slots the host now speaks for, because the player behind them
+        /// went away.</summary>
+        readonly bool[] _substituted = new bool[SimConstants.MaxPlayers];
+
+        /// <summary>
+        /// Take over a slot whose peer has dropped. A lockstep turn cannot
+        /// complete without every participant's input, so a vanished peer freezes
+        /// the match for everyone until somebody speaks for it. The slot stays
+        /// participating — its units are still on the map, still ownable, still a
+        /// target — the host simply supplies its input from now on.
+        ///
+        /// Turns already waiting on it are completed immediately, which is what
+        /// actually un-sticks the match.
+        /// </summary>
+        public void SubstituteSlot(byte slot, bool substituted)
+        {
+            if (slot >= SimConstants.MaxPlayers)
+                return;
+            _substituted[slot] = substituted;
+            if (!substituted)
+                return;
+
+            // Release everything that was blocked on this slot alone.
+            var blocked = new List<int>();
+            foreach (var pair in _pending)
+                blocked.Add(pair.Key);
+            blocked.Sort(); // deterministic order, and Dictionary iteration is not
+            for (int i = 0; i < blocked.Count; i++)
+                TryFreeze(blocked[i]);
+        }
+
+        public bool IsSubstituted(byte slot) =>
+            slot < SimConstants.MaxPlayers && _substituted[slot];
+
+        /// <summary>Input the host produces on a substituted slot's behalf — the
+        /// AI's orders, or nothing at all.</summary>
+        public void SubmitSubstituteInput(byte slot, int turn, List<GameCommand> commands)
+        {
+            if (!IsSubstituted(slot))
+                return;
+            SubmitInput(slot, turn, commands, -1, 0u);
+        }
+
         /// <summary>Highest turn frozen so far, or -1.</summary>
         public int HighestCommittedTurn { get; private set; } = -1;
 
@@ -120,10 +163,21 @@ namespace Craftwar.Net
         {
             if (_committed.ContainsKey(turn))
                 return;
-            var pt = _pending[turn];
+            if (!_pending.TryGetValue(turn, out var pt))
+                return;
             for (byte slot = 0; slot < SimConstants.MaxPlayers; slot++)
-                if (_participating[slot] && pt.BySlot[slot] == null)
-                    return; // still waiting on somebody
+            {
+                if (!_participating[slot] || pt.BySlot[slot] != null)
+                    continue;
+                if (_substituted[slot])
+                {
+                    // Nobody is going to send for this slot; treat silence as an
+                    // empty turn rather than waiting forever.
+                    pt.BySlot[slot] = new List<GameCommand>();
+                    continue;
+                }
+                return; // still waiting on somebody who might yet answer
+            }
 
             // Ascending slot order: one contiguous block per player, which is
             // exactly what the canonical sort needs to be well defined.

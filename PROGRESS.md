@@ -368,6 +368,36 @@ harness baseline was 246/246; now **257/257**.
   **Still to do:** a Load Game entry in the main menu (`savePath` works; nothing
   sets it yet).
 
+- **Phase 6 STARTED — a drop no longer freezes the match.** 303/303.
+  `TurnRelay.SubstituteSlot(slot)` lets the host speak for a seat whose peer
+  vanished, and immediately releases any turn that was blocked on it alone —
+  which is what actually un-sticks the match. `HostTurnExchange` calls it the
+  moment the transport reports a disconnect. Without this a lockstep turn can
+  never complete and **every** remaining player is frozen indefinitely. The
+  abandoned player is not deleted: their units stay on the map, ownable and
+  targetable (tested); only the source of their input changes.
+  `SubmitSubstituteInput` is the hook the AI takeover will feed.
+
+  **STILL TO DO in phase 6:**
+  1. **AI takeover.** `SubstituteSlot` currently supplies *empty* input, so a
+     dropped player goes idle rather than fighting on. Needs an `AiPlayer`
+     constructed for the seat, plus **`AiPlayer.ReconcileFromState()`** — a cold
+     AI starts with an empty pending-build ledger, so `EffectiveGold` reports the
+     full treasury while that player's peasants are mid-walk with `Order == Build`
+     (cost is deducted on arrival), and it over-orders for 10-25 s. Rebuild
+     `_pending` by scanning own units with `Order == Build && BuildType != 0 &&
+     !Hidden`. Also `_waveActive`, `_sleepUntilTick`, `_maxBuildingsSeen`,
+     `_blacklistedSites`, `_skippedGoals`. This pays twice — a loaded save needs
+     exactly the same reconciliation.
+  2. **The ~10 s grace and "Waiting for <player>…" overlay.** Substitution is
+     currently immediate on transport disconnect; the decision should come from
+     our own turn-starvation timer, since UTP's own timeout is 30 s.
+  3. **Reconnect.** `SimSerializer` (phase 5) provides the snapshot; what remains
+     is the chunked transfer (`SnapshotChunk`, ~1200 B payloads, deflated, paced
+     against `NetworkSendQueueFull`) and a handshake carrying the **driver** state
+     a snapshot does not hold: current turn, input delay, the pause set, the
+     substituted-slot mask and the hash ring.
+
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
 `C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled

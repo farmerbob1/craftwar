@@ -215,6 +215,77 @@ namespace Craftwar.Sim.Tests
             Assert.AreEqual(1, dropped, "the host learns which SEAT went away, not just which socket");
         }
 
+        [Test]
+        public void AfterAClientDrops_TheMatchKeepsRunningInsteadOfFreezing()
+        {
+            // The failure this prevents is total: a lockstep turn needs every
+            // participant's input, so a vanished peer stalls everyone forever
+            // unless the host starts speaking for its seat.
+            var f = Build();
+            for (int tick = 0; tick < 40; tick++)
+                Assert.IsTrue(f.Step(tick));
+
+            byte dropped = 255;
+            f.Host.PeerDropped += slot => dropped = slot;
+            f.Network.Disconnect(1);
+            f.Host.Poll();
+            Assert.AreEqual(1, dropped);
+            Assert.IsTrue(f.Relay.IsSubstituted(1), "the host now speaks for the empty seat");
+
+            // The host must be able to keep simulating on its own.
+            int hostTicks = 0;
+            var bundle = new List<GameCommand>();
+            for (int tick = 40; tick < 200; tick++)
+            {
+                f.Host.Poll();
+                if (f.HostDriver.TryGetTickCommands(tick, bundle))
+                {
+                    f.HostSim.Advance(bundle);
+                    hostTicks++;
+                }
+            }
+
+            Assert.Greater(hostTicks, 100,
+                "the host should keep advancing after the drop, not stall");
+            Assert.IsNull(f.HostSim.State.VerifyChecksums());
+        }
+
+        [Test]
+        public void ADroppedSlotsUnits_RemainInTheWorld()
+        {
+            // Substitution is about who supplies input, not about deleting the
+            // player: their buildings are still standing and still a target.
+            var f = Build();
+            for (int tick = 0; tick < 20; tick++)
+                Assert.IsTrue(f.Step(tick));
+
+            int before = CountUnits(f.HostSim, 1);
+            Assert.Greater(before, 0);
+
+            f.Network.Disconnect(1);
+            f.Host.Poll();
+
+            var bundle = new List<GameCommand>();
+            for (int tick = 20; tick < 120; tick++)
+            {
+                f.Host.Poll();
+                if (f.HostDriver.TryGetTickCommands(tick, bundle))
+                    f.HostSim.Advance(bundle);
+            }
+
+            Assert.AreEqual(before, CountUnits(f.HostSim, 1),
+                "the abandoned player's units stay on the map");
+        }
+
+        static int CountUnits(GameSim sim, byte player)
+        {
+            int n = 0;
+            for (int i = 0; i < sim.State.HighestUnitIndex; i++)
+                if (sim.State.Units[i].IsAlive && sim.State.Units[i].Player == player)
+                    n++;
+            return n;
+        }
+
         static int FindMovableUnit(GameSim sim, byte player)
         {
             for (int i = 0; i < sim.State.HighestUnitIndex; i++)

@@ -59,6 +59,9 @@ namespace Craftwar.Net
                 if (connected || !_slotByPeer.TryGetValue(peerId, out byte lost))
                     continue;
                 _slotByPeer.Remove(peerId);
+                // Speak for the vanished seat immediately. Until somebody does,
+                // no turn can complete and the match is frozen for everyone.
+                _relay.SubstituteSlot(lost, true);
                 PeerDropped?.Invoke(lost);
             }
 
