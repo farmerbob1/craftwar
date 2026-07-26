@@ -213,6 +213,45 @@ harness baseline was 246/246; now **257/257**.
   sources must stay UnityEngine-free (this is what protects the standalone
   harness), and no file outside `GameState.cs` may write `Tiles[...]` directly.
 
+- **Phase 2 DONE — turn scheduling and the host-relay protocol, on loopback.**
+  274/274. `Craftwar.Net` is now `noEngineReferences: true`, enforced by
+  `SimPurityTests`, so the whole protocol runs headless (the UTP socket lands in
+  a separate `Craftwar.Net.Unity` assembly in Phase 4, created with its first
+  file — an empty asmdef only earns a console warning).
+  `TurnLockstepDriver(ticksPerTurn, inputDelayTurns, slot, exchange)` owns all
+  the turn/tick/delay arithmetic; `ITurnExchange` decides who agrees a bundle,
+  with `LocalTurnExchange` for single player and `LoopbackTurnExchange` for
+  tests. **`(1, 1)` reproduces `LocalLockstepDriver` exactly** — a pinned test —
+  so the scheduling is measured against behaviour already known good. A turn's
+  bundle executes on its FIRST tick, the rest run empty, and a mid-turn tick may
+  not outrun its own turn. **Delay semantics: a command issued while turn X
+  executes runs at turn X+L**; the buffer filled during turn X is published at
+  the start of turn X+1 as the input for turn X+L, and turns `0..L-2` are
+  bootstrapped empty. Minimum L is 1 — a command cannot execute in the turn it
+  was issued, because peers must agree first. `TurnRelay` is the host's arbiter:
+  one input per slot per turn, frozen only when every participant is in, emitted
+  **in ascending slot order** (`SortCanonically` is stable on player alone, so
+  the bundle is only well defined if each player's commands form one contiguous
+  run). It drops commands a peer submits for a slot it does not own, and
+  compares per-turn hashes **only between peers that hashed the same turn** —
+  paused peers execute different tick counts, so hashes from different turns are
+  incomparable rather than a desync. Wire format in `NetMessages` (round-tripped
+  in tests) plus `BuildIdentity`: protocol version, new `SimConstants.SimVersion`,
+  map hash, new `RuleSet.Hash()` taken *after* map overrides, and the AI profile
+  hash — turning "your stat table differs by one value" from a mystery desync 300
+  turns in into a refused join naming the field. `CommandOp.Pause`/`Resume`
+  appended (17/18); **`GameSim` ignores both** — a tick carrying them is proven
+  indistinguishable from an empty one — because pausing must not touch sim state
+  or the tick a replay resumes on would depend on when someone paused. The driver
+  acts on them instead, holding a *set* of pausing slots so two simultaneous
+  pausers cannot cancel out. `AiPlayer` gained `OrderInFlightGraceTicks` so the
+  pending-build ledger keeps its reservation while an order is in flight; today's
+  think periods {22,25,50} already exceed the largest delay (16 ticks), so this
+  is pre-emptive rather than a fix for an observed break.
+  **The headline test:** two independent `GameSim`s, each with its own driver
+  over one relay, stay bit-identical for 1200 ticks at 2 turns of delay while
+  both players issue orders — executing identical bundles at identical ticks.
+
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
 `C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled

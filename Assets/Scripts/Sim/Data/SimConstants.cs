@@ -16,6 +16,15 @@ namespace Craftwar.Sim
         // Lockstep command turn length; commands execute at turn boundaries.
         public const int TicksPerCommandTurn = 4;
 
+        /// <summary>
+        /// Simulation behaviour generation. Bump this whenever a change can alter
+        /// simulation outcomes — new/changed systems, tuned constants, a
+        /// different order of operations. Peers compare it at join time, so a
+        /// mismatch becomes a refused connection instead of a desync a few
+        /// hundred turns in. It is NOT part of the state hash.
+        /// </summary>
+        public const uint SimVersion = 1;
+
         // --- Map / coordinates (CELL.H model) ---
         public const int TilePixels = 32;      // one tile ("matrix") = 32 px
         public const int CellPixels = 8;       // 4x4 cells per tile

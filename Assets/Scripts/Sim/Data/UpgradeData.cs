@@ -12,6 +12,18 @@ namespace Craftwar.Sim
         public int Icon;
         public int Group;
         public uint Flags;
+
+        /// <summary>Fingerprint for the build-identity handshake.</summary>
+        public void HashInto(ref StateHash h)
+        {
+            h.Add(Time);
+            h.Add(Gold);
+            h.Add(Lumber);
+            h.Add(Oil);
+            h.Add(Icon);
+            h.Add(Group);
+            h.Add(Flags);
+        }
     }
 
     /// <summary>

@@ -21,6 +21,21 @@ namespace Craftwar.Sim
         /// <summary>Concede. Appended, not inserted — these values are the wire
         /// format and are baked into every existing replay.</summary>
         Surrender,
+
+        /// <summary>
+        /// Request/release a lockstep pause. GameSim deliberately IGNORES both
+        /// (ApplyCommand has no default case, so an unhandled op is already a
+        /// guaranteed no-op): pausing must not touch simulation state, or the
+        /// tick a replay resumes on would depend on when someone paused.
+        ///
+        /// The DRIVER acts on them instead. They travel the turn stream like any
+        /// order, so every peer pauses on the same turn, and the driver holds the
+        /// SET of pausing slots — two players pausing at once must not cancel
+        /// out. Turn commitment continues while paused; the paused turns simply
+        /// execute zero sim ticks, which is what lets a Resume travel at all.
+        /// </summary>
+        Pause,
+        Resume,
     }
 
     /// <summary>

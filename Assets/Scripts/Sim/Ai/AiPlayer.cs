@@ -24,6 +24,16 @@ namespace Craftwar.Sim.Ai
         public const int SlotStaggerTicks = 7;
         public const int MaxCommandsPerThink = 4;
         public const int PendingBuildTimeoutTicks = 1500;
+
+        /// <summary>
+        /// How long after issuing an order the ledger keeps trusting it, before
+        /// requiring the builder to visibly be building. Covers the lockstep
+        /// input delay: an order issued now executes up to
+        /// <c>TicksPerCommandTurn * maxInputDelayTurns</c> ticks later, and until
+        /// then the builder legitimately still shows its previous Order. Sized
+        /// for the largest delay the lobby offers (4 turns), plus a tick.
+        /// </summary>
+        public const int OrderInFlightGraceTicks = SimConstants.TicksPerCommandTurn * 4 + 1;
         public const int StallRelaxThinks = 80;
         /// <summary>Influence maps are recomputed at most this often (ticks).</summary>
         public const int InfluenceRefreshTicks = 25;
@@ -335,8 +345,18 @@ namespace Craftwar.Sim.Ai
                     continue;
                 }
                 ref Unit b = ref _s.Units[bi];
-                if (b.Order != OrderType.Build || b.BuildType != pb.TypeId + 1
-                    || (b.Flags & UnitFlags.Hidden) != 0)
+                // In-flight grace. Under lockstep an order does not take effect
+                // on the tick it was issued: it executes `inputDelay` turns
+                // later, so the builder's Order is still whatever it was before.
+                // Without this window the ledger drops the reservation, the cost
+                // stops being held back, and the AI re-proposes the same building
+                // — double-spending exactly what the ledger exists to prevent.
+                // The builder-died check above stays outside the grace: a dead
+                // builder is dead regardless of latency.
+                bool inFlight = _s.Tick - pb.IssuedTick <= OrderInFlightGraceTicks;
+                if (!inFlight
+                    && (b.Order != OrderType.Build || b.BuildType != pb.TypeId + 1
+                        || (b.Flags & UnitFlags.Hidden) != 0))
                 {
                     _pending.RemoveAt(i);
                     continue;

@@ -25,6 +25,26 @@ namespace Craftwar.Sim
         public ref UnitTypeData UnitType(ushort typeId) => ref Units[typeId];
 
         /// <summary>
+        /// Fingerprint of the live tables, taken AFTER <see cref="ApplyMapOverrides"/>
+        /// so it covers both generated stat-table drift and a map's own UDTA/UGRD
+        /// overrides. Two peers whose rules differ by a single value will diverge
+        /// hundreds of turns into a match and present it as a mystery desync;
+        /// comparing this at join time turns that into a refused connection.
+        /// Provenance only — never mixed into the state hash.
+        /// </summary>
+        public uint Hash()
+        {
+            var h = StateHash.Begin();
+            h.Add(Units.Length);
+            for (int i = 0; i < Units.Length; i++)
+                Units[i].HashInto(ref h);
+            h.Add(Upgrades.Length);
+            for (int i = 0; i < Upgrades.Length; i++)
+                Upgrades[i].HashInto(ref h);
+            return h.Value;
+        }
+
+        /// <summary>
         /// Apply a map's stat overrides. PUD section payloads carry a leading
         /// u16 "use default data" word: nonzero means the map wants defaults
         /// and the rest of the payload is ignored.

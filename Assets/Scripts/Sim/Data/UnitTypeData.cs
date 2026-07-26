@@ -71,6 +71,41 @@ namespace Craftwar.Sim
         public UnitTypeFlags Flags;
 
         public bool Is(UnitTypeFlags f) => (Flags & f) != 0;
+
+        /// <summary>Fingerprint for the build-identity handshake. Declaration
+        /// order, like every other HashInto in the sim.</summary>
+        public void HashInto(ref StateHash h)
+        {
+            h.Add(Sight);
+            h.Add(Hp);
+            h.Add((byte)(HasMagic ? 1 : 0));
+            h.Add(BuildTime);
+            h.Add(GoldCost);
+            h.Add(LumberCost);
+            h.Add(OilCost);
+            h.Add(SizeW);
+            h.Add(SizeH);
+            h.Add(BoxW);
+            h.Add(BoxH);
+            h.Add(AttackRange);
+            h.Add(ReactRangeComputer);
+            h.Add(ReactRangeHuman);
+            h.Add(Armor);
+            h.Add((byte)(RectSelectable ? 1 : 0));
+            h.Add(Priority);
+            h.Add(BasicDamage);
+            h.Add(PiercingDamage);
+            h.Add((byte)(WeaponsUpgradable ? 1 : 0));
+            h.Add((byte)(ArmorUpgradable ? 1 : 0));
+            h.Add(MissileWeapon);
+            h.Add(MoveDomain);
+            h.Add(DecayRate);
+            h.Add(Annoy);
+            h.Add(RightClickAction);
+            h.Add(PointValue);
+            h.Add(CanTarget);
+            h.Add((uint)Flags);
+        }
     }
 
     /// <summary>
