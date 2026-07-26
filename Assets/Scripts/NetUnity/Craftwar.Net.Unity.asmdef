@@ -1,13 +1,11 @@
 {
-    "name": "Craftwar.App",
-    "rootNamespace": "Craftwar.App",
+    "name": "Craftwar.Net.Unity",
+    "rootNamespace": "Craftwar.Net.Unity",
     "references": [
         "Craftwar.Sim",
-        "Craftwar.View",
         "Craftwar.Net",
-        "Craftwar.Net.Unity",
-        "Craftwar.Import",
-        "Unity.InputSystem"
+        "Unity.Networking.Transport",
+        "Unity.Collections"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

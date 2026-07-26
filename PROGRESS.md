@@ -266,6 +266,56 @@ harness baseline was 246/246; now **257/257**.
   check that selection, orders, fog, the resource strip and the green selection
   ring all follow the seat you chose rather than snapping back to seat 0.
 
+- **Phase 4 PART DONE — transport and peer protocol land; the lobby does not.**
+  280/280. `HostTurnExchange`/`ClientTurnExchange` implement the star topology
+  over `IPacketPeer`, with `LoopbackNetwork`/`LoopbackPacketPeer` letting several
+  peers run in one process. **`HostClientTests` is the strongest proof so far**:
+  two independent sims, real serialization, staying bit-identical for 1200 ticks
+  while both players issue orders; a client order provably lands in the *host's*
+  world; a command forged for another slot is rejected; a corrupted client state
+  is detected and halts **both** peers; and losing a peer is reported by SEAT,
+  not by socket. The host is a player, not a referee — its own hash is one of the
+  compared values, which a pure relay could not provide.
+  New `Craftwar.Net.Unity` assembly: `UtpPeerSocket` (one Fragmentation ->
+  ReliableSequenced pipeline, `windowSize: 64`, `disconnectTimeoutMS: 5000`,
+  every `BeginSend`/`EndSend` failure logged — a silently dropped turn packet
+  presents as an unexplained permanent stall), and `LanDiscovery` on a raw
+  `UdpClient` because **UTP cannot broadcast at all**, using per-interface
+  SUBNET-DIRECTED addresses since limited broadcast picks one interface and on a
+  dev box that is usually a virtual adapter. **API gotcha:**
+  `WithReliableStageParameters`/`WithFragmentationStageParameters` are extensions
+  in `Unity.Networking.Transport.Utilities`, not members of `NetworkSettings`.
+  `NetSession` carries the live socket across the scene load, mirroring
+  `MatchSession`. `GameLoopRunner` wires it up: `Poll()` above the `Paused`
+  early-out, per-turn `RecordTurnHash` taken BEFORE `Advance`, host-owned speed
+  multiplier, **only the host constructs AIs** (their commands travel the wire
+  inside the host's input block rather than being re-derived per peer), and a
+  desync halts the match and writes a `desync-<stamp>.txt` next to the replay
+  containing the hash ring, so the dump says *which turn* diverged.
+  Verified in the editor: all eight assemblies compile and a real UDP socket
+  binds, polls and disposes.
+
+  **STILL TO DO in phase 4** (nothing reaches these paths yet — `NetSession` is
+  never populated, so `_net` is always null and single player is byte-identical
+  to before):
+  1. **Lobby UI** — `panel-lobby` in `MainMenu.uxml` + `ShowLobby()`, server
+     browser modelled on the import wizard's candidate list, connect-by-IP box,
+     firewall hint, host-generated seed (the menu still never sets one, so every
+     skirmish runs seed 42), and the join handshake actually exchanging
+     `BuildIdentity` and assigning seats into `NetSession.SlotByPeerId`.
+  2. **MP pause semantics.** `CommandOp.Pause`/`Resume` exist and the sim
+     correctly ignores them, but `TurnLockstepDriver` does not yet act on them.
+     **Known design problem:** paused turns are supposed to keep committing while
+     executing zero sim ticks, but the driver currently derives the turn number
+     from the tick, so a paused sim also stops the turn clock and a `Resume`
+     could never travel. Fix needs the turn counter decoupled from the tick
+     counter. Until then `SetPaused` is still a local-only toggle.
+  3. **Defeated peer must keep simulating as an observer.** `VictoryScreen`
+     pauses on push (`VictoryScreen.cs:231-232`) via `CheckMatchOver`, so as it
+     stands the first player eliminated in a 4v4 would freeze the match for
+     everyone once MP is reachable.
+  4. Net stats readout on `DebugOverlay` (turn, confirmed turn, RTT, starving).
+
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
 `C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled

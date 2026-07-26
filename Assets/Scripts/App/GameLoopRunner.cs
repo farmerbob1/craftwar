@@ -188,12 +188,81 @@ namespace Craftwar.App
             else
                 sim.Setup(_map, rules); // no lobby: the map's own OWNR/SIDE
 
-            // Single-player is lockstep with a local, zero-delay driver; a lobby
-            // will hand in a net driver here instead (M10).
-            var driver = new LocalLockstepDriver();
+            // A lobby that already negotiated seats hands its live connection
+            // over through NetSession; otherwise this is single player, which is
+            // still lockstep — just with one participant and no latency.
+            ILockstepDriver driver;
+            _net = Net.Unity.NetSession.CreateDriver(out var hostExchange, out var clientExchange);
+            if (_net != null)
+            {
+                driver = _net;
+                _net.Desynced += OnDesync;
+                if (hostExchange != null)
+                    hostExchange.Desynced += OnDesync;
+                if (clientExchange != null)
+                    clientExchange.Desynced += OnDesync;
+            }
+            else
+            {
+                driver = new LocalLockstepDriver();
+            }
+
             var replay = new Replay { Seed = _config.seed, MapHash = Replay.HashMapBytes(mapBytes) };
             Init(sim, driver, replay);
-            CreateAis();
+
+            // Only the host runs the computer players. Their commands travel the
+            // wire inside the host's own input block, so every peer executes the
+            // identical AI orders rather than each re-deriving them — one
+            // divergence in AI state would otherwise desync the match.
+            if (_net == null || Net.Unity.NetSession.IsHost)
+                CreateAis();
+        }
+
+        /// <summary>Non-null only in a networked match.</summary>
+        INetLockstepDriver _net;
+        bool _desyncHalted;
+
+        /// <summary>
+        /// A desync means the peers are already simulating different games, so
+        /// the match is over as a contest. Halt and write everything needed to
+        /// debug it: the replay reproduces the run, and the hash ring says which
+        /// turn the divergence started on rather than merely that it happened.
+        /// </summary>
+        void OnDesync(DesyncReport report)
+        {
+            if (_desyncHalted)
+                return;
+            _desyncHalted = true;
+            SetPaused(true);
+            Debug.LogError($"[craftwar-net] {report}");
+            SaveTimestampedReplay();
+            DumpDesyncDiagnostics(report);
+        }
+
+        void DumpDesyncDiagnostics(DesyncReport report)
+        {
+            try
+            {
+                Directory.CreateDirectory(ReplayDir);
+                string path = Path.Combine(ReplayDir,
+                    $"desync-{System.DateTime.Now:yyyyMMdd-HHmmss}.txt");
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine(report.ToString());
+                sb.AppendLine($"localSlot={_config?.localSlot} tick={Sim?.State.Tick}");
+                sb.AppendLine($"checksums={Sim?.State.VerifyChecksums() ?? "(no sim)"}");
+                if (Driver is TurnLockstepDriver turnDriver)
+                {
+                    sb.AppendLine("turn,hash");
+                    foreach (var (turn, hash) in turnDriver.HashHistory())
+                        sb.AppendLine($"{turn},{hash:X8}");
+                }
+                File.WriteAllText(path, sb.ToString());
+                Debug.LogError($"[craftwar-net] desync dump written to {path}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[craftwar-net] could not write the desync dump: {e.Message}");
+            }
         }
 
         /// <summary>
@@ -377,10 +446,11 @@ namespace Craftwar.App
             if (Sim == null)
                 return;
 
-            // M10 insertion point: the net driver's Poll() goes HERE, above the
-            // Paused early-out. A paused peer — or one sitting on the victory
-            // screen — must keep pumping the socket, or it stops acknowledging
-            // turns and stalls every other player until the drop timeout.
+            // ABOVE the Paused early-out, deliberately. A paused peer — or one
+            // sitting on the victory screen after being eliminated — must keep
+            // pumping the socket, or it stops acknowledging turns and stalls
+            // every other player until the drop timeout fires.
+            _net?.Poll();
 
             if (Paused)
                 return;
@@ -388,8 +458,13 @@ namespace Craftwar.App
             // Game speed scales how fast wall-clock feeds the fixed 50 Hz tick —
             // the sim itself never changes, so determinism and replays are
             // untouched (replays record ticks, not seconds).
-            _accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f)
-                * View.GameplaySettings.Current.SpeedMultiplier;
+            // In a networked match the speed is the host's, not this machine's:
+            // peers feeding the turn clock at different rates would have one
+            // starving everyone else and another permanently in the stall clamp.
+            float speed = _net != null
+                ? Net.Unity.NetSession.SpeedMultiplier
+                : View.GameplaySettings.Current.SpeedMultiplier;
+            _accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f) * speed;
             // Cap banked debt. The per-frame caps below only *defer* catch-up, so
             // without this the accumulator grows without bound whenever the
             // driver withholds a tick; a 10 s network stall would bank ~500 ticks
@@ -430,6 +505,15 @@ namespace Craftwar.App
                             Driver.SubmitLocalCommand(_aiCommands[c]);
                     }
                 }
+
+                // Hand the driver the state we are about to execute from, at
+                // every turn boundary, so it can be compared against the other
+                // peers'. Taken BEFORE Advance: "the state entering turn T" is a
+                // point in time both peers can agree on, whereas "after turn T"
+                // is not available at the moment the input for it is published.
+                if (_net != null && Sim.State.Tick % SimConstants.TicksPerCommandTurn == 0)
+                    _net.RecordTurnHash(Sim.State.Tick / SimConstants.TicksPerCommandTurn,
+                        Sim.State.ComputeHash());
 
                 if (!Driver.TryGetTickCommands(Sim.State.Tick, _tickCommands))
                 {
