@@ -252,6 +252,20 @@ harness baseline was 246/246; now **257/257**.
   over one relay, stay bit-identical for 1200 ticks at 2 turns of delay while
   both players issue orders — executing identical bundles at identical ticks.
 
+- **Phase 3 DONE (needs a playtest) — the local seat is no longer 0.**
+  `HudScreen.LocalPlayer` went from `const byte = 0` to a settable static, and
+  the four private `const byte LocalPlayer = 0` copies in `WorldInputController`,
+  `UnitViewPool`, `BuildPlacementGhost` and `DebugOverlay` now forward to it, so
+  all ~35 call sites follow automatically. `GameLoopRunner.Start` sets it from
+  `MatchConfig.localSlot` before any view is built. The skirmish lobby can now
+  move the "You" seat: the controller button cycles You -> Computer -> Off on
+  every row (it used to be disabled on row 0), exactly one row may be You, and
+  the seat you pick becomes `localSlot`. Touches no Sim or Net code, so the
+  harness stays at 274/274; all seven assemblies compile.
+  **Playtest ask: run a skirmish as a seat other than slot 1 in the list** and
+  check that selection, orders, fog, the resource strip and the green selection
+  ring all follow the seat you chose rather than snapping back to seat 0.
+
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
 `C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled

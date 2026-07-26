@@ -138,6 +138,13 @@ namespace Craftwar.App
                 MatchSession.SetCurrent(_config);
             }
 
+            // Tell the view which seat it is playing before anything is built.
+            // Everything downstream — selection, order ownership, fog, the
+            // resource strip, the green selection ring — reads this, and it used
+            // to be hardcoded to 0 because single player's human is always seat
+            // 0. A joining client gets whatever seat the host assigned.
+            View.HudScreen.SetLocalPlayer(_config.localSlot);
+
             var paths = LocalAssetPaths.Load();
             var assets = AssetResolution.ResolveAssetSource(paths, out string dataRoot);
             if (assets == null)

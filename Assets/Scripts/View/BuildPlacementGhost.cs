@@ -16,7 +16,8 @@ namespace Craftwar.View
     /// </summary>
     public sealed class BuildPlacementGhost : MonoBehaviour
     {
-        const byte LocalPlayer = 0;
+        /// <summary>The seat this client drives. See <see cref="HudScreen.LocalPlayer"/>.</summary>
+        static byte LocalPlayer => HudScreen.LocalPlayer;
         static readonly Color ValidTint = new Color(0.4f, 1f, 0.4f, 0.5f);
         static readonly Color InvalidTint = new Color(1f, 0.35f, 0.35f, 0.5f);
 

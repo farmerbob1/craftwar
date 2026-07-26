@@ -288,8 +288,11 @@ namespace Craftwar.App
                 var row = new SlotRow
                 {
                     Slot = p,
-                    // The human stays slot 0 for M9: the view hard-codes
-                    // LocalPlayer = 0 (HudScreen.cs), so seat 0 is "You".
+                    // Seat 0 defaults to "You", but the seat is no longer fixed:
+                    // the view reads MatchConfig.localSlot now, so any playable
+                    // seat can be the human one. Playing a skirmish as a seat
+                    // other than 0 is also how the local-slot plumbing gets
+                    // exercised before a LAN client depends on it.
                     Controller = p == 0 ? Controller.Human : Controller.Computer,
                     Race = _setupPud.Side[p] == (byte)Race.Orc ? Race.Orc : Race.Human,
                     AiType = _setupPud.AiType[p],
@@ -305,7 +308,6 @@ namespace Craftwar.App
                 row.CtrlBtn = new Button(() => CycleController(row)) { text = "" };
                 row.CtrlBtn.AddToClassList("menu__button");
                 row.CtrlBtn.style.flexGrow = 1;
-                row.CtrlBtn.SetEnabled(p != 0);
                 line.Add(row.CtrlBtn);
 
                 row.RaceBtn = new Button(() => CycleRace(row)) { text = "" };
@@ -329,11 +331,35 @@ namespace Craftwar.App
             }
         }
 
+        /// <summary>
+        /// You -> Computer -> Off -> You. Exactly one row may be "You": taking
+        /// the seat hands the previous holder to the computer, so the lobby
+        /// cannot reach a state with two humans or none.
+        /// </summary>
         void CycleController(SlotRow row)
         {
-            row.Controller = row.Controller == Controller.Computer
-                ? Controller.None
-                : Controller.Computer;
+            row.Controller = row.Controller switch
+            {
+                Controller.Human => Controller.Computer,
+                Controller.Computer => Controller.None,
+                _ => Controller.Human,
+            };
+
+            if (row.Controller == Controller.Human)
+            {
+                foreach (var other in _slotRows)
+                    if (other != row && other.Controller == Controller.Human)
+                    {
+                        other.Controller = Controller.Computer;
+                        UpdateRowLabels(other);
+                    }
+            }
+            else if (!_slotRows.Exists(r => r.Controller == Controller.Human))
+            {
+                // Never leave the match without a seat for the player.
+                row.Controller = Controller.Human;
+            }
+
             UpdateRowLabels(row);
         }
 
@@ -395,10 +421,12 @@ namespace Craftwar.App
                 return;
             }
 
+            // Whichever seat is marked "You" is the one this client drives.
+            var humanRow = _slotRows.Find(r => r.Controller == Controller.Human);
             var config = new MatchConfig
             {
                 mapPath = _maps[_mapSel].Value,
-                localSlot = 0,
+                localSlot = (byte)(humanRow?.Slot ?? 0),
                 slots = new SlotConfig[SimConstants.MaxPlayers],
             };
             for (int p = 0; p < SimConstants.MaxPlayers; p++)

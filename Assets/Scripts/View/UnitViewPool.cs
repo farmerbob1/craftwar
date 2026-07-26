@@ -82,7 +82,8 @@ namespace Craftwar.View
         readonly List<int> _toRemove = new List<int>();
 
         /// <summary>The local player, until multiplayer picks a slot at M10.</summary>
-        const byte LocalPlayer = 0;
+        /// <summary>The seat this client drives. See <see cref="HudScreen.LocalPlayer"/>.</summary>
+        static byte LocalPlayer => HudScreen.LocalPlayer;
 
         /// <summary>
         /// Last-seen appearance of an enemy building, keyed by the tile index of

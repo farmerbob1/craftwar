@@ -18,7 +18,8 @@ namespace Craftwar.View
     /// </summary>
     public sealed class DebugOverlay : MonoBehaviour
     {
-        const byte LocalPlayer = 0;
+        /// <summary>The seat this client drives. See <see cref="HudScreen.LocalPlayer"/>.</summary>
+        static byte LocalPlayer => HudScreen.LocalPlayer;
 
         ISimHost _host;
         UnitViewPool _pool;
@@ -68,7 +69,7 @@ namespace Craftwar.View
         {
             ref var p = ref state.Players[LocalPlayer];
             _sb.Append("== DEBUG (F3) ==  tick ").Append(state.Tick).Append('\n');
-            _sb.Append("Player 0:  Gold ").Append(p.Gold)
+            _sb.Append("Player ").Append(LocalPlayer).Append(":  Gold ").Append(p.Gold)
                .Append("   Lumber ").Append(p.Lumber)
                .Append("   Oil ").Append(p.Oil)
                .Append("   Food ").Append(p.FoodUsed).Append('/').Append(p.FoodMax);

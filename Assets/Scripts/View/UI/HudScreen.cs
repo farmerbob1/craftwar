@@ -11,7 +11,22 @@ namespace Craftwar.View
     /// </summary>
     public sealed class HudScreen : UIScreen
     {
-        public const byte LocalPlayer = 0;
+        /// <summary>
+        /// Which slot this client is playing. The whole view layer keys off this
+        /// — whose units can be selected and ordered, whose fog is drawn, whose
+        /// resources the strip shows, which selection ring is green.
+        ///
+        /// It was a `const 0` while only single player existed, where the human
+        /// is always seat 0. A joining client is whatever seat the host gave it,
+        /// so this is now set once from <c>MatchConfig.localSlot</c> before any
+        /// view is built. Static because exactly one match exists per process and
+        /// the scene is reloaded between matches — the same reason
+        /// <c>MatchSession</c> is.
+        /// </summary>
+        public static byte LocalPlayer { get; private set; }
+
+        /// <summary>Called once by the match bootstrap, before the views init.</summary>
+        public static void SetLocalPlayer(byte slot) => LocalPlayer = slot;
 
         readonly ISimHost _host;
         readonly UIState _ui;

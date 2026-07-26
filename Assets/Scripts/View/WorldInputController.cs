@@ -13,7 +13,8 @@ namespace Craftwar.View
     /// </summary>
     public sealed class WorldInputController : MonoBehaviour
     {
-        const byte LocalPlayer = 0;
+        /// <summary>The seat this client drives. See <see cref="HudScreen.LocalPlayer"/>.</summary>
+        static byte LocalPlayer => HudScreen.LocalPlayer;
 
         ISimHost _host;
         SelectionState _selection;
