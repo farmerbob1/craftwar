@@ -63,7 +63,7 @@ namespace Craftwar.Sim
         {
             State.Rules = rules;
             State.Terrain = TerrainMap.FromPud(pud);
-            State.Tiles = (ushort[])pud.Tiles.Clone();
+            State.InstallTiles((ushort[])pud.Tiles.Clone());
             State.OccupancySurface = new uint[pud.Width * pud.Height];
             State.OccupancyAir = new uint[pud.Width * pud.Height];
             State.Visible = new byte[SimConstants.MaxPlayers][];

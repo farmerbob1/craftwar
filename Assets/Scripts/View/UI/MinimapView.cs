@@ -127,11 +127,11 @@ namespace Craftwar.View
         void BakeTerrain()
         {
             var state = _host?.Sim?.State;
-            if (state?.Tiles == null || _palette == null)
+            if (state == null || !state.HasTiles || _palette == null)
                 return;
             for (int y = 0; y < _height; y++)
                 for (int x = 0; x < _width; x++)
-                    _terrain[TexIndex(x, y)] = _palette.ColorFor(state.Tiles[y * _width + x]);
+                    _terrain[TexIndex(x, y)] = _palette.ColorFor(state.Tile(y * _width + x));
         }
 
         /// <summary>Repaint tiles the sim mutated (trees felled, walls broken).</summary>

@@ -85,11 +85,51 @@ namespace Craftwar.Sim
         /// <summary>SQ_SHORE: the coast strip transports unload onto and shore buildings sit on.</summary>
         public bool IsShore(int x, int y) => InBounds(x, y) && _shore[y * Width + x] != 0;
 
+        /// <summary>
+        /// Running checksum over the two planes that mutate at runtime: remaining
+        /// wood and the passability bits. The terrain is not part of GameState, so
+        /// felled forest used to reach the state hash only indirectly, via the
+        /// MTXM retile — and only where the retile actually changed a tile id.
+        /// Hashing this closes that gap directly. Clearance and region labels are
+        /// pure functions of passability, so they need no coverage of their own.
+        /// </summary>
+        public uint TerrainChecksum { get; private set; }
+
+        uint CellContribution(int i) =>
+            GameState.CellMix(i, (uint)_wood[i] | ((uint)_passable[i] << 8));
+
+        uint RecomputeTerrainChecksum()
+        {
+            uint sum = 0;
+            unchecked
+            {
+                for (int i = 0; i < _wood.Length; i++)
+                    sum += CellContribution(i);
+            }
+            return sum;
+        }
+
+        void SeedTerrainChecksum() => TerrainChecksum = RecomputeTerrainChecksum();
+
+        /// <summary>Recompute from scratch; null when the running value agrees.
+        /// Deliberately does not repair a mismatch — a silently corrected
+        /// checksum would hide the write site that skipped the funnel.</summary>
+        public string VerifyTerrainChecksum()
+        {
+            uint recomputed = RecomputeTerrainChecksum();
+            if (recomputed != TerrainChecksum)
+                return $"TerrainChecksum {TerrainChecksum:X8} != recomputed {recomputed:X8}";
+            return null;
+        }
+
         /// <summary>Fell the tree at (x,y): frees the tile for land movement.</summary>
         public void Chop(int x, int y)
         {
-            _wood[y * Width + x] = 0;
+            int i = y * Width + x;
+            uint before = CellContribution(i);
+            _wood[i] = 0;
             SetPassable(MoveDomain.Land, x, y, true);
+            unchecked { TerrainChecksum += CellContribution(i) - before; }
             RebuildClearance();
         }
 
@@ -112,6 +152,7 @@ namespace Craftwar.Sim
                     map._wood[i] = 1; // one tree = 100 lumber
             }
             map.RebuildClearance();
+            map.SeedTerrainChecksum();
             return map;
         }
 

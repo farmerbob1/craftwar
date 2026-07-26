@@ -155,18 +155,58 @@ namespace Craftwar.Sim.Tests
         }
 
         [Test]
-        public void StateHash_IsSensitiveToExplored()
+        public unsafe void StateHash_IsSensitiveToExplored()
         {
             var pud = BaseMap();
             pud.Units.Add(new PudUnitEntry { X = 16, Y = 16, Type = (byte)UnitTypeId.Footman, Owner = P0 });
             var sim = Boot(pud);
 
+            const int FarX = 29, FarY = 29;
+            Assert.IsFalse(sim.IsExplored(P0, FarX, FarY), "the far corner starts unexplored");
             uint before = sim.State.ComputeHash();
-            // A tile nothing has seen yet, so this is a real change.
-            Assert.IsFalse(sim.IsExplored(P0, 0, 0));
-            sim.State.Explored[P0][0] = 1;
+
+            // Explored accumulates, so it is genuinely hashed — but it now reaches
+            // the hash through a running checksum that only a real reveal updates.
+            // So the change has to be made the way the sim makes it: walk a unit
+            // somewhere new. (This test used to poke Explored[0] directly, which
+            // is exactly the bypass the funnel exists to make impossible.)
+            int slot = SlotOf(sim, UnitTypeId.Footman);
+            var move = new GameCommand
+            {
+                Op = CommandOp.Move,
+                Player = P0,
+                TargetX = FarX,
+                TargetY = FarY,
+                SelectionCount = 1,
+            };
+            move.Selection.Ids[0] = new UnitId((ushort)slot, sim.State.Units[slot].Gen).Packed;
+            sim.Advance(new List<GameCommand> { move });
+            for (int i = 0; i < 2000 && !sim.IsExplored(P0, FarX, FarY); i++)
+                sim.Advance(NoCommands);
+
+            Assert.IsTrue(sim.IsExplored(P0, FarX, FarY), "the footman should have walked into the corner");
             Assert.AreNotEqual(before, sim.State.ComputeHash(),
-                "fog must be part of the hashed state");
+                "explored fog must be part of the hashed state");
+            Assert.IsNull(sim.State.VerifyChecksums(),
+                "the running checksums must still agree with a from-scratch recompute");
+        }
+
+        [Test]
+        public void RunningChecksums_MatchARecompute_AfterActivity()
+        {
+            // The guard that makes the incremental scheme trustworthy: units
+            // spawn, move, occupy and reveal for a while, then every maintained
+            // checksum is recomputed from scratch and compared.
+            var pud = BaseMap();
+            pud.Units.Add(new PudUnitEntry { X = 8, Y = 8, Type = (byte)UnitTypeId.Footman, Owner = P0 });
+            pud.Units.Add(new PudUnitEntry { X = 20, Y = 20, Type = (byte)UnitTypeId.TownHall, Owner = P0 });
+            pud.Units.Add(new PudUnitEntry { X = 12, Y = 12, Type = (byte)UnitTypeId.Peasant, Owner = P0 });
+            var sim = Boot(pud, seed: 42);
+
+            Assert.IsNull(sim.State.VerifyChecksums(), "seeded correctly at Setup");
+            for (int i = 0; i < 400; i++)
+                sim.Advance(NoCommands);
+            Assert.IsNull(sim.State.VerifyChecksums(), "still exact after 400 ticks");
         }
 
         [Test]

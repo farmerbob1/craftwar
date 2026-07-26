@@ -23,8 +23,45 @@ namespace Craftwar.Sim
         public RuleSet Rules;
         public TerrainMap Terrain;
 
-        /// <summary>Mutable copy of the MTXM tile layer (trees fall, walls break).</summary>
-        public ushort[] Tiles;
+        /// <summary>Mutable copy of the MTXM tile layer (trees fall, walls break).
+        /// Private because every write has to go through <see cref="SetTile"/> to
+        /// keep <see cref="TilesChecksum"/> exact — the hash reads the checksum,
+        /// not the array, so an unfunnelled write would be invisible to desync
+        /// detection. SimPurityTests bans direct indexed assignment elsewhere.</summary>
+        ushort[] _tiles;
+
+        public bool HasTiles => _tiles != null;
+        public int TileCount => _tiles == null ? 0 : _tiles.Length;
+        public ushort Tile(int index) => _tiles[index];
+        public ushort TileAt(int x, int y) => _tiles[y * Terrain.Width + x];
+
+        /// <summary>Install the match's tile layer and seed its checksum.</summary>
+        public void InstallTiles(ushort[] tiles)
+        {
+            _tiles = tiles;
+            TilesChecksum = 0;
+            if (_tiles == null)
+                return;
+            unchecked
+            {
+                for (int i = 0; i < _tiles.Length; i++)
+                    TilesChecksum += CellMix(i, _tiles[i]);
+            }
+        }
+
+        /// <summary>The only way to mutate a tile. Keeps the running checksum
+        /// exact by removing the old cell's contribution and adding the new one.</summary>
+        public void SetTile(int index, ushort value)
+        {
+            ushort old = _tiles[index];
+            if (old == value)
+                return;
+            _tiles[index] = value;
+            unchecked { TilesChecksum += CellMix(index, value) - CellMix(index, old); }
+        }
+
+        /// <summary>Internal bulk read for the serializer. Never hand this out.</summary>
+        internal ushort[] TileArray => _tiles;
 
         /// <summary>Tile mutations this tick, for the view to patch. Not hashed (derived from Tiles).</summary>
         public readonly System.Collections.Generic.List<(ushort x, ushort y, ushort tile)> TileChanges
@@ -65,6 +102,83 @@ namespace Craftwar.Sim
         /// units are invisible and untargetable outside these discs — unlike the
         /// rest of fog, this one does gate gameplay.</summary>
         public byte[][] Detected;
+
+        // --- Running checksums --------------------------------------------------
+        //
+        // ComputeHash used to walk every grid byte by byte: ~555 KB per call on a
+        // 128x128 8-player map. That was free while only tests called it, but
+        // lockstep desync detection runs it every command turn. These maintained
+        // checksums replace the walks, and because each is updated at the single
+        // place its grid is written, they cost essentially nothing per tick.
+        //
+        // Each combiner is either commutative-and-exact (a set that only grows) or
+        // invertible (subtract the old cell's contribution, add the new one), so
+        // the value is a pure function of grid contents, not of update order.
+        // VerifyChecksums() proves that against a from-scratch recompute.
+
+        public uint TilesChecksum { get; private set; }
+        public readonly uint[] ExploredChecksum = new uint[SimConstants.MaxPlayers];
+        public uint OccupancySurfaceChecksum { get; private set; }
+        public uint OccupancyAirChecksum { get; private set; }
+
+        /// <summary>
+        /// Avalanche mix of (cell index, value). Must be injective enough that
+        /// distinct grids do not sum to the same total: a naive multiply would
+        /// let structured collisions cancel out, and a desync detector that
+        /// cannot see a change is worse than none. The index is mixed in, so
+        /// moving a value between cells still changes the sum.
+        ///
+        /// Zero contributes zero, which makes a freshly allocated grid's
+        /// checksum 0 — so a running total that starts at 0 is correct without
+        /// having to seed it with the empty grid's baseline, and the sparse
+        /// grids (occupancy is almost all zeros) cost nothing to recompute.
+        /// </summary>
+        internal static uint CellMix(int index, uint value)
+        {
+            if (value == 0)
+                return 0;
+            unchecked
+            {
+                uint x = (uint)index * 0x9E3779B1u ^ Fmix(value + 0x165667B1u);
+                return Fmix(x);
+            }
+        }
+
+        static uint Fmix(uint x)
+        {
+            unchecked
+            {
+                x ^= x >> 16;
+                x *= 0x85EBCA6Bu;
+                x ^= x >> 13;
+                x *= 0xC2B2AE35u;
+                x ^= x >> 16;
+                return x;
+            }
+        }
+
+        /// <summary>Record that a tile flipped unexplored -> explored. Called only
+        /// on the transition; Reveal restamps the same tiles every tick, so an
+        /// unguarded add would accumulate a term per tick and never match a
+        /// recompute.</summary>
+        public void StampExplored(int player, int tileIndex)
+        {
+            unchecked { ExploredChecksum[player] += CellMix(tileIndex, 1); }
+        }
+
+        void StampOccupancy(bool air, int cell, uint oldValue, uint newValue)
+        {
+            if (oldValue == newValue)
+                return;
+            unchecked
+            {
+                uint delta = CellMix(cell, newValue) - CellMix(cell, oldValue);
+                if (air)
+                    OccupancyAirChecksum += delta;
+                else
+                    OccupancySurfaceChecksum += delta;
+            }
+        }
 
         public GameState(ulong seed)
         {
@@ -108,18 +222,24 @@ namespace Craftwar.Sim
         public void Occupy(UnitId id, ushort typeId, int tileX, int tileY)
         {
             if (Terrain == null) return;
-            var layer = OccupancyFor(typeId);
+            bool air = DomainOf(typeId) == MoveDomain.Air;
+            var layer = air ? OccupancyAir : OccupancySurface;
             int size = Footprint(typeId);
             for (int dy = 0; dy < size; dy++)
                 for (int dx = 0; dx < size; dx++)
                     if (tileX + dx < Terrain.Width && tileY + dy < Terrain.Height)
-                        layer[(tileY + dy) * Terrain.Width + tileX + dx] = id.Packed;
+                    {
+                        int i = (tileY + dy) * Terrain.Width + tileX + dx;
+                        StampOccupancy(air, i, layer[i], id.Packed);
+                        layer[i] = id.Packed;
+                    }
         }
 
         public void Vacate(UnitId id, ushort typeId, int tileX, int tileY)
         {
             if (Terrain == null) return;
-            var layer = OccupancyFor(typeId);
+            bool air = DomainOf(typeId) == MoveDomain.Air;
+            var layer = air ? OccupancyAir : OccupancySurface;
             int size = Footprint(typeId);
             for (int dy = 0; dy < size; dy++)
                 for (int dx = 0; dx < size; dx++)
@@ -127,7 +247,10 @@ namespace Craftwar.Sim
                     {
                         int i = (tileY + dy) * Terrain.Width + tileX + dx;
                         if (layer[i] == id.Packed)
+                        {
+                            StampOccupancy(air, i, layer[i], 0);
                             layer[i] = 0;
+                        }
                     }
         }
 
@@ -222,17 +345,25 @@ namespace Craftwar.Sim
                 && Units[id.Index].IsAlive;
         }
 
-        static void HashGrid(ref StateHash h, byte[][] grids, int player)
-        {
-            if (grids == null)
-                return;
-            byte[] g = grids[player];
-            if (g == null)
-                return;
-            for (int i = 0; i < g.Length; i++)
-                h.Add(g[i]);
-        }
-
+        /// <summary>
+        /// The desync fingerprint. Cheap enough to take every command turn: the
+        /// per-entity walks stay (units are the state that actually diverges) but
+        /// every full-grid walk is replaced by its running checksum.
+        ///
+        /// Visible and Detected are deliberately NOT hashed. TickFog clears both
+        /// and rebuilds them from scratch each tick, so each is exactly
+        /// F(hashed state at the end of this tick) — memoryless, carrying nothing
+        /// across ticks. Combat does read Detected one tick stale, but a
+        /// divergence there implies a divergence in its already-hashed inputs,
+        /// which this hash catches on the earlier tick, before it can reach
+        /// AttackTarget. Explored is different: it accumulates, so it is hashed
+        /// (via its checksum).
+        ///
+        /// Occupancy IS hashed, which it never used to be. It gates pathing,
+        /// target acquisition and build placement, and it is a function of write
+        /// history rather than of current unit positions — so it can diverge on
+        /// its own, and was the one real blind spot here.
+        /// </summary>
         public uint ComputeHash()
         {
             var h = StateHash.Begin();
@@ -241,9 +372,10 @@ namespace Craftwar.Sim
             h.Add(Rng.Inc);
             for (int i = 0; i < Players.Length; i++)
                 Players[i].HashInto(ref h);
-            if (Tiles != null)
-                for (int i = 0; i < Tiles.Length; i++)
-                    h.Add(Tiles[i]);
+            h.Add(TilesChecksum);
+            h.Add(OccupancySurfaceChecksum);
+            h.Add(OccupancyAirChecksum);
+            h.Add(Terrain == null ? 0u : Terrain.TerrainChecksum);
             h.Add(HighestUnitIndex);
             for (int i = 0; i < HighestUnitIndex; i++)
                 Units[i].HashInto(ref h);
@@ -253,17 +385,63 @@ namespace Craftwar.Sim
                     h.Add(i);
                     Projectiles[i].HashInto(ref h);
                 }
-            // Fog. Null before Setup (tests build a sim with no map at all), and
-            // only in-game slots carry grids, so both guards are load-bearing.
+            // Only in-game slots explore anything; the rest stay zero.
             for (int p = 0; p < Players.Length; p++)
-            {
-                if (!Players[p].InGame)
-                    continue;
-                HashGrid(ref h, Visible, p);
-                HashGrid(ref h, Explored, p);
-                HashGrid(ref h, Detected, p);
-            }
+                h.Add(ExploredChecksum[p]);
             return h.Value;
+        }
+
+        /// <summary>
+        /// Recompute every maintained checksum from scratch and report the first
+        /// mismatch, or null when they all agree. This is the guard that makes the
+        /// incremental scheme trustworthy: if a future write site skips a funnel,
+        /// the hash would silently stop noticing that grid, so tests assert this
+        /// after long runs and loads rather than trusting the funnels by
+        /// inspection. Test/diagnostic use — not called on the hot path.
+        /// </summary>
+        public string VerifyChecksums()
+        {
+            unchecked
+            {
+                uint tiles = 0;
+                if (_tiles != null)
+                    for (int i = 0; i < _tiles.Length; i++)
+                        tiles += CellMix(i, _tiles[i]);
+                if (tiles != TilesChecksum)
+                    return $"TilesChecksum {TilesChecksum:X8} != recomputed {tiles:X8}";
+
+                uint surf = 0, air = 0;
+                if (OccupancySurface != null)
+                    for (int i = 0; i < OccupancySurface.Length; i++)
+                        surf += CellMix(i, OccupancySurface[i]);
+                if (surf != OccupancySurfaceChecksum)
+                    return $"OccupancySurfaceChecksum {OccupancySurfaceChecksum:X8} != recomputed {surf:X8}";
+                if (OccupancyAir != null)
+                    for (int i = 0; i < OccupancyAir.Length; i++)
+                        air += CellMix(i, OccupancyAir[i]);
+                if (air != OccupancyAirChecksum)
+                    return $"OccupancyAirChecksum {OccupancyAirChecksum:X8} != recomputed {air:X8}";
+
+                for (int p = 0; p < Players.Length; p++)
+                {
+                    uint exp = 0;
+                    byte[] g = Explored?[p];
+                    if (g != null)
+                        for (int i = 0; i < g.Length; i++)
+                            if (g[i] != 0)
+                                exp += CellMix(i, 1);
+                    if (exp != ExploredChecksum[p])
+                        return $"ExploredChecksum[{p}] {ExploredChecksum[p]:X8} != recomputed {exp:X8}";
+                }
+
+                if (Terrain != null)
+                {
+                    string terrainError = Terrain.VerifyTerrainChecksum();
+                    if (terrainError != null)
+                        return terrainError;
+                }
+            }
+            return null;
         }
     }
 }

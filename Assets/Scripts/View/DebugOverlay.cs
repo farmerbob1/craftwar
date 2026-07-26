@@ -133,7 +133,7 @@ namespace Craftwar.View
                 return;
             }
             int t = tileY * state.Terrain.Width + tileX;
-            ushort mtxm = state.Tiles[t];
+            ushort mtxm = state.Tile(t);
             uint occ = state.OccupancySurface[t];
             _sb.Append("  tile ").Append(tileX).Append(',').Append(tileY)
                .Append("   MTXM 0x").Append(mtxm.ToString("X4"))

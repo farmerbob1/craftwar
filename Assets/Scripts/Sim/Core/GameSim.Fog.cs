@@ -51,14 +51,14 @@ namespace Craftwar.Sim
                     continue;
 
                 int sight = EffectiveSight(ref u);
-                Reveal(vis, State.Explored[u.Player], ref u, sight);
+                Reveal(vis, State.Explored[u.Player], u.Player, ref u, sight);
 
                 // Detectors sweep the same disc again into the sonar grid.
                 if (State.Rules.Units[u.TypeId].Is(UnitTypeFlags.SeesSubmarine))
                 {
                     byte[] det = State.Detected?[u.Player];
                     if (det != null)
-                        Reveal(det, null, ref u, sight);
+                        Reveal(det, null, -1, ref u, sight);
                 }
             }
         }
@@ -99,7 +99,7 @@ namespace Craftwar.Sim
         /// Squared distance only — SimPurityTests bans Math.Sqrt, and integer
         /// comparison is exactly what we want anyway.
         /// </summary>
-        void Reveal(byte[] visible, byte[] explored, ref Unit u, int sight)
+        void Reveal(byte[] visible, byte[] explored, int exploredPlayer, ref Unit u, int sight)
         {
             if (sight < 0)
                 sight = 0;
@@ -132,8 +132,15 @@ namespace Craftwar.Sim
                         continue;
                     int t = row + x;
                     visible[t] = 1;
-                    if (explored != null)
+                    // Only stamp the checksum on the unexplored -> explored
+                    // transition. Reveal restamps the same discs every tick, so
+                    // an unguarded update would add a term per tick per tile and
+                    // could never match a from-scratch recompute.
+                    if (explored != null && explored[t] == 0)
+                    {
                         explored[t] = 1;
+                        State.StampExplored(exploredPlayer, t);
+                    }
                 }
             }
         }

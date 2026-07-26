@@ -983,7 +983,7 @@ namespace Craftwar.Sim
                     if (Vert(x, y + 1)) bits |= 4;         // LL
                     if (Vert(x + 1, y + 1)) bits |= 8;     // LR
 
-                    ushort cur = State.Tiles[y * w + x];
+                    ushort cur = State.Tile(y * w + x);
                     ushort id;
                     if (!hasWood)
                     {
@@ -1049,7 +1049,7 @@ namespace Craftwar.Sim
 
                     if (cur != id)
                     {
-                        State.Tiles[y * w + x] = id;
+                        State.SetTile(y * w + x, id);
                         State.TileChanges.Add(((ushort)x, (ushort)y, id));
                     }
                 }

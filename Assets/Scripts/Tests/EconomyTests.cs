@@ -108,7 +108,7 @@ namespace Craftwar.Sim.Tests
             for (int y = 24; y <= 26 && !anyChopped; y++)
                 for (int x = 4; x <= 8 && !anyChopped; x++)
                 {
-                    ushort id = sim.State.Tiles[y * 32 + x];
+                    ushort id = sim.State.Tile(y * 32 + x);
                     bool solidForest = (id & 0xFF00) == 0 && ((id >> 4) & 0xF) == 0x7;
                     if (!solidForest && sim.State.Terrain.IsPassable(MoveDomain.Land, x, y)
                         && !sim.State.Terrain.HasWood(x, y))
