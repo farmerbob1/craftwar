@@ -32,6 +32,9 @@ namespace Craftwar.Sim
     {
         public const int MaxSelection = 18;
 
+        /// <summary>Largest serialized size: 13 fixed bytes + a full selection.</summary>
+        public const int MaxWireBytes = 13 + MaxSelection * 4;
+
         public CommandOp Op;
         public byte Player;
         public ushort TargetX;        // tile coords for positional orders

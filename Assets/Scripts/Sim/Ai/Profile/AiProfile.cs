@@ -189,12 +189,9 @@ namespace Craftwar.Sim.Ai
 
         public byte[] ToBytes()
         {
-            var buffer = new byte[4096];
-            var w = new ByteWriter(buffer);
+            var w = new ByteWriter(4096); // hint; the writer grows if a profile outgrows it
             Write(ref w);
-            var result = new byte[w.Position];
-            System.Array.Copy(buffer, result, w.Position);
-            return result;
+            return w.ToArray();
         }
 
         public static AiProfile FromBytes(byte[] data)

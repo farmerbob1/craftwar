@@ -67,6 +67,19 @@ namespace Craftwar.App
         float _accumulator;
         const float TickSeconds = SimConstants.MsPerTick / 1000f;
 
+        /// <summary>Most catch-up the accumulator may bank, in ticks. Matches the
+        /// per-frame safety cap, so debt never outruns what one frame can spend.</summary>
+        const int MaxTickDebt = 8;
+
+        /// <summary>Last tick the AIs were given a chance to think on. Stops a
+        /// stalled driver from re-thinking the same tick every rendered frame.</summary>
+        int _lastAiThinkTick = int.MinValue;
+
+        /// <summary>True while the driver is withholding the next tick — waiting on
+        /// remote input. The view holds still rather than interpolating into a
+        /// tick that has not been agreed.</summary>
+        public bool Starving { get; private set; }
+
         // Computer opponents. Command sources exactly like the human: they read
         // sim state and submit through the driver, so replays capture their
         // commands. Plain owned objects, rebuilt with the scene on Restart.
@@ -354,7 +367,15 @@ namespace Craftwar.App
 
         void Update()
         {
-            if (Sim == null || Paused)
+            if (Sim == null)
+                return;
+
+            // M10 insertion point: the net driver's Poll() goes HERE, above the
+            // Paused early-out. A paused peer — or one sitting on the victory
+            // screen — must keep pumping the socket, or it stops acknowledging
+            // turns and stalls every other player until the drop timeout.
+
+            if (Paused)
                 return;
 
             // Game speed scales how fast wall-clock feeds the fixed 50 Hz tick —
@@ -362,6 +383,11 @@ namespace Craftwar.App
             // untouched (replays record ticks, not seconds).
             _accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f)
                 * View.GameplaySettings.Current.SpeedMultiplier;
+            // Cap banked debt. The per-frame caps below only *defer* catch-up, so
+            // without this the accumulator grows without bound whenever the
+            // driver withholds a tick; a 10 s network stall would bank ~500 ticks
+            // and then fast-forward the match on resume.
+            _accumulator = Mathf.Min(_accumulator, MaxTickDebt * TickSeconds);
             int safety = 8; // don't spiral after a hitch
             // Also cap the wall-clock time spent catching up this frame. With the
             // pathfinding fix a tick is ~1-3 ms so this never bites, but it turns a
@@ -376,16 +402,39 @@ namespace Craftwar.App
                 // land on exactly the tick they observed and are recorded like
                 // any player's. Human input arrives earlier in the frame via
                 // the same SubmitLocalCommand path.
-                for (int a = 0; a < _ais.Count; a++)
+                //
+                // Guarded on the tick, not the frame: when the driver withholds a
+                // tick below, the sim clock stops but Update keeps running, so an
+                // unguarded call would re-think the same tick once per rendered
+                // frame and submit the same orders again and again. Must stay
+                // per-TICK — quantizing it to the 4-tick command turn would break
+                // the AI outright, since AiPlayer gates on
+                // (Tick + Slot*7) % ThinkPeriod with periods {22, 25, 50}: the
+                // even periods share a factor with 4 and the odd slots would
+                // never think at all.
+                if (_lastAiThinkTick != Sim.State.Tick)
                 {
-                    _aiCommands.Clear();
-                    _ais[a].Think(Sim, _aiCommands);
-                    for (int c = 0; c < _aiCommands.Count; c++)
-                        Driver.SubmitLocalCommand(_aiCommands[c]);
+                    _lastAiThinkTick = Sim.State.Tick;
+                    for (int a = 0; a < _ais.Count; a++)
+                    {
+                        _aiCommands.Clear();
+                        _ais[a].Think(Sim, _aiCommands);
+                        for (int c = 0; c < _aiCommands.Count; c++)
+                            Driver.SubmitLocalCommand(_aiCommands[c]);
+                    }
                 }
 
                 if (!Driver.TryGetTickCommands(Sim.State.Tick, _tickCommands))
-                    break; // waiting on network turn (M10+)
+                {
+                    // Waiting on a network turn. Never bank the wait: hold at most
+                    // one tick of debt so resuming continues at real speed instead
+                    // of fast-forwarding through everything we stood still for.
+                    Starving = true;
+                    if (_accumulator > TickSeconds)
+                        _accumulator = TickSeconds;
+                    break;
+                }
+                Starving = false;
 
                 SnapshotPositions();
                 if (_replay != null)
@@ -399,7 +448,9 @@ namespace Craftwar.App
                 if (Time.realtimeSinceStartupAsDouble - frameStart > CatchUpBudgetSeconds)
                     break; // yield to rendering; remaining catch-up rolls to next frame
             }
-            Alpha = Mathf.Clamp01(_accumulator / TickSeconds);
+            // Starving: freeze at the tick we actually agreed on instead of
+            // sliding units into an unconfirmed one and snapping them back.
+            Alpha = Starving ? 1f : Mathf.Clamp01(_accumulator / TickSeconds);
         }
 
         /// <summary>Drain the runner's per-frame changes into the view, then poll

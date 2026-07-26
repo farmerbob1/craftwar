@@ -48,5 +48,43 @@ namespace Craftwar.Sim.Tests
             r.ReadUShort();
             Assert.Throws<System.IO.EndOfStreamException>(() => r.ReadByte());
         }
+
+        [Test]
+        public void ByteWriter_GrowsPastItsInitialBuffer()
+        {
+            // One byte of capacity, then far more than that written: the writer
+            // must reallocate rather than throw. Variable-size payloads (state
+            // snapshots, turn packets) depend on this.
+            var w = new ByteWriter(new byte[1]);
+            for (int i = 0; i < 100; i++)
+                w.WriteUInt((uint)i);
+
+            Assert.AreEqual(400, w.Position);
+            var bytes = w.ToArray();
+            Assert.AreEqual(400, bytes.Length);
+
+            var r = new ByteReader(bytes);
+            for (int i = 0; i < 100; i++)
+                Assert.AreEqual((uint)i, r.ReadUInt(), $"value {i} survived the growth");
+            Assert.AreEqual(bytes.Length, r.Position);
+        }
+
+        [Test]
+        public void ByteWriter_BlockRoundTrips()
+        {
+            var payload = new byte[300];
+            for (int i = 0; i < payload.Length; i++)
+                payload[i] = (byte)(i * 7);
+
+            var w = new ByteWriter(8);
+            w.WriteUInt(0xDEADBEEF);
+            w.WriteBytes(payload, 0, payload.Length);
+            w.WriteByte(0x5A);
+
+            var r = new ByteReader(w.ToArray());
+            Assert.AreEqual(0xDEADBEEF, r.ReadUInt());
+            Assert.AreEqual(payload, r.ReadBytes());
+            Assert.AreEqual(0x5A, r.ReadByte());
+        }
     }
 }

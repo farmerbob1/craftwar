@@ -22,6 +22,10 @@ namespace Craftwar.Sim
         public const uint Magic = 0x50525743; // "CWRP" little-endian
         public const ushort Version = 2;
 
+        /// <summary>magic(4) + version(2) + seed(8) + mapHash(4) + per-slot AI
+        /// hashes + count(4).</summary>
+        const int HeaderBytes = 22 + SimConstants.MaxPlayers * 4;
+
         public ulong Seed;
         public uint MapHash;
 
@@ -40,11 +44,13 @@ namespace Craftwar.Sim
 
         public byte[] ToBytes()
         {
-            // Generous sizing: header (incl. per-slot AI hashes) + max command
-            // footprint per entry.
-            var buffer = new byte[18 + SimConstants.MaxPlayers * 4
-                + Entries.Count * (16 + GameCommand.MaxSelection * 4 + 4)];
-            var w = new ByteWriter(buffer);
+            // Capacity is a hint only — ByteWriter grows. (It used to be a hard
+            // pre-size that was four bytes short of the header it writes, so a
+            // replay with 0 entries, or 1 entry carrying a full 18-unit
+            // selection, threw IndexOutOfRange. Masked because SaveReplay
+            // early-returns on an empty log.)
+            var w = new ByteWriter(HeaderBytes
+                + Entries.Count * (4 + GameCommand.MaxWireBytes));
             w.WriteUInt(Magic);
             w.WriteUShort(Version);
             w.WriteULong(Seed);
@@ -57,9 +63,7 @@ namespace Craftwar.Sim
                 w.WriteInt(tick);
                 cmd.Write(ref w);
             }
-            var result = new byte[w.Position];
-            System.Array.Copy(buffer, result, w.Position);
-            return result;
+            return w.ToArray();
         }
 
         public static Replay FromBytes(byte[] data)
