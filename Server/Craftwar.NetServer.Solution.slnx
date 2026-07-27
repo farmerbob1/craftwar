@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Craftwar.NetServer.Tests/Craftwar.NetServer.Tests.csproj" />
+  <Project Path="Craftwar.NetServer/Craftwar.NetServer.csproj" />
+</Solution>

@@ -89,6 +89,7 @@ namespace Craftwar.App
             root.Q<Button>("single-player").clicked += ShowSetup;
             root.Q<Button>("locate").clicked += ShowWizard;
             InitLan(root);
+            InitOnline(root);
             root.Q<Button>("quit").clicked += Quit;
             root.Q<Button>("options").clicked += ShowOptions;
 

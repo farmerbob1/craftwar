@@ -22,6 +22,14 @@ namespace Craftwar.Net
         /// <summary>Client's map/rules fingerprint, sent once it has been told
         /// which map the host is playing.</summary>
         IdentityConfirm,
+        /// <summary>A fresh connection claiming to be a previously-dropped
+        /// seat, sent mid-match instead of JoinRequest (no LobbyHost exists
+        /// once the match has started).</summary>
+        RejoinRequest,
+        RejoinReject,
+        /// <summary>Header for a rejoin: seat, driver state, and how many
+        /// SnapshotChunk messages follow.</summary>
+        RejoinAccept,
     }
 
     public enum JoinRejectReason : byte
@@ -34,6 +42,9 @@ namespace Craftwar.Net
         AiProfileMismatch,
         GameFull,
         AlreadyStarted,
+        /// <summary>Rejoin claimed a seat that is not currently substituted —
+        /// either it was never dropped, or someone already reclaimed it.</summary>
+        SeatNotAvailable,
     }
 
     /// <summary>
@@ -204,6 +215,98 @@ namespace Craftwar.Net
             w.WriteByte((byte)NetMessageKind.IdentityConfirm);
             var id = identity;
             id.Write(ref w);
+        }
+
+        public static void WriteRejoinRequest(ref ByteWriter w, in BuildIdentity identity,
+            byte claimedSlot, string playerName)
+        {
+            w.WriteByte((byte)NetMessageKind.RejoinRequest);
+            var id = identity;
+            id.Write(ref w);
+            w.WriteByte(claimedSlot);
+            WriteString(ref w, playerName);
+        }
+
+        public static void ReadRejoinRequest(ref ByteReader r, out BuildIdentity identity,
+            out byte claimedSlot, out string playerName)
+        {
+            identity = BuildIdentity.Read(ref r);
+            claimedSlot = r.ReadByte();
+            playerName = ReadString(ref r);
+        }
+
+        public static void WriteRejoinReject(ref ByteWriter w, JoinRejectReason reason)
+        {
+            w.WriteByte((byte)NetMessageKind.RejoinReject);
+            w.WriteByte((byte)reason);
+        }
+
+        /// <summary>Pause state packs into one byte — MaxPlayers is 8.</summary>
+        public static byte PackPausingSlots(bool[] pausingSlots)
+        {
+            byte packed = 0;
+            if (pausingSlots == null)
+                return packed;
+            for (int i = 0; i < pausingSlots.Length && i < 8; i++)
+                if (pausingSlots[i])
+                    packed |= (byte)(1 << i);
+            return packed;
+        }
+
+        public static bool[] UnpackPausingSlots(byte packed)
+        {
+            var slots = new bool[SimConstants.MaxPlayers];
+            for (int i = 0; i < slots.Length; i++)
+                slots[i] = (packed & (1 << i)) != 0;
+            return slots;
+        }
+
+        /// <summary>Header for a rejoin: the driver state a SimSerializer
+        /// snapshot does not carry (current turn, turn/delay parameters, the
+        /// pause set) plus how many SnapshotChunk messages follow.</summary>
+        public static void WriteRejoinAccept(ref ByteWriter w, byte yourSlot, int resumeTurn,
+            byte ticksPerTurn, byte inputDelayTurns, bool[] pausingSlots,
+            int chunkCount, int snapshotByteLength)
+        {
+            w.WriteByte((byte)NetMessageKind.RejoinAccept);
+            w.WriteByte(yourSlot);
+            w.WriteInt(resumeTurn);
+            w.WriteByte(ticksPerTurn);
+            w.WriteByte(inputDelayTurns);
+            w.WriteByte(PackPausingSlots(pausingSlots));
+            w.WriteInt(chunkCount);
+            w.WriteInt(snapshotByteLength);
+        }
+
+        public static void ReadRejoinAccept(ref ByteReader r, out byte yourSlot, out int resumeTurn,
+            out byte ticksPerTurn, out byte inputDelayTurns, out bool[] pausingSlots,
+            out int chunkCount, out int snapshotByteLength)
+        {
+            yourSlot = r.ReadByte();
+            resumeTurn = r.ReadInt();
+            ticksPerTurn = r.ReadByte();
+            inputDelayTurns = r.ReadByte();
+            pausingSlots = UnpackPausingSlots(r.ReadByte());
+            chunkCount = r.ReadInt();
+            snapshotByteLength = r.ReadInt();
+        }
+
+        /// <summary>One piece of a chunked snapshot transfer. Chunks may
+        /// arrive out of order over an unordered transport, so each carries
+        /// its own index; kept small (a few KB) so a slow link paces
+        /// naturally instead of one giant reliable send blocking everything
+        /// else.</summary>
+        public static void WriteSnapshotChunk(ref ByteWriter w, int index, byte[] data, int offset, int count)
+        {
+            w.WriteByte((byte)NetMessageKind.SnapshotChunk);
+            w.WriteInt(index);
+            w.WriteBytes(data, offset, count);
+        }
+
+        public static void ReadSnapshotChunk(ref ByteReader r, out int index, out byte[] data)
+        {
+            index = r.ReadInt();
+            data = r.ReadBytes();
         }
 
         public static void WriteLobbyState(ref ByteWriter w, LobbyPayload payload)

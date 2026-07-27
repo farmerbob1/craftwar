@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Craftwar.NetServer</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The relay protocol and everything it needs. Both are
+         noEngineReferences Unity asmdefs (see CLAUDE.md) — pure C#, so the
+         server can compile their source directly, exactly like the
+         standalone Sim test harness does. Never references GameSim.Advance:
+         this process relays bytes, it does not simulate. -->
+    <Compile Include="..\..\Assets\Scripts\Sim\**\*.cs" />
+    <Compile Include="..\..\Assets\Scripts\Net\**\*.cs" />
+    <Compile Include="**\*.cs" Exclude="bin\**\*.cs;obj\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <!-- Pin past the transitive SQLitePCLRaw version Microsoft.Data.Sqlite
+         10.0.10 pulls (2.1.11, flagged GHSA-2m69-gcr7-jv3q). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+
+</Project>

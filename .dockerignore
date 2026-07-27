@@ -1,0 +1,34 @@
+# The server image (Server/Dockerfile) only ever COPYs Assets/Scripts/Sim,
+# Assets/Scripts/Net, and Server/Craftwar.NetServer, but `docker build`
+# hashes and uploads the WHOLE build context before a single COPY runs — so
+# without this file, a `docker build -f Server/Dockerfile .` from the repo
+# root would spend minutes on Unity's Library/ cache (routinely multiple
+# GB) before the build even starts. Kept simple (exclude the few huge/
+# irrelevant top-level dirs) rather than trying to allowlist a narrow
+# subtree — Docker's ignore matcher does not reliably support "exclude a
+# directory, then re-include one of its descendants".
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+.vs/
+.idea/
+.git/
+
+# Blizzard-owned data must never leave this machine, let alone into a
+# Docker image layer — see CLAUDE.md's licensing guardrails. Not needed for
+# the server build anyway (it only touches Sim/Net source).
+/Assets/GameData/Extracted/
+/Assets/StreamingAssets/Maps/*.pud
+
+Server/**/bin/
+Server/**/obj/
+Server/**/*.db
+Server/**/*.db-shm
+Server/**/*.db-wal
+Server/**/*.pfx

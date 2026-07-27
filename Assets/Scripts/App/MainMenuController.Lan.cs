@@ -68,6 +68,8 @@ namespace Craftwar.App
                 Show(_panelLan, false);
             if (_panelLobby != null)
                 Show(_panelLobby, false);
+            if (_panelOnline != null)
+                Show(_panelOnline, false);
         }
 
         // --- Browser -------------------------------------------------------------
@@ -179,9 +181,10 @@ namespace Craftwar.App
             EnterLobby(isHost: true);
         }
 
-        /// <summary>The host's opening roster: the map's playable seats, with the
-        /// host in the first one and the rest as computer players until people
-        /// take them.</summary>
+        /// <summary>The host's opening roster: the map's playable seats, with
+        /// the host in the first one and the rest left Open — waiting for
+        /// people, not defaulted to the computer. The host resolves any that
+        /// stay unclaimed (Closed or Computer) before Start unlocks.</summary>
         LobbyPayload BuildHostPayload()
         {
             var entry = _maps[Mathf.Clamp(_lanMapSel, 0, _maps.Count - 1)];
@@ -209,11 +212,10 @@ namespace Craftwar.App
                     continue;
                 payload.Slots[p] = new LobbySlot
                 {
-                    Controller = (byte)(hostSeated ? Controller.Computer : Controller.Human),
+                    SeatStatus = (byte)(hostSeated ? LobbySeatStatus.Open : LobbySeatStatus.Human),
                     Race = pud.Side[p] == (byte)Race.Orc ? (byte)Race.Orc : (byte)Race.Human,
                     Team = (byte)p,
                     AiTier = (byte)Craftwar.Sim.Ai.AiTier.Normal,
-                    Human = !hostSeated,
                     Name = hostSeated ? "" : PlayerName(),
                 };
                 if (!hostSeated)
@@ -296,7 +298,10 @@ namespace Craftwar.App
             Show(_panelLobby, true);
             if (_lobbyTitle != null)
                 _lobbyTitle.text = isHost ? "Hosting" : "Lobby";
-            _lobbyStart.SetEnabled(isHost);
+            // Start unlocks once every seat is resolved — RebuildLobby keeps
+            // this current as the host toggles seats; set an initial (false)
+            // value here so a fresh host lobby does not flash enabled first.
+            _lobbyStart.SetEnabled(isHost && _lobbyHost != null && _lobbyHost.CanStart());
             Show(_lobbyStart, isHost);
             _lobbyDirty = true;
             RebuildLobby();
@@ -326,33 +331,90 @@ namespace Craftwar.App
                 _lobbyMap.text = $"Map: {Path.GetFileNameWithoutExtension(payload.MapPath)}";
 
             byte mySlot = _lobbyHost != null ? NetSession.LocalSlot : _lobbyClient?.MySlot ?? 0;
+            bool isHost = _lobbyHost != null;
             for (int p = 0; p < payload.Slots.Length; p++)
             {
                 ref LobbySlot slot = ref payload.Slots[p];
-                if (slot.Controller == (byte)Controller.None)
+                if (slot.SeatStatus == (byte)LobbySeatStatus.Closed)
                     continue;
-
-                string who = slot.Human
-                    ? (string.IsNullOrEmpty(slot.Name) ? "Player" : slot.Name)
-                    : "Computer";
-                if (p == mySlot)
-                    who += "  (You)";
-                var line = new Label($"Seat {p + 1}:  {who}   [{(Race)slot.Race}]")
-                {
-                    pickingMode = PickingMode.Ignore,
-                };
-                line.AddToClassList("text");
-                _lobbySlotList.Add(line);
+                _lobbySlotList.Add(BuildSeatRow(p, payload, mySlot, isHost));
             }
 
             if (_lobbyHost != null)
-                SetLobbyStatus($"{_lobbyHost.Payload.HumanCount()} of " +
-                               $"{_lobbyHost.Payload.PlayableCount()} seats taken. " +
-                               "Empty seats play as the computer.");
+                SetLobbyStatus(_lobbyHost.CanStart()
+                    ? $"{_lobbyHost.Payload.HumanCount()} of {_lobbyHost.Payload.PlayableCount()} seats taken."
+                    : "Close or assign every Open seat before starting.");
             else if (_lobbyClient != null && _lobbyClient.Disconnected)
                 SetLobbyStatus("Lost contact with the host.");
             else
                 SetLobbyStatus("Waiting for the host to start…");
+
+            if (_lobbyHost != null)
+                _lobbyStart.SetEnabled(_lobbyHost.CanStart());
+        }
+
+        /// <summary>One roster row. Host-only interactive controls (seat
+        /// status cycle, team) are plain UI Toolkit elements built in code —
+        /// lobby-slots is an empty container the whole roster is already
+        /// built into at runtime, same as before this change.</summary>
+        VisualElement BuildSeatRow(int p, LobbyPayload payload, byte mySlot, bool isHost)
+        {
+            ref LobbySlot slot = ref payload.Slots[p];
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+
+            string who = (LobbySeatStatus)slot.SeatStatus switch
+            {
+                LobbySeatStatus.Human => string.IsNullOrEmpty(slot.Name) ? "Player" : slot.Name,
+                LobbySeatStatus.Computer => $"Computer ({(Craftwar.Sim.Ai.AiTier)slot.AiTier})",
+                _ => "Open",
+            };
+            if (p == mySlot)
+                who += "  (You)";
+            var label = new Label($"Seat {p + 1}:  {who}   [{(Race)slot.Race}]  Team {slot.Team + 1}")
+            {
+                pickingMode = PickingMode.Ignore,
+            };
+            label.AddToClassList("text");
+            row.Add(label);
+
+            // A human-occupied seat only changes by that person leaving; the
+            // host can only toggle a seat nobody is sitting in.
+            if (isHost && (LobbySeatStatus)slot.SeatStatus != LobbySeatStatus.Human)
+            {
+                int seat = p;
+                var cycle = new Button(() => CycleSeatStatus(seat)) { text = "Closed/Open/AI" };
+                cycle.AddToClassList("menu__button");
+                row.Add(cycle);
+            }
+            if (isHost)
+            {
+                int seat = p;
+                var team = new Button(() => CycleSeatTeam(seat)) { text = "Team" };
+                team.AddToClassList("menu__button");
+                row.Add(team);
+            }
+            return row;
+        }
+
+        void CycleSeatStatus(int seat)
+        {
+            if (_lobbyHost == null) return;
+            var current = (LobbySeatStatus)_lobbyHost.Payload.Slots[seat].SeatStatus;
+            var next = current switch
+            {
+                LobbySeatStatus.Closed => LobbySeatStatus.Open,
+                LobbySeatStatus.Open => LobbySeatStatus.Computer,
+                _ => LobbySeatStatus.Closed,
+            };
+            _lobbyHost.SetSeatStatus(seat, next);
+        }
+
+        void CycleSeatTeam(int seat)
+        {
+            if (_lobbyHost == null) return;
+            byte next = (byte)((_lobbyHost.Payload.Slots[seat].Team + 1) % SimConstants.MaxPlayers);
+            _lobbyHost.SetSeatTeam(seat, next);
         }
 
         void SetLobbyStatus(string text)
@@ -382,7 +444,11 @@ namespace Craftwar.App
         {
             if (_lobbyHost == null)
                 return;
-            _lobbyHost.StartMatch();
+            if (!_lobbyHost.StartMatch())
+            {
+                SetLobbyStatus("Close or assign every Open seat before starting.");
+                return;
+            }
             LaunchFrom(_lobbyHost.Payload, NetSession.LocalSlot, isHost: true,
                 _lobbyHost.SlotByPeer);
         }
@@ -394,8 +460,10 @@ namespace Craftwar.App
             Dictionary<int, byte> slotByPeer)
         {
             // Hand the live socket to the game scene: reconnecting after the load
-            // would throw away the agreement the lobby just reached.
-            NetSession.Socket = _socket;
+            // would throw away the agreement the lobby just reached. Whichever
+            // transport actually negotiated this lobby (LAN or online) is the
+            // one that's non-null here.
+            NetSession.Socket = _socket != null ? (IPacketPeer)_socket : _onlineSocket;
             NetSession.IsHost = isHost;
             NetSession.LocalSlot = localSlot;
             NetSession.ParticipatingSlots = payload.ParticipatingSlots();
@@ -410,6 +478,7 @@ namespace Craftwar.App
             // The socket now belongs to NetSession, so this menu must not close
             // it on the way out.
             _socket = null;
+            _onlineSocket = null;
             _discovery?.Dispose();
             _discovery = null;
 
@@ -430,9 +499,14 @@ namespace Craftwar.App
                 ref LobbySlot slot = ref payload.Slots[p];
                 config.slots[p] = new SlotConfig
                 {
-                    // A seat nobody took plays as the computer, so an empty seat
-                    // is an opponent rather than a hole in the match.
-                    controller = (Controller)slot.Controller,
+                    // Open never reaches here — StartMatch refuses while any
+                    // seat is still Open, so only Human/Computer/Closed do.
+                    controller = (LobbySeatStatus)slot.SeatStatus switch
+                    {
+                        LobbySeatStatus.Human => Controller.Human,
+                        LobbySeatStatus.Computer => Controller.Computer,
+                        _ => Controller.None,
+                    },
                     race = (Race)slot.Race,
                     team = slot.Team,
                     aiTier = slot.AiTier,
@@ -496,6 +570,8 @@ namespace Craftwar.App
             _lobbyClient = null;
             _socket?.Dispose();
             _socket = null;
+            _onlineSocket?.Dispose();
+            _onlineSocket = null;
             _discovery?.Dispose();
             _discovery = null;
         }

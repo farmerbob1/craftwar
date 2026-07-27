@@ -11,6 +11,7 @@
             <ui:Label class="menu__title" text="Craftwar" picking-mode="Ignore" />
             <ui:Button name="single-player" class="menu__button" text="Single Player" />
             <ui:Button name="multiplayer" class="menu__button" text="Multiplayer (LAN)" />
+            <ui:Button name="multiplayer-online" class="menu__button" text="Multiplayer (Online)" />
             <ui:Button name="locate" class="menu__button" text="Locate Game Data" />
             <ui:Button name="options" class="menu__button" text="Options" />
             <ui:Button name="quit" class="menu__button" text="Quit" />
@@ -76,15 +77,54 @@
             <ui:Button name="lan-back" class="menu__button" text="Back" />
         </ui:VisualElement>
 
-        <!-- The room itself, once hosting or joined. -->
+        <!-- The room itself, once hosting or joined. Shared by LAN and
+             Online — the chat row is only live over Online (RelayPeerSocket);
+             it sits inert for a LAN session, which has no chat channel. -->
         <ui:VisualElement name="panel-lobby" class="menu menu--wide">
             <ui:Label name="lobby-title" class="menu__title" text="Lobby" picking-mode="Ignore" />
             <ui:Label name="lobby-map" class="text" picking-mode="Ignore" />
             <ui:VisualElement name="lobby-slots" />
             <ui:Label name="lobby-status" class="text text--dim" picking-mode="Ignore"
                       style="white-space: normal;" />
+            <ui:VisualElement name="lobby-chat-log" class="text text--dim"
+                               style="flex-grow: 1; min-height: 80px; white-space: normal;" />
+            <ui:VisualElement name="lobby-chat-row" style="flex-direction: row;">
+                <ui:TextField name="lobby-chat-input" style="flex-grow: 1;" />
+                <ui:Button name="lobby-chat-send" class="menu__button" text="Send" />
+            </ui:VisualElement>
             <ui:Button name="lobby-start" class="menu__button" text="Start" />
             <ui:Button name="lobby-leave" class="menu__button" text="Leave" />
+        </ui:VisualElement>
+
+        <!-- Online browser: login, then create/join a room on the relay
+             server. The room itself reuses panel-lobby, same as LAN. -->
+        <ui:VisualElement name="panel-online" class="menu menu--wide">
+            <ui:Label class="menu__title" text="Multiplayer (Online)" picking-mode="Ignore" />
+
+            <ui:VisualElement name="online-login">
+                <ui:TextField name="online-server" label="Server address" value="127.0.0.1:27015" />
+                <ui:TextField name="online-username" label="Username" />
+                <ui:TextField name="online-password" label="Password" password="true" />
+                <ui:Label name="online-auth-status" class="text text--dim" picking-mode="Ignore"
+                          style="white-space: normal;" />
+                <ui:VisualElement name="online-auth-row" style="flex-direction: row;">
+                    <ui:Button name="online-login-btn" class="menu__button" text="Log In" />
+                    <ui:Button name="online-register-btn" class="menu__button" text="Register" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="online-browser">
+                <ui:Label name="online-welcome" class="text" picking-mode="Ignore" />
+                <ui:VisualElement name="online-rooms" />
+                <ui:Label name="online-status" class="text text--dim" picking-mode="Ignore"
+                          style="white-space: normal;" />
+                <ui:VisualElement name="online-browser-row" style="flex-direction: row;">
+                    <ui:Button name="online-host" class="menu__button" text="Host a Game" />
+                    <ui:Button name="online-refresh" class="menu__button" text="Refresh" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:Button name="online-back" class="menu__button" text="Back" />
         </ui:VisualElement>
 
         <!-- Locate game data (first run and re-runnable) -->

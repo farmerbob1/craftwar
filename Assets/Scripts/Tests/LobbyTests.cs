@@ -24,9 +24,9 @@ namespace Craftwar.Sim.Tests
             var payload = new LobbyPayload { MapPath = "Skirmish.pud", Seed = 7 };
             payload.Slots[0] = new LobbySlot
             {
-                Controller = (byte)Controller.Human, Human = true, Name = "Host",
+                SeatStatus = (byte)LobbySeatStatus.Human, Name = "Host",
             };
-            payload.Slots[1] = new LobbySlot { Controller = (byte)Controller.Computer };
+            payload.Slots[1] = new LobbySlot { SeatStatus = (byte)LobbySeatStatus.Open };
             return payload;
         }
 
@@ -66,12 +66,11 @@ namespace Craftwar.Sim.Tests
             p.Pump();
 
             Assert.IsTrue(p.Client.Seated, "a matching build should be admitted");
-            Assert.AreEqual(1, p.Client.MySlot, "the first free playable seat");
+            Assert.AreEqual(1, p.Client.MySlot, "the first open seat");
             Assert.AreEqual(JoinRejectReason.None, p.Client.Rejection);
 
-            // The host's roster shows the newcomer as a person, not a computer.
-            Assert.IsTrue(p.Host.Payload.Slots[1].Human);
-            Assert.AreEqual((byte)Controller.Human, p.Host.Payload.Slots[1].Controller);
+            // The host's roster shows the newcomer as a person, not open/AI.
+            Assert.AreEqual((byte)LobbySeatStatus.Human, p.Host.Payload.Slots[1].SeatStatus);
             Assert.AreEqual("Grom", p.Host.Payload.Slots[1].Name);
             Assert.AreEqual(2, p.Host.Payload.HumanCount());
 
@@ -116,7 +115,8 @@ namespace Craftwar.Sim.Tests
             Assert.IsFalse(p.Client.Seated, "the seat is taken back");
             Assert.AreEqual(JoinRejectReason.MapMismatch, p.Client.Rejection);
             Assert.AreEqual(1, p.Host.Payload.HumanCount(), "and freed on the host");
-            Assert.IsFalse(p.Host.Payload.Slots[1].Human);
+            Assert.AreEqual((byte)LobbySeatStatus.Open, p.Host.Payload.Slots[1].SeatStatus,
+                "a lost seat goes back to waiting, not to the computer");
         }
 
         [Test]
@@ -166,13 +166,61 @@ namespace Craftwar.Sim.Tests
         {
             var p = Connect();
             p.Pump();
-            Assert.IsTrue(p.Host.Payload.Slots[1].Human);
+            Assert.AreEqual((byte)LobbySeatStatus.Human, p.Host.Payload.Slots[1].SeatStatus);
 
             p.Network.Disconnect(1);
             p.Host.Poll();
 
-            Assert.IsFalse(p.Host.Payload.Slots[1].Human, "the seat is available again");
+            Assert.AreEqual((byte)LobbySeatStatus.Open, p.Host.Payload.Slots[1].SeatStatus,
+                "the seat is available again, not handed to the computer");
             Assert.AreEqual(1, p.Host.Payload.HumanCount());
+        }
+
+        [Test]
+        public void TheHost_CanCycleAnUnoccupiedSeatButNotAnOccupiedOne()
+        {
+            var p = Connect();
+            p.Pump();
+
+            // Seat 1 is occupied (Grom) — the host cannot override it directly.
+            Assert.IsFalse(p.Host.SetSeatStatus(1, LobbySeatStatus.Computer));
+            Assert.AreEqual((byte)LobbySeatStatus.Human, p.Host.Payload.Slots[1].SeatStatus);
+
+            // A third (open, but nonexistent here) seat isn't playable at all —
+            // use seat 1 after the client leaves instead.
+            p.Network.Disconnect(1);
+            p.Host.Poll();
+            Assert.IsTrue(p.Host.SetSeatStatus(1, LobbySeatStatus.Computer));
+            Assert.AreEqual((byte)LobbySeatStatus.Computer, p.Host.Payload.Slots[1].SeatStatus);
+
+            Assert.IsTrue(p.Host.SetSeatStatus(1, LobbySeatStatus.Closed));
+            Assert.AreEqual((byte)LobbySeatStatus.Closed, p.Host.Payload.Slots[1].SeatStatus);
+        }
+
+        [Test]
+        public void StartMatch_RefusesWhileASeatIsStillOpen()
+        {
+            var payload = TwoSeatPayload(); // slot 1 is Open, nobody joined
+            var network = new LoopbackNetwork();
+            var hostPeer = network.CreatePeer();
+            var host = new LobbyHost(hostPeer, Identity(), payload);
+
+            Assert.IsFalse(host.CanStart());
+            Assert.IsFalse(host.StartMatch(), "must not be able to start with an unresolved seat");
+
+            Assert.IsTrue(host.SetSeatStatus(1, LobbySeatStatus.Computer));
+            Assert.IsTrue(host.CanStart());
+            Assert.IsTrue(host.StartMatch());
+        }
+
+        [Test]
+        public void TheHost_CanRegroupTeams()
+        {
+            var p = Connect();
+            p.Pump();
+
+            p.Host.SetSeatTeam(1, 0); // put the joiner on the host's team (0)
+            Assert.AreEqual(0, p.Host.Payload.Slots[1].Team);
         }
 
         [Test]
@@ -185,7 +233,7 @@ namespace Craftwar.Sim.Tests
             byte startedSeat = 255;
             p.Client.Started += (payload, seat) => { started = payload; startedSeat = seat; };
 
-            p.Host.StartMatch();
+            Assert.IsTrue(p.Host.StartMatch());
             p.Client.Poll();
 
             Assert.IsNotNull(started, "the client must be told to load the match");
@@ -198,7 +246,8 @@ namespace Craftwar.Sim.Tests
         public void ParticipatingSlots_CoverEveryPlayingSeat_HumanOrComputer()
         {
             var payload = TwoSeatPayload();
-            payload.Slots[3] = new LobbySlot { Controller = (byte)Controller.Computer };
+            payload.Slots[1] = new LobbySlot { SeatStatus = (byte)LobbySeatStatus.Computer };
+            payload.Slots[3] = new LobbySlot { SeatStatus = (byte)LobbySeatStatus.Computer };
 
             CollectionAssert.AreEqual(new byte[] { 0, 1, 3 }, payload.ParticipatingSlots(),
                 "a turn waits on computer seats too — the host produces their input");
@@ -209,7 +258,7 @@ namespace Craftwar.Sim.Tests
         {
             var payload = TwoSeatPayload();
             payload.Slots[1].Name = "Grom";
-            payload.Slots[1].Human = true;
+            payload.Slots[1].SeatStatus = (byte)LobbySeatStatus.Human;
             payload.InputDelayTurns = 3;
 
             var w = new ByteWriter(64);
@@ -221,7 +270,7 @@ namespace Craftwar.Sim.Tests
             Assert.AreEqual(payload.Seed, back.Seed);
             Assert.AreEqual(3, back.InputDelayTurns);
             Assert.AreEqual("Grom", back.Slots[1].Name);
-            Assert.IsTrue(back.Slots[1].Human);
+            Assert.AreEqual((byte)LobbySeatStatus.Human, back.Slots[1].SeatStatus);
             Assert.AreEqual(w.Position, r.Position, "reader consumes exactly what the writer produced");
         }
     }

@@ -51,21 +51,52 @@ namespace Craftwar.Net
 
         public TurnLockstepDriver(int ticksPerTurn, int inputDelayTurns, byte localSlot,
             ITurnExchange exchange, int hashRingSize = 256)
+            : this(ticksPerTurn, inputDelayTurns, localSlot, exchange, startTurn: 0,
+                  pausingSlots: null, hashRingSize)
+        {
+        }
+
+        /// <summary>
+        /// Resume-at-a-turn overload: a client rejoining mid-match from a
+        /// snapshot lands here instead of turn 0, since turns before
+        /// <paramref name="startTurn"/> already ran on every peer and will
+        /// never be asked for again. <paramref name="pausingSlots"/> mirrors
+        /// whichever slots the host currently has paused — pause state is
+        /// driver-only (GameSim ignores Pause/Resume entirely, see
+        /// CommandOp.Pause), so a snapshot alone can never carry it.
+        /// </summary>
+        public TurnLockstepDriver(int ticksPerTurn, int inputDelayTurns, byte localSlot,
+            ITurnExchange exchange, int startTurn, bool[] pausingSlots, int hashRingSize = 256)
         {
             if (ticksPerTurn < 1)
                 throw new ArgumentOutOfRangeException(nameof(ticksPerTurn), "a turn is at least one tick");
             if (inputDelayTurns < 1)
                 throw new ArgumentOutOfRangeException(nameof(inputDelayTurns),
                     "a command cannot execute in the turn it was issued: peers must agree first");
+            if (startTurn < 0)
+                throw new ArgumentOutOfRangeException(nameof(startTurn));
             _ticksPerTurn = ticksPerTurn;
             _inputDelayTurns = inputDelayTurns;
             LocalSlot = localSlot;
             _exchange = exchange ?? throw new ArgumentNullException(nameof(exchange));
             _hashRing = new (int, uint)[hashRingSize < 1 ? 1 : hashRingSize];
+            _turn = startTurn;
+            _publishedThroughTurn = startTurn - 1;
+            _confirmedTurn = startTurn - 1;
+            _currentTurn = startTurn - 1;
+
+            if (pausingSlots != null)
+                for (byte s = 0; s < pausingSlots.Length && s < SimConstants.MaxPlayers; s++)
+                    if (pausingSlots[s])
+                    {
+                        _pausingSlots[s] = true;
+                        _pausingCount++;
+                    }
 
             // Bootstrap the turns whose input can never be produced by a running
-            // turn, because no turn has run yet.
-            for (int t = 0; t <= _inputDelayTurns - 2; t++)
+            // turn, because no turn has run yet (relative to startTurn — turns
+            // before it are the responsibility of no one anymore).
+            for (int t = startTurn; t <= startTurn + _inputDelayTurns - 2; t++)
             {
                 _exchange.SendInput(t, _localBuffer, 0, 0u);
                 _publishedThroughTurn = t;

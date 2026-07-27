@@ -27,7 +27,7 @@ namespace Craftwar.App
     [RequireComponent(typeof(View.WorldInputController))]
     [RequireComponent(typeof(View.AudioDirector))]
     [RequireComponent(typeof(View.DebugOverlay))]
-    public sealed class GameLoopRunner : MonoBehaviour, View.ISimHost
+    public sealed partial class GameLoopRunner : MonoBehaviour, View.ISimHost
     {
         // --- Scene wiring (assigned in the editor) ------------------------------
 
@@ -212,6 +212,7 @@ namespace Craftwar.App
                     hostExchange.Desynced += OnDesync;
                 if (clientExchange != null)
                     clientExchange.Desynced += OnDesync;
+                InitDropHandling(hostExchange);
             }
             else
             {
@@ -561,8 +562,17 @@ namespace Craftwar.App
                     : _net.IsPaused ? "PAUSED"
                     : Starving ? "WAITING"
                     : _net.Status.ToString().ToUpperInvariant();
-                return $"NET {state}  seat {_net.LocalSlot}  turn {_net.CurrentTurn}" +
+                string line = $"NET {state}  seat {_net.LocalSlot}  turn {_net.CurrentTurn}" +
                        $"/{_net.ConfirmedTurn}  delay {Net.Unity.NetSession.InputDelayTurns}t";
+
+                if (_dropGraceRemaining.Count > 0)
+                    foreach (var pair in _dropGraceRemaining)
+                        line += $"\nWaiting for seat {pair.Key + 1}… ({pair.Value:F0}s)";
+                if (_substituteAis.Count > 0)
+                    foreach (byte slot in _substituteAis.Keys)
+                        line += $"\nSeat {slot + 1} dropped — AI playing";
+
+                return line;
             }
         }
 
@@ -576,6 +586,7 @@ namespace Craftwar.App
             // pumping the socket, or it stops acknowledging turns and stalls
             // every other player until the drop timeout fires.
             _net?.Poll();
+            UpdateDropDetection();
 
             if (Paused)
                 return;
@@ -629,6 +640,7 @@ namespace Craftwar.App
                         for (int c = 0; c < _aiCommands.Count; c++)
                             Driver.SubmitLocalCommand(_aiCommands[c]);
                     }
+                    ThinkSubstituteAis();
                 }
 
                 // Hand the driver the state we are about to execute from, at

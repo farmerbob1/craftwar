@@ -14,7 +14,12 @@ namespace Craftwar.Net.Unity
     /// </summary>
     public static class NetSession
     {
-        public static UtpPeerSocket Socket;
+        /// <summary>Whichever transport negotiated the match — UtpPeerSocket
+        /// for LAN, RelayPeerSocket for online. HostTurnExchange/
+        /// ClientTurnExchange only ever needed IPacketPeer; this was
+        /// UtpPeerSocket-specific purely because LAN was the only transport
+        /// that existed yet.</summary>
+        public static IPacketPeer Socket;
         public static bool IsHost;
         public static byte LocalSlot;
 

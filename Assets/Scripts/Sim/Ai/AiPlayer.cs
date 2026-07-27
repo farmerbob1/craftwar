@@ -332,6 +332,71 @@ namespace Craftwar.Sim.Ai
             && EffectiveLumber() - _spentLumber >= lumber
             && _s.Players[Slot].Oil - _spentOil >= oil;
 
+        /// <summary>
+        /// Rebuild in-think ledger state from live sim state instead of starting
+        /// blank. Needed whenever an <see cref="AiPlayer"/> is attached to a seat
+        /// that is already mid-game — a substituted (dropped) human seat, or a
+        /// loaded save — because a blank ledger is a real bug, not just weaker
+        /// play: <see cref="EffectiveGold"/>/<see cref="EffectiveLumber"/> would
+        /// report the full treasury while this player's peasants are mid-walk
+        /// with <c>Order == Build</c> (cost is deducted only on builder arrival),
+        /// so the AI over-orders and double-spends for 10-25 s until those
+        /// orders land for real.
+        ///
+        /// Deterministic and integer-only like everything else here — a pure
+        /// function of the sim state at the tick it's called. Fields with no
+        /// state-derivable value (<c>_blacklistedSites</c>, <c>_skippedGoals</c>,
+        /// <c>_stallThinks</c>, <c>_scouted</c>) are left at their fresh-
+        /// construction defaults; each self-heals within one think (a
+        /// re-attempted skip just re-skips) or a bounded number of ticks (a
+        /// re-attempted blacklisted site re-blacklists on its own timeout), so
+        /// losing that history costs efficiency, never correctness.
+        /// </summary>
+        public void ReconcileFromState(GameSim sim)
+        {
+            _sim = sim;
+            _s = sim.State;
+
+            _pending.Clear();
+            for (int i = 0; i < _s.HighestUnitIndex; i++)
+            {
+                ref Unit u = ref _s.Units[i];
+                if (!u.IsAlive || u.Player != Slot || u.Order != OrderType.Build
+                    || u.BuildType == 0 || (u.Flags & UnitFlags.Hidden) != 0)
+                    continue;
+                _pending.Add(new PendingBuild
+                {
+                    BuilderPacked = new UnitId((ushort)i, u.Gen).Packed,
+                    TypeId = (ushort)(u.BuildType - 1),
+                    X = u.OrderX,
+                    Y = u.OrderY,
+                    // Treated as freshly observed rather than inheriting an
+                    // unknown true issue tick: gives the in-flight-grace and
+                    // timeout clocks a full window so a build that is actually
+                    // fine is never spuriously Stopped and blacklisted right
+                    // after takeover.
+                    IssuedTick = _s.Tick,
+                });
+            }
+
+            // The suicide-all-in watermark: never lower than what's standing
+            // right now (GenMilitary would correct it to this on its very next
+            // think anyway — this just avoids relying on that ordering).
+            _maxBuildingsSeen = CountOwnBuildings();
+
+            // Wave/cooldown pacing has no state-derivable true value (nothing
+            // records when the previous controller last launched one). Default
+            // to "a wave just landed": the safe direction is under- rather than
+            // over-eager right after taking a seat over — an instant extra wave
+            // or a spurious dry-map all-in would cost more than a short wait.
+            _lastWaveTick = _s.Tick;
+            _sleepUntilTick = _s.Tick;
+            _nextAllInTick = _s.Tick;
+            _waveActive = false;
+
+            ClearWorkingSet();
+        }
+
         // ---- Pending build ledger ----
 
         void ReconcilePending()
@@ -378,5 +443,10 @@ namespace Craftwar.Sim.Ai
                     n++;
             return n;
         }
+
+        /// <summary>Test-only window into the pending-build ledger — proves
+        /// ReconcileFromState actually rebuilds it, without depending on any
+        /// particular downstream gameplay effect of the ledger being right.</summary>
+        internal int PendingCount => _pending.Count;
     }
 }

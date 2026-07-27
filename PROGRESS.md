@@ -398,6 +398,14 @@ harness baseline was 246/246; now **257/257**.
      a snapshot does not hold: current turn, input delay, the pause set, the
      substituted-slot mask and the hash ring.
 
+  **LAN is no longer the target — these three items are now M11 phase 0.**
+  See "M11 — online relay server" below: LAN is dropped in favor of online play
+  through a self-hosted relay, but items 1-3 above are needed by online play
+  just the same (a dropped seat online still needs AI takeover, a grace
+  overlay, and reconnect), so they're being finished under the M11 umbrella
+  rather than as a standalone M10 close-out. Load Game menu entry is *not*
+  pulled forward (single-player only, orthogonal) — still just backlog.
+
 ## Done, continued
 **M9.5 — Scriptable, tiered AI (rework of M9). COMPLETE, playtested.** Plan:
 `C:\Users\mattc\.claude\plans\enumerated-beaming-meteor.md`. Decisions (settled
@@ -702,11 +710,433 @@ The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
     `.seq` pass is still the standing backlog item.
 
 ## Next milestones (per plan)
-**M10 — LAN lockstep** is the current milestone. M8/M9/M9.5 are done and
-playtested; their checklists are closed. M11 = online + team vision.
-(Details in the plan file.)
+**M11 — online relay server** is the current milestone (started 2026-07-26).
+LAN was dropped as a target (nobody would use it); M10's transport-agnostic
+net stack (turn scheduling, desync detection, lobby negotiation, pause/
+observers, `SimSerializer`) carries over almost entirely, sitting behind a
+new self-hosted relay transport instead of raw LAN UDP. Plan:
+`C:\Users\mattc\.claude\plans\optimized-foraging-hearth.md` (decisions
+settled with the user, an adversarial review against the real `Net` code,
+and the phase breakdown are all there). Only `UtpPeerSocket.cs`/
+`LanDiscovery.cs`/panel-lan are LAN-specific; they stay in place,
+unmaintained, as an offline two-instance test path — not deleted.
 
-M10 scope, as it stands:
+Headline decisions: one connected player stays the elected "host" (runs
+`LobbyHost`/`HostTurnExchange`/`TurnRelay`, is the authoritative `GameSim`)
+exactly as LAN does today; the server is a dumb byte-relay for game traffic
+plus a real accounts/matchmaking/chat/ladder layer (SQLite, Glicko-2, TCP+TLS,
+username/password auth). M10 phase 6's remaining items (AI takeover, drop
+grace overlay, reconnect) are M11 phase 0 — pulled forward because online
+play needs exactly the same things. Lobby seats also gain host-controlled
+Closed/Open/Computer/Human state (empty seats no longer auto-become AI) and
+a per-seat team selector (up to 8 teams for 8 players — the Sim side already
+supports this, only the lobby UI was missing).
+
+- **Phase 0.1 DONE — `AiPlayer.ReconcileFromState()`.** Rebuilds `_pending`
+  (scanning own units with `Order==Build && BuildType!=0 && !Hidden`, mapping
+  `OrderX/OrderY` → site, `Tick` as issue time so the in-flight-grace/timeout
+  clocks get a full window rather than inheriting an unknown true issue tick)
+  plus `_maxBuildingsSeen`/wave-pacing fields, so a cold AI attached to a
+  mid-game seat doesn't over-report its treasury. **Turned out the "duplicate
+  build order" framing in the original phase-6 note was wrong**: `GameSim`
+  creates the under-construction building entity as soon as an order is
+  accepted, so `OwnedForRole`'s `CountAlive(includeUnderConstruction:true)`
+  already self-heals that from live state regardless of the AI's own ledger —
+  the real gap was purely the treasury double-count. New `AiReconcileTests.cs`
+  (2 tests) proves the ledger rebuild directly via an `internal PendingCount`
+  accessor rather than an indirect gameplay symptom. 71/71 AI tests green
+  (standalone harness).
+- **Phase 0.2 DONE — starvation-based drop detection + grace timer + AI
+  takeover wiring.** New `TurnRelay.TryGetOldestBlockedTurn` (tested) lets the
+  app layer notice a stalled slot from turn behaviour alone, instead of
+  waiting on the transport's own disconnect callback (UTP's is ~30s). New
+  `HostTurnExchange` passthroughs: `TryGetOldestBlockedTurn`,
+  `SubstitutePeer`, `SubmitSubstituteInput`. **The existing immediate-
+  substitution-on-confirmed-disconnect path is UNCHANGED** (still fires
+  instantly, still passes the old `HostClientTests`) — the new starvation
+  path is an earlier, additional trigger for the same `SubstituteSlot`, not a
+  replacement. Two new `HostClientTests` prove the mechanism: a stall is
+  detected before any transport disconnect event, and a substitute's real
+  commands (submitted for a turn that hasn't frozen yet) land in the
+  committed bundle instead of `TryFreeze`'s auto-filled empty — this is the
+  actual race the AI takeover depends on, since `SubstituteSlot(slot,true)`
+  immediately empties whatever turn was already stuck; only turns not yet
+  pending at that moment can carry real orders.
+  `GameLoopRunner.DropGrace.cs` (new partial; `GameLoopRunner` is now
+  `partial`): 10s real-time grace per stalled slot (`Time.unscaledDeltaTime`,
+  since this is app-layer bookkeeping, not hashed sim state — `Craftwar.Net`
+  itself stays UnityEngine-free), constructs+`ReconcileFromState`s an
+  `AiPlayer` (Normal tier, default profile — no lobby config exists for a
+  seat that used to be human) once grace expires or the transport confirms
+  the drop, and feeds its `Think()` output through `SubmitSubstituteInput`
+  each tick it produces something (targeting `_net.CurrentTurn + 1` — a
+  substituted seat's input has no reason to carry the human input-delay,
+  since there's no network round trip for the host's own on-behalf AI).
+  `NetStatusLine` (existing debug overlay, F3/backquote) extended to show
+  waiting/substituted seats. **Not done: a proper player-facing HUD overlay
+  widget** (UXML) — this only reuses the existing debug string; a polished
+  always-visible banner is separate UI work.
+  **Verification gap:** the App-layer half (`GameLoopRunner.*.cs`) is
+  UNVERIFIED — the standalone harness only compiles `Sim`/`Net`/`Tests`
+  (UnityEngine-free), so this needs an editor compile check and a real
+  two-instance drop/takeover playtest before trusting it in play. The Net-
+  layer mechanism it depends on (42/42 tests: `HostClientTests`,
+  `AiReconcileTests`, `LobbyTests`, `TurnLockstepTests`, `NetMessageTests`)
+  is proven.
+- **Phase 0.3 DONE — the rejoin protocol.** New wire messages
+  (`RejoinRequest`/`RejoinReject`/`RejoinAccept`/`SnapshotChunk`, all in
+  `NetMessages.cs`), `SnapshotTransfer.cs` (deflate + ~1200B chunking +
+  an out-of-order `Reassembler`), `HostTurnExchange.AcceptRejoin`/
+  `RejectRejoin`/`RejoinRequested`, client-side `ReconnectClient.cs` (the
+  mid-match analogue of `LobbyClient` — no `LobbyHost` exists once the match
+  has started), and a `TurnLockstepDriver` resume-at-a-turn constructor
+  overload (`startTurn`, `pausingSlots` — pause state is driver-only, a
+  snapshot can never carry it).
+  **The headline test (`ReconnectTests.cs`) caught a real protocol bug, not
+  a test artifact.** Input delay means a turn's commit can run up to
+  `delay - 1` turns AHEAD of when the sim that produced it has actually
+  executed it (the host's own contribution for turn T publishes while still
+  EXECUTING turn T-delay+1). So by the time a rejoin is accepted, turns
+  between the snapshot's own tick and the relay's true `HighestCommittedTurn`
+  may already be decided AND already broadcast — and broadcast is
+  fire-and-forget to whoever was connected at the time, so a peer that
+  connects after the fact never receives it via the normal path and stalls
+  forever. Fix: `AcceptRejoin` unicasts whatever's already committed in that
+  gap directly to the rejoining peer; `ReconnectClient` captures those
+  (`TurnCommit` arrives while it, not yet a `ClientTurnExchange`, is still
+  the one polling that connection) and the caller seeds them into the new
+  `ClientTurnExchange` via `SeedCommit`. Proven in one test: warm-up →
+  client drops → host runs 60 ticks alone → fresh connection rejoins →
+  receives snapshot + backfill → resumes → both peers stay bit-identical for
+  400 more ticks, the rejoined peer actually issuing orders, not idling.
+  **Scope note:** this is the reusable Net-layer protocol only (transport-
+  agnostic, will be reused directly by the relay server) — the App-layer
+  "offer to reconnect" UX is deliberately not built here. LAN has no
+  discovery mechanism to reconnect *to* after a drop (a fresh UTP connection
+  has no way to find the game it left); that only becomes meaningful once
+  the relay server tracks room/session identity, which is M11 phase 4's job.
+- **Lobby seat control & teams DONE.** `LobbySlot.Controller`(byte)+`.Human`
+  (bool) replaced by a single `LobbySeatStatus : byte {Closed,Open,Computer,
+  Human}` (`LobbyProtocol.cs`) — a genuine pre-game-only fourth state Sim's
+  own `Controller` (None/Human/Computer) can never have, since a running
+  match always has every seat resolved. `LobbyPayload` gained
+  `FirstOpenSeat()`/`HasOpenSeats()`; `LobbyHost` gained `SetSeatStatus`
+  (refuses to override an occupied Human seat — only that player leaving
+  changes it), `SetSeatTeam`, and `CanStart()`; `StartMatch()` now returns
+  `bool` and refuses while any seat is Open. A seat that empties (leaves, or
+  fails IdentityConfirm) now reverts to **Open**, not Computer — AI presence
+  is only ever a deliberate `SetSeatStatus` call, never a side effect of
+  someone leaving. `MainMenuController.Lan.cs`: `BuildHostPayload` seats the
+  host Human and leaves every other playable seat Open (was: auto-Computer);
+  the lobby roster grew host-only interactive controls (a status-cycle
+  button, a team-cycle button — built as plain UI Toolkit elements in code,
+  since `lobby-slots` was already an empty container the whole roster is
+  built into at runtime, same mechanism as before this change, no UXML
+  edited); Start is disabled while `!_lobbyHost.CanStart()`. Team grouping
+  was already fully supported by the Sim (`PlayerState.Team`, honored by
+  `GameSim.Combat.cs` and `IVictoryEvaluator.cs` — FFA is just the default of
+  one team per seat) — only the lobby ever lacked a way to set it to anything
+  else. 12/12 `LobbyTests` (rewritten for the new API) + the rest of the
+  standalone suite green.
+  **Verification gap:** same as phase 0.2 — the `MainMenuController.Lan.cs`
+  half (including the new UI rows/buttons) is UnityEngine-referencing and
+  cannot compile-check outside the editor this session; needs a compile
+  check and a lobby playtest (cycle a seat through Closed/Open/Computer,
+  regroup teams, confirm Start stays disabled with an Open seat present).
+
+- **Phase 1 DONE — `Craftwar.NetServer` skeleton, fully verified (unlike the
+  App-layer phases above, this needed no Unity editor at all).** New
+  `Server/` folder at the repo root (sibling to `Assets/`, own
+  `Craftwar.NetServer.Solution.slnx`) — a plain `dotnet` console app, NOT a
+  Unity asset; `.gitignore` grew a targeted exception to the blanket
+  `*.csproj`/`*.sln` rule (that rule exists for Unity's auto-generated
+  per-assembly projects, this one is hand-written). References
+  `Assets/Scripts/Sim/**` + `Assets/Scripts/Net/**` by source (same
+  `<Compile Include>` pattern as the standalone test harness) — gets
+  `ByteWriter`/`ByteReader`/`BuildIdentity` for free, never calls
+  `GameSim.Advance`: this process relays bytes, it does not simulate.
+  - **Auth**: `PasswordHasher` (PBKDF2-HMACSHA256, built into .NET — no
+    Argon2/BCrypt package dependency, self-describing encoded form so the
+    work factor can be raised later without invalidating old hashes).
+  - **DB**: SQLite (`Microsoft.Data.Sqlite`, pinned past
+    `SQLitePCLRaw.bundle_e_sqlite3` 2.1.11's GHSA-2m69-gcr7-jv3q advisory to
+    2.1.12) — accounts/sessions/ratings/match_history tables, the latter two
+    unused until phase 5.
+  - **Control-plane wire format** (`ControlProtocol.cs`): its own
+    `ControlMessageKind`/version constant, deliberately NOT
+    `Craftwar.Net.NetMessageKind`/`BuildIdentity.ProtocolVersion` — that
+    enum's version field is scoped to the peer-to-peer lobby handshake
+    (compared only host-vs-joiner), conflating the two would force unrelated
+    wire-format bumps together. Reuses `Craftwar.Net.NetMessages.WriteString`/
+    `ReadString` directly rather than redeclaring them.
+  - **Transport**: `StreamFraming` (4-byte length prefix — TCP has no message
+    boundaries, unlike the relay's packet-oriented `IPacketPeer`) over
+    `SslStream`; `CertificateProvider` generates and caches a self-signed
+    cert on first run (`CertificateRequest` + `X509CertificateLoader`, no
+    extra dependency), or loads a real PFX once `ServerConfig.CertPath`
+    points at one — the "running locally for now, maybe a real box later"
+    requirement is a config change, not a code change.
+  - **Business logic split from I/O on purpose**: `AccountService`
+    (Register/Login/ResumeSession) knows nothing about sockets;
+    `ClientConnection` is pure glue. Same separation `HostTurnExchange`/
+    `IPacketPeer` already use in the relay, for the same reason — the logic
+    is unit-testable without a socket.
+  - **Verification, both levels**: `Server/Craftwar.NetServer.Tests`
+    (NUnit, 22/22) covers `PasswordHasher`, `AccountService` against a real
+    temp-file SQLite DB, and `ControlProtocol` wire round-trips. Beyond that,
+    actually ran the server (`dotnet run`) and a throwaway TCP+TLS smoke-test
+    client against it — real self-signed cert, real handshake, real
+    Register→duplicate-refused→Login(wrong password refused)→Login→
+    ResumeSession→ResumeSession(garbage token refused), all over the wire.
+    This is the one M11 phase so far proven end-to-end for real, not just
+    unit-tested — no Unity editor involved at any point.
+  - **Not yet built**: matchmaking/rooms/relay passthrough (phase 2), the
+    online menu UI (phase 3). `Program.cs` only runs the control-plane
+    listener today.
+
+- **Phase 2 DONE — rooms + relay passthrough, and the existing LAN protocol
+  proven unmodified over a REAL server.** `RoomManager` (server-only,
+  `Server/Craftwar.NetServer/Protocol/`): create/join/list/leave, internally
+  locked (connections run on independent async tasks and all call the same
+  instance — a real bug class this closes, not a hypothetical one).
+  **The room creator is always room-peer-id 0** — a server-enforced
+  invariant, not a client-side remap table (the original plan's mechanism
+  note #1 called for `RelayPeerSocket` to remap ids; enforcing the invariant
+  server-side instead is simpler and gives the same guarantee).
+  - **A real architecture mistake caught before it even compiled**: the
+    control-plane wire format (`ControlProtocol`, `StreamFraming`) was first
+    written under `Server/Craftwar.NetServer/`, but a Unity CLIENT
+    (`RelayPeerSocket`) needs to speak it too, and Unity's `Craftwar.Net`
+    assembly has no reference to the server project (the dependency only
+    runs the other way — the server compiles `Assets/Scripts/Net/**` by
+    source). Both moved into `Assets/Scripts/Net/`
+    (`RelayProtocol.cs`/`StreamFraming.cs`, shared `AccountResult`/
+    `RoomJoinFailure` enums extracted out of their server-only homes) —
+    picked up automatically by the server's existing source glob, the
+    standalone Sim/Net harness, AND the Unity client, same as every other
+    shared file in that folder.
+  - **`RelayPeerSocket : IPacketPeer`** (`Assets/Scripts/Net/`): pure BCL
+    (`TcpClient`/`SslStream`), zero Unity dependency like the plan called
+    for. A background reader task unwraps `RoomRelay`/`RoomPeerEvent` frames
+    into thread-safe queues `Poll()` drains; a writer task owns the one
+    outbound stream so `Send()` never blocks the caller on the network —
+    async I/O under the synchronous `IPacketPeer` surface everything above
+    it already expects.
+  - **A second real bug, caught by the integration test, not by review**:
+    the server's `JoinRoom` handler pushed the "here are your new
+    roommates" announcement to the joiner's OWN connection *before*
+    `HandleAsync` had returned the `JoinRoomResult` reply — since both
+    writes go through the same connection, the client read the announcement
+    frame first and decoded pure garbage out of it (peer id `16777216`).
+    Fixed by having `HandleAsync` return `(response, after)` — the direct
+    reply always lands on the wire before any handler-triggered pushes to
+    other connections (or back to this one). A reminder that "the server
+    never parses the payload" doesn't mean "the server can't get its own
+    framing order wrong."
+  - **The headline test** (`RelayIntegrationTests.cs`, real `RelayServerHost`
+    on loopback — extracted from `Program.cs` so tests and the real
+    entrypoint share the same bring-up, not a re-implementation): two
+    `RelayPeerSocket`s, a real room created and joined, `TurnRelay`/
+    `HostTurnExchange`/`ClientTurnExchange` **completely unmodified**, stay
+    bit-identical for 120 ticks with real `Move` commands over real TCP+TLS.
+    Not `LoopbackNetwork` — an actual bound socket, actual TLS handshake,
+    actual room handshake. 31/31 `Craftwar.NetServer.Tests` (added
+    `RoomManagerTests`, this integration test); standalone Sim/Net harness
+    unaffected by the file moves.
+  - **Scope note**: room-list live data (map/player-count) and the
+    reconnect-vouching hooks noted in the original mechanism review are not
+    wired yet — `RoomSummary`/`ListRooms` exist and are tested, but nothing
+    calls `LobbyHost.Changed` to keep a room's `MapName`/player count fresh
+    after creation, and reconnect-through-the-relay is explicitly phase 4.
+
+- **Phase 3 DONE (App-layer, UNVERIFIED — no editor connection this session) —
+  online menu UI.** New `MainMenuController.Online.cs` (`MainMenuController`
+  is now `partial` across three files: base, `.Lan.cs`, `.Online.cs`),
+  `panel-online` added to `MainMenu.uxml` (login section + room browser,
+  same "empty container, rows built in C#" pattern as `lobby-slots`/
+  `lan-games` already used — no risk of guessing at unfamiliar UXML
+  structure). **Deliberately reuses almost the entire LAN lobby machinery
+  unchanged**: `LobbyHost`/`LobbyClient`/`EnterLobby`/`RebuildLobby`/
+  `BuildHostPayload`/`BuildIdentityFor`/`ToMatchConfig`/`StartHostedMatch`
+  already worked off `IPacketPeer`/`LobbyPayload` abstractions with zero
+  transport-specific assumptions, so the online flow is: authenticate → list/
+  create/join a room on the server instead of a LAN broadcast → hand the
+  resulting `RelayPeerSocket` to the exact same `LobbyHost`/`LobbyClient`
+  LAN already used. `panel-lobby` (the in-room screen) is now genuinely
+  shared, not duplicated.
+  `NetSession.Socket` generalized `UtpPeerSocket` → `IPacketPeer` (the one
+  other call site, `MainMenuController.Lan.cs`'s `LaunchFrom`, already only
+  needed the interface); `LaunchFrom` now hands off whichever transport is
+  live. `HideLanPanels()`/`LeaveNetworking()` extended to also cover
+  `panel-online`/`_onlineSocket` — both minimal, additive edits to the LAN
+  file (not a behavior change to LAN itself).
+  New `OnlineAccountClient` (`Assets/Scripts/Net/`, pure BCL like
+  `RelayPeerSocket`): short-lived connections for Register/Login/
+  ResumeSession/ListRooms — decoupled from the long-lived room `RelayPeerSocket`
+  on purpose, since an account logs in once and can create/join many rooms
+  or return later with the session token. **Verified for real**: 34/34
+  `Craftwar.NetServer.Tests` (added `OnlineAccountClient_*` and
+  `Chat_RelaysToEveryRoomMember_IncludingTheSender`, both against a real
+  running server over real TCP+TLS) — the account/room-list/chat wire paths
+  this UI drives are proven; the UI code that calls them is not.
+  Chat is its own control-plane message pair (`ChatMessage`/`ChatBroadcast`
+  in `RelayProtocol.cs`), not sent through `IPacketPeer.Send` — that path
+  carries NetMessageKind-tagged game-protocol bytes HostTurnExchange/
+  ClientTurnExchange parse, and anything else arriving on it would be
+  misread. Server broadcasts a chat message back to the sender too, so
+  every client's log is built from one ordering source rather than the
+  sender echoing its own line locally.
+  **Known limitation, flagged in code**: `OnlineAccountClient`/
+  `RelayPeerSocket.Host`/`.Join` are synchronous/blocking (matching
+  `UtpPeerSocket`'s existing convention) — fine over loopback, but a real
+  remote server will hitch the menu's main thread for the round trip with
+  no cancel until the OS connect timeout. Worth a background-thread +
+  completion-queue pass before a real deployment (phase 6).
+  **Verification gap (the real one):** this is the first M11 phase where
+  the actual UI-driving code (`MainMenuController.Online.cs`, `panel-online`
+  in the UXML, the `NetSession.cs`/LAN-file edits) could not be compiled or
+  run at all this session — no Unity editor connection was available via
+  MCP. Everything it CALLS is tested for real; the glue itself needs an
+  editor compile check and a manual playtest (register → log in → host →
+  see the room in a second client's browser → join → chat both ways → Start)
+  before being trusted.
+
+- **Phase 5 DONE (fully server-side, fully verified) — Glicko-2 ladder.**
+  `Glicko2.cs`: Mark Glickman's Glicko-2 algorithm (glicko.net/glicko/
+  glicko2.pdf), implemented step-for-step against his own reference
+  pseudocode specifically so it could be checked against his **published
+  worked example** — not just "it runs," an exact numeric match. A player
+  rated 1500/200/0.06 who plays three specific games lands at
+  1464.06/151.52/0.05999 in the paper; the test asserts exactly that
+  (0.01/0.01/0.00001 tolerance) and passes. Chosen over plain Elo per the
+  earlier decision: the rating-deviation term handles new/returning players
+  properly (a low-confidence rating swings hard, a settled one is sturdy —
+  covered by its own test) without a separate placement-match phase.
+  **Team formats need no special case**: victory in this game is already
+  binary per player (`PlayerOutcome.Victorious`/`Defeated`), so every
+  player's single Glicko-2 result for the match is (average rating/RD of
+  every OTHER player in the match, 1.0 or 0.0) — well-defined for 1v1, 2v2,
+  or an 8-player FFA alike, with no separate pairwise-per-team logic needed.
+  `RatingRepository`/`RatingService` (SQLite `ratings`/`match_history`,
+  already-seeded-at-registration rows from phase 1): **only registered-vs-
+  registered games count toward the ladder** — a match with fewer than 2
+  resolvable accounts is still recorded in history but rates nobody, so a
+  registered player can't grind rating against always-unregistered guests.
+  New wire messages `ReportMatchResult`/`ReportMatchResultAck`
+  (`RelayProtocol.cs`) and `RelayPeerSocket.ReportMatchResult(...)` — fire-
+  and-forget for v1, matching the plan's "host reports once, trusted, no
+  anti-cheat on it" decision; no client-side ack handling yet (the wire
+  message exists for a future confirmation UI). **Verified for real**:
+  12 new tests (7 `Glicko2Tests` including the worked example, 5
+  `RatingServiceTests`) plus a `RelayIntegrationTests` case that reports a
+  result over an actual `RelayPeerSocket`→server connection and reads the
+  updated rating back out of the real SQLite file. 47/47
+  `Craftwar.NetServer.Tests`.
+  **Not built**: no ladder/profile VIEW in the client (App-layer, would be
+  its own UI surface) — the plan's "simple profile/ladder view" is server-
+  side-ready but has no menu screen yet.
+
+- **Phase 4 DONE (fully verified, real sockets) — reconnect through the actual
+  relay.** The headline risk going in was whether phase 0.3's rejoin protocol
+  (`RejoinRequest`/`AcceptRejoin`/snapshot chunks/`ReconnectClient`, proven
+  only over `LoopbackNetwork`) and phase 2's `RelayPeerSocket`/server rooms
+  would actually compose, given the rejoin protocol addresses the host as a
+  hardcoded `ClientTurnExchange.HostPeerId = 0`. They composed with **zero
+  production changes to either layer** — the server's own invariant ("room
+  creator is always room-peer 0") already IS the assumption the rejoin
+  protocol was built on, so a rejoining `RelayPeerSocket.Join(...)` sending a
+  `RejoinRequest` to peer 0 lands on the real host's connection with no
+  id-remapping needed anywhere.
+  New test `RelayIntegrationTests.ReconnectThroughARealServer_
+  RejoinedPeerCatchesUpAndStaysBitIdentical`: host + client run 80 ticks over
+  a real `Craftwar.NetServer` instance, the client's `RelayPeerSocket` is
+  disposed (a real TCP close, not a synthesized event), the host detects the
+  drop via a real `RoomPeerEvent` pushed by the server's `LeaveRoomAsync` and
+  substitutes the slot, runs 60 more ticks alone, then a **fresh**
+  `RelayPeerSocket.Join` (room-peer-id **2**, never a reused 1 — proving the
+  protocol's peer-id-continuity independence isn't just untested theory) runs
+  the full `ReconnectClient` handshake, and both sims stay bit-identical for
+  200 more ticks including the rejoined peer actually issuing new orders.
+  **Found and fixed one real concurrency bug this surfaced**
+  (`ClientConnection.WriteFrameAsync`, server-only): `using var ssl = new
+  SslStream(...)` disposes at the end of `RunAsync`'s `try` block — which
+  runs *before* that same method's `finally` removes the connection from
+  `ConnectionRegistry`. A dropped connection is therefore still "live" in the
+  registry, with an already-disposed stream, for a real window; a concurrent
+  peer's broadcast (here: the host's own `BroadcastNewlyFrozenTurns`, mid-fire
+  right as the client dropped) can land in that window and throw
+  `ObjectDisposedException`, which was going uncaught up through `RunAsync`
+  and killing that connection's read loop outright — turning one peer's
+  ordinary disconnect into a second, unrelated connection also dying.
+  Never hit by any earlier test because none of them disconnected a live
+  peer while traffic was still flowing. Fixed by catching
+  `ObjectDisposedException`/`IOException` in `WriteFrameAsync` and dropping
+  the frame silently — the target's real disconnect is still reported the
+  normal way, moments later, via that connection's own `finally`. 48/48
+  `Craftwar.NetServer.Tests` (was 47; the standalone Sim/Net harness is
+  unaffected — the fix is server-only, not in the shared `Assets/Scripts/Net`
+  files).
+  **Not built**: the App-layer trigger (`GameLoopRunner`/`MainMenuController`
+  actually calling into `ReconnectClient` after a drop, when playing online)
+  — this proves the wire protocol composes end-to-end, not the in-game "try
+  to reconnect" UI/flow, which is still only exercised by simulating the app
+  layer directly in the test, same as phase 0.3's original loopback test did.
+
+- **Phase 6 DONE — deployment hardening.** The plan's own framing
+  ("deliberately last since the user is running locally for now") meant this
+  is about making the *later* real-deployment step config-only, not actually
+  deploying anything now. `ServerConfig` gained `CRAFTWAR_*` environment
+  variable support (`ServerConfigTests.cs`, 4 new tests) alongside the
+  existing `--flag` args, args winning on conflict — env vars are what both
+  packaging paths below actually set (systemd `EnvironmentFile`, Docker
+  `--env-file`/`-e`), neither naturally populates argv. The real-cert config
+  path (`CRAFTWAR_CERT_PATH` → a real PFX, vs. auto-generate/cache a
+  self-signed one) already existed since phase 1's `CertificateProvider` —
+  nothing to add there. `Program.cs` now handles `SIGTERM`/`SIGINT`
+  (`PosixSignalRegistration`) by disposing `RelayServerHost` — stop
+  listening, let in-flight work end on its own terms — instead of relying on
+  Docker/systemd's kill-after-timeout to end the process mid-connection.
+  **Not verified against a real signal**: this dev machine is Windows, where
+  `kill`/`taskkill` don't exercise real POSIX signal delivery the way
+  Docker/systemd (both Linux) do — treat this path as unverified until
+  checked on an actual Linux deployment.
+  New: `Server/Dockerfile` (+ a repo-root `.dockerignore` — without it,
+  `docker build` would hash/upload Unity's multi-GB `Library/` before the
+  build even starts; also excludes `Assets/GameData/Extracted/` on principle,
+  Blizzard-owned data has no business anywhere near an image layer even
+  though the server build never touches it) — built and published
+  successfully via `dotnet publish` as a smoke test (not run under an actual
+  Docker daemon, which was not available in this environment). `Server/
+  deploy/craftwar-netserver.service` (systemd unit, `ProtectSystem=strict`
+  hardened) + `.env.example`. **A real bug in this hardening surfaced during
+  review**: the `.env.example` originally left `CRAFTWAR_CERT_PATH` blank
+  (matching local-dev's "auto-generate next to the working directory"
+  default), but under the shipped unit's `ProtectSystem=strict`,
+  `WorkingDirectory` (`/opt/craftwar-netserver`) is read-only — the service
+  would fail to start on first run instead of caching a cert. Fixed to point
+  it at the writable `ReadWritePaths` data directory by default;
+  `Server/README.md` was updated to match. `Server/README.md` is the runbook: local run, tests, the config
+  table, both deployment paths, cert rotation, and an online-safe SQLite
+  backup command (`sqlite3 ... ".backup ..."`, not a raw file copy).
+  **Verified**: 52/52 `Craftwar.NetServer.Tests` (was 48); a real `dotnet
+  publish -c Release` + run of the published binary, confirmed it starts,
+  binds, and generates both the cert and the db file exactly as documented.
+  **Not done**: an actual Docker build/run (no Docker daemon in this
+  environment — the Dockerfile is unverified beyond `dotnet publish`
+  succeeding for the same project it publishes) and provisioning a real
+  box/domain/cert (out of scope per the user's own "local for now" framing).
+
+**All six M11 phases are now done.** What remains unbuilt, all previously
+called out per-phase above rather than new: the App-layer online-reconnect
+UI trigger (phase 4), a ladder/profile view (phase 5), server-side match-
+result verification (phase 5), client cert pinning (phase 2/6), and an
+actual provisioned deployment (phase 6). None of these were "still to do"
+surprises — each was flagged as a known gap in its own phase entry above.
+
+**M10 — LAN lockstep**, superseded by M11 above. M8/M9/M9.5 are done and
+playtested; their checklists are closed.
+
+M10 scope, as it stood:
 - Unity Transport net driver behind the existing `ILockstepDriver` (the local
   driver's canonical command sort is already the shape this needs).
 - Turn scheduling with real input delay (turn = 4 ticks today, zero delay).

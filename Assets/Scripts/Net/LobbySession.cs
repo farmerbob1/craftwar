@@ -44,11 +44,12 @@ namespace Craftwar.Net
             {
                 if (connected || !SlotByPeer.TryGetValue(peerId, out byte seat))
                     continue;
-                // Someone left before the match started: free their seat.
+                // Someone left before the match started: the seat goes back
+                // to waiting, not to Computer — AI presence stays the host's
+                // choice, never a side effect of a joiner leaving.
                 SlotByPeer.Remove(peerId);
-                Payload.Slots[seat].Human = false;
                 Payload.Slots[seat].Name = "";
-                Payload.Slots[seat].Controller = (byte)Controller.Computer;
+                Payload.Slots[seat].SeatStatus = (byte)LobbySeatStatus.Open;
                 BroadcastState();
                 Changed?.Invoke();
             }
@@ -86,7 +87,7 @@ namespace Craftwar.Net
             if (SlotByPeer.ContainsKey(peerId))
                 return; // already seated; ignore a repeated request
 
-            int seat = Payload.FirstFreeHumanSeat();
+            int seat = Payload.FirstOpenSeat();
             if (seat < 0)
             {
                 Reject(peerId, JoinRejectReason.GameFull, name);
@@ -94,8 +95,7 @@ namespace Craftwar.Net
             }
 
             SlotByPeer[peerId] = (byte)seat;
-            Payload.Slots[seat].Human = true;
-            Payload.Slots[seat].Controller = (byte)Controller.Human;
+            Payload.Slots[seat].SeatStatus = (byte)LobbySeatStatus.Human;
             Payload.Slots[seat].Name = string.IsNullOrWhiteSpace(name) ? $"Player {seat + 1}" : name;
 
             var w = new ByteWriter(256);
@@ -124,12 +124,41 @@ namespace Craftwar.Net
 
             Reject(peerId, mismatch, Payload.Slots[seat].Name);
             SlotByPeer.Remove(peerId);
-            Payload.Slots[seat].Human = false;
             Payload.Slots[seat].Name = "";
-            Payload.Slots[seat].Controller = (byte)Controller.Computer;
+            Payload.Slots[seat].SeatStatus = (byte)LobbySeatStatus.Open;
             BroadcastState();
             Changed?.Invoke();
         }
+
+        /// <summary>
+        /// Host-only seat control: cycle Closed/Open/Computer, or set it
+        /// directly. Refuses to override an occupied Human seat — that
+        /// changes only when the person leaves.
+        /// </summary>
+        public bool SetSeatStatus(int seat, LobbySeatStatus status)
+        {
+            if (seat < 0 || seat >= Payload.Slots.Length) return false;
+            if (Payload.Slots[seat].SeatStatus == (byte)LobbySeatStatus.Human) return false;
+            if (status == LobbySeatStatus.Human) return false; // only a real join does this
+            Payload.Slots[seat].SeatStatus = (byte)status;
+            BroadcastState();
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>Host-only: regroup a seat's alliance. Up to 8 teams for 8
+        /// players — FFA (one team per seat) is just the default.</summary>
+        public void SetSeatTeam(int seat, byte team)
+        {
+            if (seat < 0 || seat >= Payload.Slots.Length) return;
+            Payload.Slots[seat].Team = team;
+            BroadcastState();
+            Changed?.Invoke();
+        }
+
+        /// <summary>False while any playable seat is still Open — AI presence
+        /// must be a deliberate host choice, never a default at start time.</summary>
+        public bool CanStart() => !Payload.HasOpenSeats();
 
         void Reject(int peerId, JoinRejectReason reason, string name)
         {
@@ -148,12 +177,16 @@ namespace Craftwar.Net
         }
 
         /// <summary>Tell everyone to load the match. The payload travels with it,
-        /// so no client is relying on a state message it might have missed.</summary>
-        public void StartMatch()
+        /// so no client is relying on a state message it might have missed.
+        /// Refuses while any seat is still Open — see <see cref="CanStart"/>.</summary>
+        public bool StartMatch()
         {
+            if (!CanStart())
+                return false;
             var w = new ByteWriter(256);
             NetMessages.WriteStartMatch(ref w, Payload);
             _peer.Send(IPacketPeer.Broadcast, w.Buffer, w.Position);
+            return true;
         }
 
         public void Dispose() { }

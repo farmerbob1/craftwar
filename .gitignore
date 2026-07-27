@@ -72,3 +72,22 @@ TestResults.xml
 *.sud
 # Per-machine pointer to the local WC2 install / maindat.war
 LocalAssetPaths.json
+
+# ===== Craftwar.NetServer: standalone relay server (not a Unity asset) =====
+# The blanket *.csproj/*.sln rule above is for Unity's auto-generated
+# per-assembly projects; this one is hand-written and must be committed.
+!/Server/**/*.csproj
+!/Server/**/*.sln
+!/Server/**/*.slnx
+/Server/**/bin/
+/Server/**/obj/
+# Runtime data a hosted instance generates locally — never seed data.
+/Server/**/*.db
+/Server/**/*.db-shm
+/Server/**/*.db-wal
+/Server/**/*.pfx
+/Server/**/appsettings.local.json
+# Real deploy secrets (cert passwords) — the checked-in *.env.example
+# template has none, only a real, filled-in .env would.
+/Server/**/*.env
+!/Server/**/*.env.example

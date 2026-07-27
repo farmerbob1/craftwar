@@ -277,6 +277,83 @@ namespace Craftwar.Sim.Tests
                 "the abandoned player's units stay on the map");
         }
 
+        [Test]
+        public void TryGetOldestBlockedTurn_FindsAStalledSlotBeforeAnyDisconnectEvent()
+        {
+            // The whole point of this query: detect a stuck slot from turn
+            // behaviour alone, without waiting on the transport to notice
+            // anything went wrong (UTP's own disconnect timeout is ~30s).
+            var f = Build();
+            for (int tick = 0; tick < 20; tick++)
+                Assert.IsTrue(f.Step(tick));
+
+            // Stop stepping the client entirely — no disconnect event fires,
+            // it just goes quiet.
+            var bundle = new List<GameCommand>();
+            bool everBlocked = false;
+            int blockedTurn = -1;
+            for (int tick = 20; tick < 20 + 64 && !everBlocked; tick++)
+            {
+                f.Host.Poll();
+                f.HostDriver.TryGetTickCommands(tick, bundle);
+                if (f.Host.TryGetOldestBlockedTurn(out blockedTurn, _blockingScratch)
+                    && _blockingScratch.Contains((byte)1))
+                    everBlocked = true;
+            }
+
+            Assert.IsTrue(everBlocked, "the host must detect slot 1 as blocking a turn");
+            Assert.IsFalse(f.Relay.IsSubstituted(1),
+                "detecting a stall must not itself substitute — that decision stays with the caller");
+        }
+
+        [Test]
+        public void SubstituteInput_LandsInTheCommittedBundle_WhenSubmittedBeforeItsTurnFreezes()
+        {
+            // Proves the actual mechanism the AI takeover depends on: a
+            // substitute's real commands, submitted for a turn that has not
+            // frozen yet, replace the auto-filled empty TurnRelay would
+            // otherwise use for a substituted slot's silence.
+            var f = Build();
+            for (int tick = 0; tick < 20; tick++)
+                Assert.IsTrue(f.Step(tick));
+
+            var bundle = new List<GameCommand>();
+            int stuckTurn = -1;
+            for (int tick = 20; tick < 20 + 64 && stuckTurn < 0; tick++)
+            {
+                f.Host.Poll();
+                f.HostDriver.TryGetTickCommands(tick, bundle);
+                if (f.Host.TryGetOldestBlockedTurn(out int t, _blockingScratch)
+                    && _blockingScratch.Contains((byte)1))
+                    stuckTurn = t;
+            }
+            Assert.GreaterOrEqual(stuckTurn, 0, "setup: the host must get stuck on slot 1 first");
+
+            // Substituting empties whatever turn was ALREADY stuck (it had its
+            // full grace already) — the very next turn is the first one a
+            // substitute AI can actually feed real orders into.
+            f.Host.SubstitutePeer(1);
+            Assert.IsTrue(f.Relay.IsSubstituted(1));
+
+            int targetTurn = stuckTurn + 1;
+            var fake = new List<GameCommand> { Move(f.HostSim, 1, 44, 44) };
+            f.Host.SubmitSubstituteInput(1, targetTurn, fake);
+
+            for (int tick = 0; tick < 64; tick++)
+            {
+                f.Host.Poll();
+                f.HostDriver.TryGetTickCommands(1_000_000 + tick, bundle);
+            }
+
+            var committed = new List<GameCommand>();
+            Assert.IsTrue(f.Relay.TryGetCommitted(targetTurn, committed),
+                $"turn {targetTurn} must have frozen by now");
+            Assert.IsTrue(committed.Exists(c => c.Player == 1 && c.Op == CommandOp.Move),
+                "the substitute's real order must be in the bundle, not an auto-filled empty");
+        }
+
+        readonly List<byte> _blockingScratch = new List<byte>();
+
         static int CountUnits(GameSim sim, byte player)
         {
             int n = 0;

@@ -201,6 +201,40 @@ namespace Craftwar.Net
             return true;
         }
 
+        /// <summary>
+        /// Which participating, not-yet-substituted slot(s) are the reason the
+        /// oldest still-open turn cannot freeze. Empty (returns false) when
+        /// nothing is pending, or everything pending is only waiting on slots
+        /// already substituted (which TryFreeze resolves as empty on its own —
+        /// not a stall).
+        ///
+        /// Exists so the app layer can run its OWN drop-detection timer instead
+        /// of waiting on the transport's own disconnect callback, which can take
+        /// far longer (UTP's is ~30s) than a turn actually needs to be considered
+        /// stuck.
+        /// </summary>
+        public bool TryGetOldestBlockedTurn(out int turn, List<byte> blockingSlots)
+        {
+            blockingSlots.Clear();
+            turn = -1;
+            int lowest = int.MaxValue;
+            foreach (int candidate in _pending.Keys)
+                if (candidate < lowest)
+                    lowest = candidate;
+            if (lowest == int.MaxValue)
+                return false;
+
+            var pt = _pending[lowest];
+            for (byte slot = 0; slot < SimConstants.MaxPlayers; slot++)
+                if (_participating[slot] && pt.BySlot[slot] == null && !_substituted[slot])
+                    blockingSlots.Add(slot);
+
+            if (blockingSlots.Count == 0)
+                return false;
+            turn = lowest;
+            return true;
+        }
+
         /// <summary>Drop bundles nobody can still need.</summary>
         public void ReleaseThrough(int turn)
         {

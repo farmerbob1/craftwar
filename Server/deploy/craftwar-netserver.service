@@ -1,0 +1,25 @@
+[Unit]
+Description=Craftwar relay server
+After=network.target
+
+[Service]
+Type=simple
+User=craftwar
+Group=craftwar
+WorkingDirectory=/opt/craftwar-netserver
+EnvironmentFile=/etc/craftwar/craftwar-netserver.env
+ExecStart=/usr/bin/dotnet /opt/craftwar-netserver/Craftwar.NetServer.dll
+Restart=on-failure
+RestartSec=5
+
+# The server only needs its own data directory (SQLite db + cached
+# self-signed cert, if CRAFTWAR_CERT_PATH is unset) and the network — lock
+# everything else down.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/craftwar-netserver
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
