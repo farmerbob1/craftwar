@@ -106,6 +106,8 @@ namespace Craftwar.App
             Show(_panelMain, false);
             Show(_panelSetup, false);
             Show(_panelLobby, false);
+            if (_panelLan != null)
+                Show(_panelLan, false);
             Show(_panelOnline, true);
             ShowOnlineSection(loggedIn: _onlineSessionToken != null);
             SetOnlineStatus("");
@@ -253,7 +255,7 @@ namespace Craftwar.App
             _lobbyHost = new LobbyHost(_onlineSocket, _hostIdentity, payload, m => Debug.Log(m));
             _lobbyHost.Changed += () => _lobbyDirty = true;
 
-            EnterLobby(isHost: true);
+            EnterLobby(isHost: true, online: true);
         }
 
         // --- Joining -------------------------------------------------------------
@@ -279,7 +281,7 @@ namespace Craftwar.App
             _lobbyClient.Changed += OnLobbyChanged;
             _lobbyClient.Started += OnMatchStarted;
 
-            EnterLobby(isHost: false);
+            EnterLobby(isHost: false, online: true);
         }
 
         // --- Chat ------------------------------------------------------------------

@@ -34,6 +34,11 @@ namespace Craftwar.App
         int _lanMapSel;
         bool _lobbyDirty;
 
+        /// <summary>Which browser "Leave" should return to — the lobby panel
+        /// is shared by LAN and Online (see the UXML comment on panel-lobby),
+        /// so leaving it needs to remember which one it was entered from.</summary>
+        bool _lobbyIsOnline;
+
         void InitLan(VisualElement root)
         {
             _panelLan = root.Q("panel-lan");
@@ -58,7 +63,12 @@ namespace Craftwar.App
             root.Q<Button>("lan-back").clicked += () => { LeaveNetworking(); ShowMain(); };
             root.Q<Button>("lan-host").clicked += HostGame;
             root.Q<Button>("lan-connect").clicked += () => JoinAddress(_lanAddress?.value);
-            root.Q<Button>("lobby-leave").clicked += () => { LeaveNetworking(); ShowLan(); };
+            root.Q<Button>("lobby-leave").clicked += () =>
+            {
+                bool wasOnline = _lobbyIsOnline;
+                LeaveNetworking();
+                if (wasOnline) ShowOnline(); else ShowLan();
+            };
             _lobbyStart.clicked += StartHostedMatch;
         }
 
@@ -83,6 +93,8 @@ namespace Craftwar.App
             Show(_panelMain, false);
             Show(_panelSetup, false);
             Show(_panelLobby, false);
+            if (_panelOnline != null)
+                Show(_panelOnline, false);
             Show(_panelLan, true);
 
             try
@@ -178,7 +190,7 @@ namespace Craftwar.App
                 Debug.LogWarning($"[craftwar-net] beacon unavailable: {e.Message}");
             }
 
-            EnterLobby(isHost: true);
+            EnterLobby(isHost: true, online: false);
         }
 
         /// <summary>The host's opening roster: the map's playable seats, with
@@ -276,7 +288,7 @@ namespace Craftwar.App
             _lobbyClient.Changed += OnLobbyChanged;
             _lobbyClient.Started += OnMatchStarted;
 
-            EnterLobby(isHost: false);
+            EnterLobby(isHost: false, online: false);
         }
 
         void OnLobbyChanged()
@@ -292,9 +304,10 @@ namespace Craftwar.App
 
         // --- The room ------------------------------------------------------------
 
-        void EnterLobby(bool isHost)
+        void EnterLobby(bool isHost, bool online)
         {
-            Show(_panelLan, false);
+            _lobbyIsOnline = online;
+            HideLanPanels();
             Show(_panelLobby, true);
             if (_lobbyTitle != null)
                 _lobbyTitle.text = isHost ? "Hosting" : "Lobby";
