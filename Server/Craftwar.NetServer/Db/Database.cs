@@ -64,6 +64,26 @@ namespace Craftwar.NetServer.Db
                     participants TEXT NOT NULL,
                     result       TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS friend_requests (
+                    from_account_id INTEGER NOT NULL REFERENCES accounts(id),
+                    to_account_id   INTEGER NOT NULL REFERENCES accounts(id),
+                    created_at      TEXT NOT NULL,
+                    PRIMARY KEY (from_account_id, to_account_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS friendships (
+                    account_id        INTEGER NOT NULL REFERENCES accounts(id),
+                    friend_account_id INTEGER NOT NULL REFERENCES accounts(id),
+                    created_at        TEXT NOT NULL,
+                    PRIMARY KEY (account_id, friend_account_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS channel_motd (
+                    channel_key TEXT PRIMARY KEY,
+                    motd        TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL
+                );
                 """;
             cmd.ExecuteNonQuery();
         }

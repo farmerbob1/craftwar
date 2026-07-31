@@ -22,6 +22,20 @@ namespace Craftwar.Net
         Human,
     }
 
+    /// <summary>Host-chosen alliance format. A thin UX affordance over the
+    /// per-seat Team byte that already fully worked (Sim's PlayerState.Team/
+    /// GameSim.Combat/IVictoryEvaluator need no changes for either value) —
+    /// FFA locks every seat to a unique team, Teams reveals the per-seat
+    /// picker for grouping. A real wire field rather than derived from
+    /// whether any two seats currently share a team: right after switching
+    /// to Teams nothing is grouped yet, so a derived flag would still read
+    /// as FFA at exactly the moment the host asked for the opposite.</summary>
+    public enum LobbyGameType : byte
+    {
+        Ffa = 0,
+        Teams = 1,
+    }
+
     /// <summary>One seat as the lobby sees it.</summary>
     public struct LobbySlot
     {
@@ -29,6 +43,13 @@ namespace Craftwar.Net
         public byte Race;
         public byte Team;
         public byte AiTier;
+        /// <summary>Named AiProfile, meaningful only for a Computer seat.
+        /// "" is a real value, not "unset" — it is the same "use the default
+        /// (land-attack) profile" sentinel AiProfileLibrary.Resolve already
+        /// treats identically to naming the default explicitly, so a seat
+        /// that never had its strategy touched behaves exactly as before
+        /// this field existed.</summary>
+        public string Strategy;
         public string Name;
     }
 
@@ -43,17 +64,33 @@ namespace Craftwar.Net
     public sealed class LobbyPayload
     {
         public string MapPath = "";
+        /// <summary>Host-chosen title, shown in the LAN beacon and the online
+        /// room browser instead of a bare username — "" falls back to
+        /// "{host}'s Game" at the display layer, same sentinel-default shape
+        /// as LobbySlot.Strategy.</summary>
+        public string RoomName = "";
         public ulong Seed = 42;
         public byte TicksPerTurn = SimConstants.TicksPerCommandTurn;
         public byte InputDelayTurns = 2;
+        public byte GameType = (byte)LobbyGameType.Ffa;
+        /// <summary>Index into the same six-step Slowest..Fastest scale
+        /// GameplaySettings uses for single player (0.5x-3x); 2 = Normal =
+        /// the original's fixed 50 Hz. Craftwar.Net cannot reference
+        /// Craftwar.View's GameplaySettings (asmdef boundary), so this is
+        /// just the index — GameplaySettings.MultiplierForIndex converts it
+        /// where floats are actually allowed to exist.</summary>
+        public byte SpeedIndex = 2;
         public readonly LobbySlot[] Slots = new LobbySlot[SimConstants.MaxPlayers];
 
         public void Write(ref ByteWriter w)
         {
             NetMessages.WriteString(ref w, MapPath);
+            NetMessages.WriteString(ref w, RoomName);
             w.WriteULong(Seed);
             w.WriteByte(TicksPerTurn);
             w.WriteByte(InputDelayTurns);
+            w.WriteByte(GameType);
+            w.WriteByte(SpeedIndex);
             for (int i = 0; i < Slots.Length; i++)
             {
                 ref LobbySlot s = ref Slots[i];
@@ -61,6 +98,7 @@ namespace Craftwar.Net
                 w.WriteByte(s.Race);
                 w.WriteByte(s.Team);
                 w.WriteByte(s.AiTier);
+                NetMessages.WriteString(ref w, s.Strategy ?? "");
                 NetMessages.WriteString(ref w, s.Name ?? "");
             }
         }
@@ -70,9 +108,12 @@ namespace Craftwar.Net
             var payload = new LobbyPayload
             {
                 MapPath = NetMessages.ReadString(ref r),
+                RoomName = NetMessages.ReadString(ref r),
                 Seed = r.ReadULong(),
                 TicksPerTurn = r.ReadByte(),
                 InputDelayTurns = r.ReadByte(),
+                GameType = r.ReadByte(),
+                SpeedIndex = r.ReadByte(),
             };
             for (int i = 0; i < payload.Slots.Length; i++)
             {
@@ -82,6 +123,7 @@ namespace Craftwar.Net
                     Race = r.ReadByte(),
                     Team = r.ReadByte(),
                     AiTier = r.ReadByte(),
+                    Strategy = NetMessages.ReadString(ref r),
                     Name = NetMessages.ReadString(ref r),
                 };
             }

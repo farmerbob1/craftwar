@@ -26,6 +26,7 @@ namespace Craftwar.NetServer.Transport
         readonly ConnectionRegistry _registry;
         readonly PresenceDirectory _presence;
         readonly ChannelManager _channels;
+        readonly FriendsService _friends;
         readonly Action<string> _log;
         readonly CancellationTokenSource _cts = new();
         Task _acceptLoop;
@@ -44,7 +45,8 @@ namespace Craftwar.NetServer.Transport
             _rooms = new RoomManager();
             _registry = new ConnectionRegistry();
             _presence = new PresenceDirectory();
-            _channels = new ChannelManager();
+            _channels = new ChannelManager(new ChannelMotdRepository(db));
+            _friends = new FriendsService(accountRepo, new FriendsRepository(db));
             _cert = CertificateProvider.Load(config);
 
             _listener = new TcpListener(IPAddress.Parse(config.Host), config.Port);
@@ -71,7 +73,7 @@ namespace Craftwar.NetServer.Transport
                 }
                 tcp.NoDelay = true;
                 var conn = new ClientConnection(tcp, _cert, _accounts, _ratings, _rooms, _registry, _presence,
-                    _channels, _log);
+                    _channels, _friends, _log);
                 _ = conn.RunAsync(); // fire-and-forget: one task per connection, errors logged inside
             }
         }

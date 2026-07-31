@@ -8,6 +8,7 @@ namespace Craftwar.NetServer.Protocol
         public string Id;
         public string MapName = "";
         public string HostName = "";
+        public string RoomName = "";
         public int MaxPlayers;
 
         /// <summary>Room-scoped peer id -> connection. The creator is always
@@ -47,7 +48,8 @@ namespace Craftwar.NetServer.Protocol
         readonly Dictionary<string, (string roomId, int peerId)> _memberOf = new();
         int _nextRoomId = 1;
 
-        public Room CreateRoom(string creatorConnectionId, string mapName, string hostName, int maxPlayers)
+        public Room CreateRoom(string creatorConnectionId, string mapName, string hostName, string roomName,
+            int maxPlayers)
         {
             lock (_lock)
             {
@@ -56,6 +58,7 @@ namespace Craftwar.NetServer.Protocol
                     Id = (_nextRoomId++).ToString(),
                     MapName = mapName,
                     HostName = hostName,
+                    RoomName = string.IsNullOrEmpty(roomName) ? $"{hostName}'s Game" : roomName,
                     MaxPlayers = maxPlayers < 1 ? 1 : maxPlayers,
                 };
                 room.Members[0] = creatorConnectionId;

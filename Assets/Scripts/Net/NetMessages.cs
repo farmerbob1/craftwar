@@ -57,8 +57,11 @@ namespace Craftwar.Net
     /// </summary>
     public struct BuildIdentity
     {
-        /// <summary>The protocol itself. Bump on any wire-format change.</summary>
-        public const ushort CurrentProtocolVersion = 1;
+        /// <summary>The protocol itself. Bump on any wire-format change.
+        /// 2: LobbyPayload.GameType + LobbySlot.Strategy (M13).
+        /// 3: LobbyPayload.RoomName (M13).
+        /// 4: LobbyPayload.SpeedIndex (M13).</summary>
+        public const ushort CurrentProtocolVersion = 4;
 
         public ushort ProtocolVersion;
 

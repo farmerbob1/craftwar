@@ -29,9 +29,10 @@ namespace Craftwar.App
     /// </summary>
     public sealed partial class MainMenuController
     {
-        VisualElement _panelOnline, _onlineLoginSection, _onlineBrowserSection, _onlineRoomsList;
+        VisualElement _panelOnline, _onlineLoginSection, _onlineLoggedInBody, _onlineBrowserPage, _onlineRoomsList;
         Label _onlineAuthStatus, _onlineWelcome, _onlineStatus;
         TextField _onlineServerField, _onlineUsernameField, _onlinePasswordField;
+        Button _onlineNavGames, _onlineNavChat;
 
         ScrollView _lobbyChatLog;
         TextField _lobbyChatInput;
@@ -52,8 +53,11 @@ namespace Craftwar.App
                 return; // older scene UXML; online multiplayer simply stays hidden
 
             _onlineLoginSection = root.Q("online-login");
-            _onlineBrowserSection = root.Q("online-browser");
+            _onlineLoggedInBody = root.Q("online-logged-in");
+            _onlineBrowserPage = root.Q("online-browser");
             _onlineRoomsList = root.Q("online-rooms");
+            _onlineNavGames = root.Q<Button>("online-nav-games");
+            _onlineNavChat = root.Q<Button>("online-nav-chat");
             _onlineAuthStatus = root.Q<Label>("online-auth-status");
             _onlineWelcome = root.Q<Label>("online-welcome");
             _onlineStatus = root.Q<Label>("online-status");
@@ -77,11 +81,25 @@ namespace Craftwar.App
             _lobbyChatSend = root.Q<Button>("lobby-chat-send");
 
             root.Q<Button>("multiplayer-online").clicked += ShowOnline;
-            root.Q<Button>("online-back").clicked += () => { LeaveNetworking(); CloseSocialConnection(); ShowMain(); };
+            root.Q<Button>("online-back").clicked += () =>
+            {
+                // An explicit logout — unlike a scene reload (starting or
+                // returning from a match), which must NOT drop the session;
+                // see OnlineSession's doc comment.
+                LeaveNetworking();
+                CloseSocialConnection();
+                _onlineSessionToken = null;
+                _onlineLoggedInUsername = null;
+                ShowMain();
+            };
             root.Q<Button>("online-login-btn").clicked += () => Authenticate(register: false);
             root.Q<Button>("online-register-btn").clicked += () => Authenticate(register: true);
-            root.Q<Button>("online-host").clicked += HostOnlineGame;
+            root.Q<Button>("online-host").clicked += () => ShowHostSetup(online: true);
             root.Q<Button>("online-refresh").clicked += RefreshOnlineRooms;
+            if (_onlineNavGames != null)
+                _onlineNavGames.clicked += () => ShowOnlineTab(chatTab: false);
+            if (_onlineNavChat != null)
+                _onlineNavChat.clicked += () => ShowOnlineTab(chatTab: true);
             if (_lobbyChatSend != null)
                 _lobbyChatSend.clicked += SendLobbyChat;
         }
@@ -113,25 +131,62 @@ namespace Craftwar.App
             _maps = MapList.Find(_paths);
             _lanMapSel = 0;
 
+            // Adopt a session that survived a scene reload (starting or
+            // returning from a match) instead of dropping back to the login
+            // form even though the player never logged out — see
+            // OnlineSession's doc comment. AdoptOnlineSessionIfActive is a
+            // no-op if this instance is already logged in (e.g. Back then
+            // straight back into Multiplayer (Online) without a scene load).
+            AdoptOnlineSessionIfActive();
+
             Show(_panelMain, false);
             Show(_panelSetup, false);
             Show(_panelLobby, false);
             if (_panelLan != null)
                 Show(_panelLan, false);
+            if (_panelHostSetup != null)
+                Show(_panelHostSetup, false);
             Show(_panelOnline, true);
             ShowOnlineSection(loggedIn: _onlineSessionToken != null);
             SetOnlineStatus("");
         }
 
+        void AdoptOnlineSessionIfActive()
+        {
+            if (_onlineSessionToken != null || !OnlineSession.IsActive)
+                return;
+            _onlineSessionToken = OnlineSession.SessionToken;
+            _onlineLoggedInUsername = OnlineSession.Username;
+            AdoptSocialConnection(OnlineSession.Social);
+        }
+
         void ShowOnlineSection(bool loggedIn)
         {
             Show(_onlineLoginSection, !loggedIn);
-            Show(_onlineBrowserSection, loggedIn);
-            ShowSocialSection(loggedIn);
+            Show(_onlineLoggedInBody, loggedIn);
             if (loggedIn && _onlineWelcome != null)
                 _onlineWelcome.text = $"Logged in as {_onlineLoggedInUsername}";
             if (loggedIn)
+            {
+                // Game List is the default landing tab - a fresh login should
+                // see open games, not whichever tab was left selected last.
+                ShowOnlineTab(chatTab: false);
                 RefreshOnlineRooms();
+            }
+        }
+
+        /// <summary>Left nav-rail switch between the two pages sharing
+        /// dash-main: the game browser and the channel chat. The friends
+        /// roster pane is not one of these tabs - it stays visible the whole
+        /// time, next to whichever page is showing, same as Battle.net's
+        /// buddy list.</summary>
+        void ShowOnlineTab(bool chatTab)
+        {
+            Show(_onlineBrowserPage, !chatTab);
+            if (_onlineSocial != null)
+                Show(_onlineSocial, chatTab);
+            _onlineNavGames?.SetEnabled(chatTab);
+            _onlineNavChat?.SetEnabled(!chatTab);
         }
 
         // --- Auth --------------------------------------------------------------
@@ -171,6 +226,10 @@ namespace Craftwar.App
 
                 _onlineSessionToken = token;
                 _onlineLoggedInUsername = username;
+                OnlineSession.Host = host;
+                OnlineSession.Port = port;
+                OnlineSession.SessionToken = token;
+                OnlineSession.Username = username;
                 ShowOnlineSection(loggedIn: true);
                 OpenSocialConnection(host, port);
 
@@ -237,14 +296,62 @@ namespace Craftwar.App
             foreach (var room in rooms)
             {
                 string roomId = room.RoomId;
-                string label = $"{room.HostName}  —  {System.IO.Path.GetFileNameWithoutExtension(room.MapName)}  " +
-                               $"({room.PlayerCount}/{room.MaxPlayers})";
-                var button = new Button(() => JoinOnlineRoom(roomId)) { text = label };
-                button.AddToClassList("menu__button");
-                button.SetEnabled(room.PlayerCount < room.MaxPlayers);
-                if (room.PlayerCount >= room.MaxPlayers)
-                    button.text = label + "   [full]";
-                _onlineRoomsList.Add(button);
+                string ratingText = LadderRank.Label(room.HostRatingKnown, room.HostRating, room.HostGamesPlayed);
+                string roomName = string.IsNullOrEmpty(room.RoomName) ? $"{room.HostName}'s Game" : room.RoomName;
+                bool joinable = room.PlayerCount < room.MaxPlayers;
+
+                var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center, marginBottom = 2 } };
+                row.AddToClassList("list-row");
+                var thumb = new Image
+                {
+                    pickingMode = PickingMode.Ignore,
+                    image = BakeThumbnailForRoomMap(room.MapName),
+                    scaleMode = ScaleMode.ScaleToFit,
+                };
+                thumb.style.width = 96;
+                thumb.style.height = 96;
+                thumb.style.marginRight = 6;
+                thumb.style.flexShrink = 0;
+                row.Add(thumb);
+
+                // Clickable text, not a second button — the host's name/rating
+                // IS the control for inspecting them. Join stays the one
+                // actual button in the row, so there's no ambiguity about
+                // what pressing it does.
+                string hostName = room.HostName;
+                bool hostRatingKnown = room.HostRatingKnown;
+                int hostRating = room.HostRating;
+                int hostGames = room.HostGamesPlayed;
+                var nameLabel = new Label($"{roomName} — {hostName} ({ratingText})")
+                {
+                    pickingMode = PickingMode.Position,
+                };
+                nameLabel.AddToClassList("text");
+                nameLabel.style.width = 220;
+                nameLabel.style.flexShrink = 0;
+                nameLabel.RegisterCallback<ClickEvent>(_ =>
+                {
+                    string body = hostRatingKnown
+                        ? $"Rating: {hostRating}\nGames played: {hostGames}\nRank: {LadderRank.TitleFor(hostRating, hostGames)}"
+                        : "This player has no online ladder rating.";
+                    ShowInspectPopup(hostName, body);
+                });
+                row.Add(nameLabel);
+
+                string mapLabel = $"{System.IO.Path.GetFileNameWithoutExtension(room.MapName)}  " +
+                                   $"({room.PlayerCount}/{room.MaxPlayers})" + (joinable ? "" : "  [full]");
+                var mapText = new Label(mapLabel) { pickingMode = PickingMode.Ignore };
+                mapText.AddToClassList("text");
+                mapText.style.flexGrow = 1;
+                row.Add(mapText);
+
+                var joinBtn = new Button(() => JoinOnlineRoom(roomId)) { text = "Join" };
+                joinBtn.AddToClassList("menu__button");
+                joinBtn.style.width = 70;
+                joinBtn.SetEnabled(joinable);
+                row.Add(joinBtn);
+
+                _onlineRoomsList.Add(row);
             }
             SetOnlineStatus("");
         }
@@ -257,7 +364,7 @@ namespace Craftwar.App
                 return;
             if (_maps == null || _maps.Count == 0)
             {
-                SetOnlineStatus("No .pud maps found to host.");
+                SetHostSetupStatus("No .pud maps found to host.");
                 return;
             }
 
@@ -265,16 +372,19 @@ namespace Craftwar.App
 
             var payload = BuildHostPayload();
             if (payload == null)
-                return; // BuildHostPayload already set a status message via SetLanStatus
+                return; // BuildHostPayload already set a status message via SetHostSetupStatus
 
             try
             {
+                // The room's real join cap — payload.PlayableCount() already
+                // reflects the host's chosen player count (extra seats were
+                // Closed in BuildHostPayload), not a flat SimConstants.MaxPlayers.
                 _onlineSocket = RelayPeerSocket.Host(host, port, payload.MapPath, OnlinePlayerName(),
-                    SimConstants.MaxPlayers);
+                    payload.RoomName, payload.PlayableCount());
             }
             catch (Exception e)
             {
-                SetOnlineStatus($"Could not host: {e.Message}");
+                SetHostSetupStatus($"Could not host: {e.Message}");
                 return;
             }
 

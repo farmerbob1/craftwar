@@ -1,4 +1,5 @@
 using Craftwar.Net;
+using Craftwar.Sim.Ai;
 using NUnit.Framework;
 
 namespace Craftwar.Sim.Tests
@@ -198,6 +199,95 @@ namespace Craftwar.Sim.Tests
         }
 
         [Test]
+        public void FlippingASeatToComputer_AutoAssignsATierAndNeverLeavesStrategyNull()
+        {
+            var payload = TwoSeatPayload(); // slot 1 is Open
+            var network = new LoopbackNetwork();
+            var hostPeer = network.CreatePeer();
+            var host = new LobbyHost(hostPeer, Identity(), payload);
+
+            Assert.IsTrue(host.SetSeatStatus(1, LobbySeatStatus.Computer));
+
+            var slot = host.Payload.Slots[1];
+            Assert.IsNotNull(slot.Strategy, "never left at the field's own null default");
+            CollectionAssert.Contains(
+                new byte[] { (byte)AiTier.Dumb, (byte)AiTier.Normal, (byte)AiTier.Smart, (byte)AiTier.God },
+                slot.AiTier);
+        }
+
+        [Test]
+        public void ReconfirmingAnAlreadyComputerSeat_DoesNotReassignItsTierAgain()
+        {
+            var payload = TwoSeatPayload();
+            var network = new LoopbackNetwork();
+            var hostPeer = network.CreatePeer();
+            var host = new LobbyHost(hostPeer, Identity(), payload);
+
+            host.SetSeatStatus(1, LobbySeatStatus.Computer);
+            byte firstTier = host.Payload.Slots[1].AiTier;
+            host.CycleSeatTier(1); // host deliberately picks a different one
+            byte cycled = host.Payload.Slots[1].AiTier;
+            Assert.AreNotEqual(firstTier, cycled);
+
+            // Setting the SAME status again (e.g. a redundant UI callback)
+            // must not clobber the host's manual choice — only a genuinely
+            // fresh flip (from a different previous status) re-randomizes.
+            host.SetSeatStatus(1, LobbySeatStatus.Computer);
+            Assert.AreEqual(cycled, host.Payload.Slots[1].AiTier);
+        }
+
+        [Test]
+        public void CycleSeatTier_WrapsAndOnlyAffectsComputerSeats()
+        {
+            var payload = TwoSeatPayload();
+            var network = new LoopbackNetwork();
+            var hostPeer = network.CreatePeer();
+            var host = new LobbyHost(hostPeer, Identity(), payload);
+
+            // Not a Computer seat (still Human) — no-op.
+            host.CycleSeatTier(0);
+            Assert.AreEqual(0, host.Payload.Slots[0].AiTier);
+
+            host.SetSeatStatus(1, LobbySeatStatus.Computer);
+            host.Payload.Slots[1].AiTier = (byte)AiTier.God; // force the wrap boundary
+            host.CycleSeatTier(1);
+            Assert.AreEqual((byte)AiTier.Dumb, host.Payload.Slots[1].AiTier);
+        }
+
+        [Test]
+        public void SetSeatStrategy_OnlyAppliesToComputerSeats()
+        {
+            var payload = TwoSeatPayload();
+            var network = new LoopbackNetwork();
+            var hostPeer = network.CreatePeer();
+            var host = new LobbyHost(hostPeer, Identity(), payload);
+
+            host.SetSeatStrategy(0, "land-attack"); // seat 0 is Human — no-op
+            Assert.IsNull(host.Payload.Slots[0].Strategy);
+
+            host.SetSeatStatus(1, LobbySeatStatus.Computer);
+            host.SetSeatStrategy(1, "custom-profile");
+            Assert.AreEqual("custom-profile", host.Payload.Slots[1].Strategy);
+        }
+
+        [Test]
+        public void LobbySlot_StrategyRoundTripsThroughBytes()
+        {
+            var payload = TwoSeatPayload();
+            payload.Slots[1].SeatStatus = (byte)LobbySeatStatus.Computer;
+            payload.Slots[1].Strategy = "custom-profile";
+            payload.Slots[0].Strategy = ""; // the default-profile sentinel
+
+            var w = new ByteWriter(64);
+            payload.Write(ref w);
+            var r = new ByteReader(w.ToArray());
+            var back = LobbyPayload.Read(ref r);
+
+            Assert.AreEqual("custom-profile", back.Slots[1].Strategy);
+            Assert.AreEqual("", back.Slots[0].Strategy);
+        }
+
+        [Test]
         public void StartMatch_RefusesWhileASeatIsStillOpen()
         {
             var payload = TwoSeatPayload(); // slot 1 is Open, nobody joined
@@ -221,6 +311,44 @@ namespace Craftwar.Sim.Tests
 
             p.Host.SetSeatTeam(1, 0); // put the joiner on the host's team (0)
             Assert.AreEqual(0, p.Host.Payload.Slots[1].Team);
+        }
+
+        [Test]
+        public void SetGameType_ToFfa_ResetsEveryNonClosedSeatToAUniqueTeamButLeavesClosedOnesAlone()
+        {
+            var payload = TwoSeatPayload();
+            payload.Slots[1].SeatStatus = (byte)LobbySeatStatus.Computer;
+            payload.Slots[0].Team = 3;
+            payload.Slots[1].Team = 3; // grouped together
+            payload.Slots[2].Team = 9; // Closed (default) — must be untouched
+            var network = new LoopbackNetwork();
+            var hostPeer = network.CreatePeer();
+            var host = new LobbyHost(hostPeer, Identity(), payload);
+
+            host.SetGameType(LobbyGameType.Ffa);
+
+            Assert.AreEqual((byte)LobbyGameType.Ffa, host.Payload.GameType);
+            Assert.AreEqual(0, host.Payload.Slots[0].Team);
+            Assert.AreEqual(1, host.Payload.Slots[1].Team, "no longer grouped with seat 0");
+            Assert.AreEqual(9, host.Payload.Slots[2].Team, "a closed seat is left alone");
+        }
+
+        [Test]
+        public void SetGameType_ToTeams_LeavesExistingAssignmentsUntouched()
+        {
+            var payload = TwoSeatPayload();
+            payload.Slots[1].SeatStatus = (byte)LobbySeatStatus.Computer;
+            payload.Slots[0].Team = 2;
+            payload.Slots[1].Team = 5;
+            var network = new LoopbackNetwork();
+            var hostPeer = network.CreatePeer();
+            var host = new LobbyHost(hostPeer, Identity(), payload);
+
+            host.SetGameType(LobbyGameType.Teams);
+
+            Assert.AreEqual((byte)LobbyGameType.Teams, host.Payload.GameType);
+            Assert.AreEqual(2, host.Payload.Slots[0].Team);
+            Assert.AreEqual(5, host.Payload.Slots[1].Team);
         }
 
         [Test]
@@ -260,6 +388,9 @@ namespace Craftwar.Sim.Tests
             payload.Slots[1].Name = "Grom";
             payload.Slots[1].SeatStatus = (byte)LobbySeatStatus.Human;
             payload.InputDelayTurns = 3;
+            payload.GameType = (byte)LobbyGameType.Teams;
+            payload.RoomName = "Grom's Arena";
+            payload.SpeedIndex = 4; // "Faster"
 
             var w = new ByteWriter(64);
             payload.Write(ref w);
@@ -269,6 +400,9 @@ namespace Craftwar.Sim.Tests
             Assert.AreEqual(payload.MapPath, back.MapPath);
             Assert.AreEqual(payload.Seed, back.Seed);
             Assert.AreEqual(3, back.InputDelayTurns);
+            Assert.AreEqual((byte)LobbyGameType.Teams, back.GameType);
+            Assert.AreEqual("Grom's Arena", back.RoomName);
+            Assert.AreEqual(4, back.SpeedIndex);
             Assert.AreEqual("Grom", back.Slots[1].Name);
             Assert.AreEqual((byte)LobbySeatStatus.Human, back.Slots[1].SeatStatus);
             Assert.AreEqual(w.Position, r.Position, "reader consumes exactly what the writer produced");

@@ -53,6 +53,12 @@ namespace Craftwar.View
 
         int ClampedIndex => Mathf.Clamp(speedIndex, 0, SpeedMultipliers.Length - 1);
 
+        /// <summary>Same lookup as the instance SpeedMultiplier property, for
+        /// a host-chosen index that arrived over the wire (LobbyPayload.
+        /// SpeedIndex) rather than this client's own saved preference.</summary>
+        public static float MultiplierForIndex(int index) =>
+            SpeedMultipliers[Mathf.Clamp(index, 0, SpeedMultipliers.Length - 1)];
+
         /// <summary>Wraps — a single button that walks the whole list.</summary>
         public void CycleSpeed(int delta) =>
             speedIndex = (ClampedIndex + delta + SpeedMultipliers.Length)

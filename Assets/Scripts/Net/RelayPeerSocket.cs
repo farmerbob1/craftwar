@@ -36,6 +36,7 @@ namespace Craftwar.Net
         readonly ConcurrentQueue<(int from, byte[] payload, int length)> _inbox = new();
         readonly ConcurrentQueue<(int peerId, bool connected)> _connectionEvents = new();
         readonly ConcurrentQueue<(string senderName, string text)> _chatInbox = new();
+        readonly ConcurrentQueue<(string username, bool found, int rating, int gamesPlayed)> _ratingInbox = new();
         readonly BlockingCollection<byte[]> _outbox = new();
         readonly Task _readerTask;
         readonly Task _writerTask;
@@ -65,16 +66,17 @@ namespace Craftwar.Net
         /// <summary>Connect, authenticate, and create a room — the caller
         /// becomes room-peer 0, the elected host.</summary>
         public static RelayPeerSocket Host(string serverHost, int serverPort, string mapName,
-            string hostName, int maxPlayers) =>
-            Connect(serverHost, serverPort, joinRoomId: null, mapName, hostName, maxPlayers);
+            string hostName, string roomName, int maxPlayers) =>
+            Connect(serverHost, serverPort, joinRoomId: null, mapName, hostName, roomName, maxPlayers);
 
         /// <summary>Connect, authenticate, and join an existing room.</summary>
         public static RelayPeerSocket Join(string serverHost, int serverPort, string roomId,
             string playerName) =>
-            Connect(serverHost, serverPort, joinRoomId: roomId, mapName: null, playerName, maxPlayers: 0);
+            Connect(serverHost, serverPort, joinRoomId: roomId, mapName: null, playerName, roomName: null,
+                maxPlayers: 0);
 
         static RelayPeerSocket Connect(string serverHost, int serverPort, string joinRoomId,
-            string mapName, string name, int maxPlayers)
+            string mapName, string name, string roomName, int maxPlayers)
         {
             var tcp = new TcpClient();
             tcp.Connect(serverHost, serverPort);
@@ -92,7 +94,8 @@ namespace Craftwar.Net
             int localPeerId;
             if (joinRoomId == null)
             {
-                SendHandshakeFrame(ssl, (ref ByteWriter w) => ControlProtocol.WriteCreateRoom(ref w, mapName, name, maxPlayers));
+                SendHandshakeFrame(ssl, (ref ByteWriter w) =>
+                    ControlProtocol.WriteCreateRoom(ref w, mapName, name, roomName, maxPlayers));
                 var result = ReadHandshakeFrame(ssl);
                 roomId = ControlProtocol.ReadCreateRoomResult(ref result);
                 localPeerId = 0; // the creator is always room-peer 0 — see the server's RoomManager
@@ -197,6 +200,37 @@ namespace Craftwar.Net
             return false;
         }
 
+        /// <summary>Look up one account's ladder rating — fire-and-forget,
+        /// non-blocking (unlike OnlineAccountClient's one-shot calls), since
+        /// it rides this already-open connection. Used by the lobby roster
+        /// and the player-inspect popup; room-browser rows get their rating
+        /// batched directly into ListRoomsResult instead.</summary>
+        public void SendGetRating(string username)
+        {
+            var w = new ByteWriter(username.Length + 16);
+            ControlProtocol.WriteGetRating(ref w, username);
+            if (!_outbox.IsAddingCompleted)
+                _outbox.Add(w.ToArray());
+        }
+
+        public bool TryReceiveGetRatingResult(out string username, out bool found, out int rating,
+            out int gamesPlayed)
+        {
+            if (_ratingInbox.TryDequeue(out var item))
+            {
+                username = item.username;
+                found = item.found;
+                rating = item.rating;
+                gamesPlayed = item.gamesPlayed;
+                return true;
+            }
+            username = null;
+            found = false;
+            rating = 0;
+            gamesPlayed = 0;
+            return false;
+        }
+
         /// <summary>Report a finished match's outcome — the elected host
         /// only (see RatingService: trusted for v1, one report per match).
         /// Fire-and-forget: no client-side handling of the ack yet, the wire
@@ -243,6 +277,12 @@ namespace Craftwar.Net
                         case ControlMessageKind.ChatBroadcast:
                             ControlProtocol.ReadChatBroadcast(ref r, out string senderName, out string text);
                             _chatInbox.Enqueue((senderName, text));
+                            break;
+
+                        case ControlMessageKind.GetRatingResult:
+                            ControlProtocol.ReadGetRatingResult(ref r, out string ratingUsername,
+                                out bool ratingFound, out int rating, out int gamesPlayed);
+                            _ratingInbox.Enqueue((ratingUsername, ratingFound, rating, gamesPlayed));
                             break;
                     }
                 }

@@ -131,6 +131,44 @@ namespace Craftwar.NetServer.Tests
             Assert.Greater(rating.Rating, 1500);
         }
 
+        [Test]
+        public void TryGetRating_ReturnsTrueAndTheSeededDefaultForAFreshAccount()
+        {
+            _accounts.TryCreate("grom", "hash", out _);
+
+            bool found = _service.TryGetRating("grom", out var rating, out int games);
+
+            Assert.IsTrue(found);
+            Assert.AreEqual(1500, rating.Rating, 0.0001, "Glickman's own default, seeded at registration");
+            Assert.AreEqual(0, games);
+        }
+
+        [Test]
+        public void TryGetRating_ReflectsAPlayedMatch()
+        {
+            _accounts.TryCreate("grom", "hash", out _);
+            _accounts.TryCreate("thrall", "hash", out _);
+            _service.ReportResult("Skirmish.pud", "1v1", new List<RatingService.PlayerResult>
+            {
+                new("grom", true),
+                new("thrall", false),
+            });
+
+            _service.TryGetRating("grom", out var rating, out int games);
+
+            Assert.Greater(rating.Rating, 1500);
+            Assert.AreEqual(1, games);
+        }
+
+        [Test]
+        public void TryGetRating_ReturnsFalseForAnUnregisteredUsername()
+        {
+            bool found = _service.TryGetRating("nobody-signed-up", out _, out int games);
+
+            Assert.IsFalse(found);
+            Assert.AreEqual(0, games);
+        }
+
         long GetId(string username)
         {
             Assert.IsTrue(_accounts.TryGetByUsername(username, out var account));

@@ -2,7 +2,10 @@
    swap needs no edits here. */
 
 .panel {
-    background-color: var(--cw-panel-bg);
+    /* Recessed fill, not the same near-black as the surrounding .menu —
+       otherwise an empty scroll box reads as a void with a faint outline
+       rather than a distinct content area. */
+    background-color: var(--cw-panel-bg-inset);
     border-left-width: 1px;
     border-right-width: 1px;
     border-top-width: 1px;
@@ -11,6 +14,7 @@
     border-right-color: var(--cw-panel-border);
     border-top-color: var(--cw-panel-border);
     border-bottom-color: var(--cw-panel-border);
+    border-radius: 3px;
 }
 
 .text {
@@ -74,6 +78,7 @@
     border-right-color: var(--cw-panel-border);
     border-top-color: var(--cw-panel-border);
     border-bottom-color: var(--cw-panel-border);
+    border-radius: 3px;
 }
 
 .unity-base-text-field__input .unity-text-element,
@@ -102,12 +107,47 @@ TextField .unity-text-element {
     border-right-color: var(--cw-panel-border);
     border-top-color: var(--cw-panel-border);
     border-bottom-color: var(--cw-panel-border);
+    border-radius: 3px;
 }
 
 .unity-base-popup-field__text {
     color: var(--cw-text);
 }
 
-.unity-base-popup-field__input:hover {
+.unity-base-popup-field__input:hover,
+.unity-base-popup-field__input.unity-base-popup-field__input:hover {
     background-color: var(--cw-btn-bg-hover);
+}
+
+/* The dropdown's OPEN item list (GenericDropdownMenu) is a separate runtime
+   overlay that only picks up the default theme's own colors unless we
+   target its classes directly — it was rendering with a stock white/near-
+   white hover highlight behind text we never explicitly darkened, so a
+   hovered row was unreadable. Force dark chrome + light text to match the
+   rest of the panel. */
+.unity-base-dropdown {
+    background-color: var(--cw-panel-bg-solid);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.unity-base-dropdown__item {
+    color: var(--cw-text);
+}
+
+.unity-base-dropdown__label,
+.unity-base-dropdown__checkmark {
+    color: var(--cw-text);
+}
+
+.unity-base-dropdown__item:hover,
+.unity-base-dropdown__item.unity-base-dropdown__item:hover {
+    background-color: var(--cw-btn-bg-hover);
+    color: var(--cw-text);
 }

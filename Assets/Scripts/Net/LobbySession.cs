@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Craftwar.Sim;
+using Craftwar.Sim.Ai;
 
 namespace Craftwar.Net
 {
@@ -18,6 +19,21 @@ namespace Craftwar.Net
         readonly IPacketPeer _peer;
         readonly BuildIdentity _identity;
         readonly Action<string> _log;
+
+        static readonly AiTier[] AiTierCycle = { AiTier.Dumb, AiTier.Normal, AiTier.Smart, AiTier.God };
+
+        /// <summary>A default difficulty for a seat freshly handed to the
+        /// computer — lobby bookkeeping only, discarded before StartMatch,
+        /// never hashed sim state. SimPurityTests still bans System.Random
+        /// and wall-clock time from this whole folder (Craftwar.Net runs
+        /// inside the sim's determinism contract, and the standalone harness
+        /// compiles it alongside Craftwar.Sim), so this reaches for Guid
+        /// entropy instead of either.</summary>
+        static AiTier PickDefaultTier()
+        {
+            uint bits = (uint)Guid.NewGuid().GetHashCode();
+            return AiTierCycle[bits % (uint)AiTierCycle.Length];
+        }
 
         public LobbyHost(IPacketPeer peer, in BuildIdentity identity, LobbyPayload payload,
             Action<string> log = null)
@@ -138,12 +154,50 @@ namespace Craftwar.Net
         public bool SetSeatStatus(int seat, LobbySeatStatus status)
         {
             if (seat < 0 || seat >= Payload.Slots.Length) return false;
-            if (Payload.Slots[seat].SeatStatus == (byte)LobbySeatStatus.Human) return false;
+            var previous = (LobbySeatStatus)Payload.Slots[seat].SeatStatus;
+            if (previous == LobbySeatStatus.Human) return false;
             if (status == LobbySeatStatus.Human) return false; // only a real join does this
             Payload.Slots[seat].SeatStatus = (byte)status;
+            if (status == LobbySeatStatus.Computer && previous != LobbySeatStatus.Computer)
+            {
+                // A seat freshly handed to the computer must never sit
+                // unassigned: pick a difficulty now instead of leaving AiTier
+                // at whatever the field defaulted to. Strategy = "" is the
+                // established "use the default (land-attack) profile"
+                // sentinel — AiProfileLibrary.Resolve already treats it
+                // identically to naming the default explicitly.
+                Payload.Slots[seat].AiTier = (byte)PickDefaultTier();
+                Payload.Slots[seat].Strategy = "";
+            }
             BroadcastState();
             Changed?.Invoke();
             return true;
+        }
+
+        /// <summary>Host-only: cycle a Computer seat's difficulty
+        /// Dumb→Normal→Smart→God→Dumb. No-op on any other seat status.</summary>
+        public void CycleSeatTier(int seat)
+        {
+            if (seat < 0 || seat >= Payload.Slots.Length) return;
+            if (Payload.Slots[seat].SeatStatus != (byte)LobbySeatStatus.Computer) return;
+            int index = Array.IndexOf(AiTierCycle, (AiTier)Payload.Slots[seat].AiTier);
+            Payload.Slots[seat].AiTier = (byte)AiTierCycle[(index + 1) % AiTierCycle.Length];
+            BroadcastState();
+            Changed?.Invoke();
+        }
+
+        /// <summary>Host-only: set a Computer seat's named AiProfile directly.
+        /// A plain setter — LobbyHost never needs to know the strategy list
+        /// exists (Craftwar.Net cannot reference AiProfileLibrary, which lives
+        /// in Craftwar.App); the caller computes "next name" itself, exactly
+        /// like skirmish's own CycleStrategy does.</summary>
+        public void SetSeatStrategy(int seat, string name)
+        {
+            if (seat < 0 || seat >= Payload.Slots.Length) return;
+            if (Payload.Slots[seat].SeatStatus != (byte)LobbySeatStatus.Computer) return;
+            Payload.Slots[seat].Strategy = name ?? "";
+            BroadcastState();
+            Changed?.Invoke();
         }
 
         /// <summary>Host-only: regroup a seat's alliance. Up to 8 teams for 8
@@ -152,6 +206,22 @@ namespace Craftwar.Net
         {
             if (seat < 0 || seat >= Payload.Slots.Length) return;
             Payload.Slots[seat].Team = team;
+            BroadcastState();
+            Changed?.Invoke();
+        }
+
+        /// <summary>Host-only: switch the whole lobby between Free-For-All and
+        /// Teams. Ffa is a real reset (every non-Closed seat forced to a
+        /// unique team index), not just a label — a host who switches back to
+        /// Ffa after grouping people should see every alliance actually
+        /// broken, not a stale grouping hidden behind the UI.</summary>
+        public void SetGameType(LobbyGameType type)
+        {
+            Payload.GameType = (byte)type;
+            if (type == LobbyGameType.Ffa)
+                for (int i = 0; i < Payload.Slots.Length; i++)
+                    if (Payload.Slots[i].SeatStatus != (byte)LobbySeatStatus.Closed)
+                        Payload.Slots[i].Team = (byte)i;
             BroadcastState();
             Changed?.Invoke();
         }

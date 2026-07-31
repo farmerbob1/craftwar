@@ -4,6 +4,11 @@
 :root {
     --cw-panel-bg: rgba(24, 26, 30, 0.92);
     --cw-panel-bg-solid: rgb(24, 26, 30);
+    /* Recessed "content well" fill for nested scroll boxes (chat log,
+       member/friend lists) — visibly darker than --cw-panel-bg-solid so
+       they read as a distinct sunken area, not a same-colored void with a
+       barely-visible border. */
+    --cw-panel-bg-inset: rgb(15, 16, 19);
     --cw-panel-border: rgb(70, 74, 82);
     --cw-accent: rgb(212, 175, 55);
 

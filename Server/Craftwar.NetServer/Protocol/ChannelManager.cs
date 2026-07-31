@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Craftwar.NetServer.Db;
 
 namespace Craftwar.NetServer.Protocol
 {
@@ -12,6 +13,12 @@ namespace Craftwar.NetServer.Protocol
     public sealed class ChatChannel
     {
         public string Name;
+        /// <summary>Set by the op only (ChannelManager.TrySetMotd). UNLIKE
+        /// the rest of this class, this one field is backed by
+        /// ChannelMotdRepository when ChannelManager is given one — a MOTD
+        /// that vanished every time a channel happened to empty out would
+        /// defeat the entire point of a "message of the day".</summary>
+        public string Motd = "";
         public readonly Dictionary<long, string> Members = new();
         public readonly List<long> JoinOrder = new();
 
@@ -57,6 +64,12 @@ namespace Craftwar.NetServer.Protocol
         readonly object _lock = new();
         readonly Dictionary<string, ChatChannel> _channels = new(); // keyed lowercase
         readonly Dictionary<long, string> _channelKeyOfAccount = new();
+        /// <summary>Null in most existing unit tests (`new ChannelManager()`),
+        /// which keeps MOTD in-memory-only for them — production wiring
+        /// (RelayServerHost) always supplies a real one.</summary>
+        readonly ChannelMotdRepository _motdRepo;
+
+        public ChannelManager(ChannelMotdRepository motdRepo = null) => _motdRepo = motdRepo;
 
         public static bool IsValidName(string name)
         {
@@ -84,7 +97,7 @@ namespace Craftwar.NetServer.Protocol
                 string key = channelName.ToLowerInvariant();
                 if (!_channels.TryGetValue(key, out var channel))
                 {
-                    channel = new ChatChannel { Name = channelName };
+                    channel = new ChatChannel { Name = channelName, Motd = _motdRepo?.GetOrDefault(key) ?? "" };
                     _channels[key] = channel;
                 }
                 channel.Members[accountId] = username;
@@ -162,6 +175,24 @@ namespace Craftwar.NetServer.Protocol
                 _channelKeyOfAccount.Remove(targetAccountId);
                 if (channel.Members.Count == 0)
                     _channels.Remove(key);
+                return null;
+            }
+        }
+
+        /// <summary>Null on success. Only the channel's own operator may set
+        /// its message of the day.</summary>
+        public string TrySetMotd(long accountId, string motd, out ChatChannel channel)
+        {
+            lock (_lock)
+            {
+                channel = null;
+                if (!_channelKeyOfAccount.TryGetValue(accountId, out string key)
+                    || !_channels.TryGetValue(key, out channel))
+                    return "you are not in a channel";
+                if (channel.OpAccountId != accountId)
+                    return "only the channel operator can set the message of the day";
+                channel.Motd = motd ?? "";
+                _motdRepo?.Save(key, channel.Motd);
                 return null;
             }
         }

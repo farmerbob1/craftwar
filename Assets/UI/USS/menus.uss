@@ -1,5 +1,17 @@
-/* Screen-stack menus (pause menu at phase 6, main menu / match setup at M8).
-   Intentionally minimal until then — the theme vars are already in place. */
+/* Screen-stack menus (pause menu, main menu / match setup / multiplayer).
+   Two chrome tiers share one look:
+     .menu             - a compact centered dialog (main menu, options,
+                          wizard, pause menu, in-game options). Stays small
+                          on purpose - these are single-purpose choices, not
+                          browsers.
+     .menu--wide/
+     .menu--dashboard*  - width tiers for screens that actually have
+                          multiple concerns to show at once (skirmish setup,
+                          LAN/online browsers, the lobby room, host setup).
+                          These use most of a 1080p screen instead of a
+                          floating mobile-style card, closer to the
+                          Battle.net / WC2 multiplayer screens this game is
+                          meant to evoke. */
 
 .screen-scrim {
     position: absolute;
@@ -13,31 +25,54 @@
 }
 
 .menu {
-    width: 320px;
-    padding: 20px;
+    width: 400px;
+    padding: 22px 26px 26px;
     background-color: var(--cw-panel-bg-solid);
-    border-left-width: 1px;
-    border-right-width: 1px;
-    border-top-width: 1px;
-    border-bottom-width: 1px;
-    border-left-color: var(--cw-panel-border);
-    border-right-color: var(--cw-panel-border);
-    border-top-color: var(--cw-panel-border);
-    border-bottom-color: var(--cw-panel-border);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: var(--cw-accent);
+    border-right-color: var(--cw-accent);
+    border-top-color: var(--cw-accent);
+    border-bottom-color: var(--cw-accent);
+    border-radius: 2px;
 }
 
-/* Panels whose rows are wide (skirmish setup: label + controller + race +
-   strategy + difficulty per slot). */
-.menu--wide {
-    width: 640px;
-}
+/* Width tiers. Layered on top of .menu, which still supplies the shared
+   chrome (border/background/padding). */
+.menu--wide { width: 820px; }
+.menu--dashboard { width: 1220px; min-height: 780px; }
+.menu--dashboard-lg { width: 1440px; min-height: 820px; }
+.menu--dashboard-xl { width: 1680px; min-height: 880px; }
 
 .menu__title {
     color: var(--cw-accent);
-    font-size: 20px;
+    font-size: 22px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    margin-bottom: 16px;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--cw-panel-border);
+}
+
+/* Separates distinct concerns stacked in one panel (room browser / channel
+   chat / friends, on panel-online) with a rule + breathing room, instead of
+   a wall of controls with nothing telling you where one ends and the next
+   begins. */
+.menu__section {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top-width: 1px;
+    border-top-color: var(--cw-panel-border);
+}
+
+.menu__section-title {
+    color: var(--cw-text);
+    font-size: 14px;
+    -unity-font-style: bold;
+    margin-bottom: 8px;
 }
 
 .menu__button {
@@ -50,15 +85,186 @@
     border-right-color: var(--cw-panel-border);
     border-top-color: var(--cw-panel-border);
     border-bottom-color: var(--cw-panel-border);
+    border-radius: 3px;
 }
 
-.menu__button:hover {
+/* The class is doubled ON PURPOSE: Unity's built-in runtime theme
+   (unity-theme://default, imported before us in ThemeDark.tss) defines its
+   own compound :hover state (class + :enabled, etc.) for Button, which
+   outranks a plain single-class :hover selector on specificity alone —
+   import order only breaks TIES, it doesn't help against a rule that's
+   flat-out more specific. Repeating the class token doesn't change what
+   matches, only how many "points" the selector counts for, which is enough
+   to reliably win here. Without this, hover fell back to the default
+   theme's near-white highlight against our light button text — unreadable. */
+.menu__button:hover,
+.menu__button.menu__button:hover {
     background-color: var(--cw-btn-bg-hover);
+    color: var(--cw-text);
 }
 
 .menu__button:disabled {
     color: var(--cw-text-dim);
     background-color: var(--cw-btn-bg-disabled);
+}
+
+/* --- dashboard layout: header bar, nav rail, main/roster columns --- */
+
+/* Header row for a dashboard panel: left-aligned title, optional status
+   text, and an action (Back/Log Out) pinned to the right - replaces the
+   plain centered .menu__title for screens with more going on than a title. */
+.dash-header {
+    flex-direction: row;
+    align-items: center;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.dash-header__title {
+    color: var(--cw-accent);
+    font-size: 22px;
+    -unity-font-style: bold;
+}
+
+.dash-header__welcome {
+    color: var(--cw-text-dim);
+    font-size: 13px;
+    margin-left: 16px;
+    flex-grow: 1;
+}
+
+.dash-header__back {
+    width: 140px;
+    margin-bottom: 0;
+    align-self: center;
+}
+
+/* Horizontal split: a fixed-width side column plus a flexible main area.
+   Used directly (two columns) or with an extra roster pane (three). */
+.dash-columns {
+    flex-direction: row;
+    flex-grow: 1;
+}
+
+.dash-col {
+    flex-direction: column;
+}
+
+.dash-col--narrow {
+    width: 340px;
+    margin-right: 24px;
+}
+
+.dash-main {
+    flex-grow: 1;
+    flex-direction: column;
+}
+
+.dash-divider {
+    width: 1px;
+    margin-left: 20px;
+    margin-right: 20px;
+    background-color: var(--cw-panel-border);
+}
+
+/* One tab page inside a dash-main; MainMenuController toggles which one is
+   visible with display:none/flex, same pattern as options-page-*. */
+.dash-page {
+    flex-grow: 1;
+    flex-direction: column;
+}
+
+.dash-page__toolbar {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.dash-page__toolbar .menu__section-title {
+    flex-grow: 1;
+    margin-bottom: 0;
+}
+
+.dash-page__toolbar .menu__button {
+    width: 130px;
+    height: 32px;
+    margin-bottom: 0;
+    margin-left: 8px;
+}
+
+/* Left-hand vertical tab rail (panel-online: Game List / Channel Chat). */
+.nav-rail {
+    width: 180px;
+    margin-right: 24px;
+    flex-direction: column;
+}
+
+.nav-rail__button {
+    height: 42px;
+    margin-bottom: 6px;
+    -unity-text-align: middle-left;
+    padding-left: 14px;
+    border-left-width: 3px;
+    border-left-color: transparent;
+}
+
+.nav-rail__button:disabled {
+    /* The selected tab is the one you cannot press - same convention as
+       .options-tab below. */
+    color: var(--cw-accent);
+    background-color: var(--cw-btn-bg-hover);
+    border-left-color: var(--cw-accent);
+}
+
+/* Right-hand persistent roster/friends pane on panel-online - always
+   visible once logged in, independent of which nav-rail tab is selected,
+   the same way Battle.net's buddy list sits beside whatever you're doing. */
+.roster-pane {
+    width: 300px;
+    margin-left: 24px;
+    flex-direction: column;
+}
+
+/* A list body with a visible "sunken" well, sized to actually show more
+   than three rows - the old 140px scroll boxes were most of the complaint. */
+.list-body {
+    flex-grow: 1;
+    min-height: 220px;
+    padding: 6px;
+}
+
+.list-body--tall {
+    min-height: 420px;
+}
+
+/* Column headings above a dynamically-built row list (room browser, slot
+   table). Widths are set inline per screen to match the C#-built rows. */
+.table-header {
+    flex-direction: row;
+    padding: 0 4px 6px;
+    margin-bottom: 4px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.table-header__cell {
+    color: var(--cw-text-dim);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+/* Hover feedback for dynamically-built rows (room list, lobby roster) that
+   aren't plain Buttons. Applied from C#. */
+.list-row {
+    padding: 3px 4px;
+    border-radius: 2px;
+}
+
+.list-row:hover,
+.list-row.list-row:hover {
+    background-color: var(--cw-btn-bg-hover);
 }
 
 /* --- options screen --- */

@@ -19,22 +19,45 @@
                       text="No Warcraft II data found.&#10;Point the wizard at your installation." />
         </ui:VisualElement>
 
-        <!-- Skirmish setup (wider: slot rows carry controller/race/strategy/difficulty) -->
-        <ui:VisualElement name="panel-setup" class="menu menu--wide">
-            <ui:Label class="menu__title" text="Skirmish" picking-mode="Ignore" />
+        <!-- Skirmish setup: map preview on the left, slot table on the right -
+             a proper two-column setup screen instead of one narrow stack. -->
+        <ui:VisualElement name="panel-setup" class="menu menu--dashboard">
+            <ui:VisualElement class="dash-header">
+                <ui:Label class="dash-header__title" text="Skirmish" picking-mode="Ignore" />
+            </ui:VisualElement>
             <ui:Label name="setup-warn" class="text text--warn" picking-mode="Ignore"
                       text="No .pud maps found.&#10;Checked StreamingAssets/Maps and LocalAssetPaths.mapsDir." />
-            <ui:VisualElement name="map-row" style="flex-direction: row;">
-                <ui:Button name="map-prev" class="menu__button" text="&lt;" />
-                <ui:Label name="map-label" class="text" picking-mode="Ignore"
-                          style="flex-grow: 1; -unity-text-align: middle-center;" />
-                <ui:Button name="map-next" class="menu__button" text="&gt;" />
+            <ui:VisualElement class="dash-columns">
+                <ui:VisualElement class="dash-col dash-col--narrow">
+                    <ui:VisualElement name="map-row" style="flex-direction: row; align-items: center;">
+                        <ui:Button name="map-prev" class="menu__button" text="&lt;" />
+                        <ui:Label name="map-label" class="text" picking-mode="Ignore"
+                                  style="flex-grow: 1; -unity-text-align: middle-center;" />
+                        <ui:Button name="map-next" class="menu__button" text="&gt;" />
+                    </ui:VisualElement>
+                    <ui:Image name="setup-map-thumb" picking-mode="Ignore" scale-mode="ScaleToFit"
+                              style="width: 200px; height: 200px; align-self: center; margin-top: 8px; margin-bottom: 8px;" />
+                </ui:VisualElement>
+                <ui:VisualElement class="dash-main">
+                    <ui:VisualElement class="table-header">
+                        <ui:Label text="Slot" class="table-header__cell" style="width: 70px;" />
+                        <ui:Label text="Controller" class="table-header__cell" style="flex-grow: 1;" />
+                        <ui:Label text="Race" class="table-header__cell" style="width: 90px;" />
+                        <ui:Label text="Strategy" class="table-header__cell" style="width: 130px;" />
+                        <ui:Label text="Difficulty" class="table-header__cell" style="width: 90px;" />
+                    </ui:VisualElement>
+                    <!-- One row per playable slot of the selected map, built in C#
+                         (MainMenuController.RebuildSlotRows) like the wizard's list. -->
+                    <ui:ScrollView class="panel list-body">
+                        <ui:VisualElement name="slot-list" style="width: 100%;" />
+                    </ui:ScrollView>
+                </ui:VisualElement>
             </ui:VisualElement>
-            <!-- One row per playable slot of the selected map, built in C#
-                 (MainMenuController.RebuildSlotRows) like the wizard's list. -->
-            <ui:VisualElement name="slot-list" />
-            <ui:Button name="setup-start" class="menu__button" text="Start" />
-            <ui:Button name="setup-back" class="menu__button" text="Back" />
+            <ui:VisualElement style="flex-direction: row; margin-top: 14px;">
+                <ui:Button name="setup-start" class="menu__button" text="Start"
+                           style="flex-grow: 1; margin-right: 8px;" />
+                <ui:Button name="setup-back" class="menu__button" text="Back" style="width: 140px;" />
+            </ui:VisualElement>
         </ui:VisualElement>
 
         <!-- Options. Gameplay and Sound; Video joins the tab row later. Every
@@ -60,48 +83,121 @@
              The game list and the lobby roster are both built in C#
              (MainMenuController), like the skirmish slot rows and the wizard's
              candidate list. -->
-        <ui:VisualElement name="panel-lan" class="menu menu--wide">
-            <ui:Label class="menu__title" text="Multiplayer (LAN)" picking-mode="Ignore" />
-            <ui:TextField name="lan-name" label="Your name" />
-            <ui:Label name="lan-status" class="text text--dim" picking-mode="Ignore"
-                      style="white-space: normal;" />
-            <ui:VisualElement name="lan-games" />
-            <ui:VisualElement name="lan-direct-row" style="flex-direction: row;">
-                <ui:TextField name="lan-address" label="Or join by address"
-                              style="flex-grow: 1;" />
-                <ui:Button name="lan-connect" class="menu__button" text="Connect" />
+        <ui:VisualElement name="panel-lan" class="menu menu--dashboard">
+            <ui:VisualElement class="dash-header">
+                <ui:Label class="dash-header__title" text="Multiplayer (LAN)" picking-mode="Ignore" />
             </ui:VisualElement>
-            <ui:Label class="text text--dim" picking-mode="Ignore" style="white-space: normal;"
-                      text="If nobody appears, allow Craftwar through Windows Firewall on private networks — UDP 27015 for the game and 27016 for discovery." />
-            <ui:Button name="lan-host" class="menu__button" text="Host a Game" />
-            <ui:Button name="lan-back" class="menu__button" text="Back" />
+            <ui:VisualElement class="dash-columns">
+                <ui:VisualElement class="dash-main">
+                    <ui:Label name="lan-status" class="text text--dim" picking-mode="Ignore"
+                              style="white-space: normal; margin-bottom: 8px;" />
+                    <ui:ScrollView class="panel list-body list-body--tall">
+                        <ui:VisualElement name="lan-games" style="width: 100%;" />
+                    </ui:ScrollView>
+                </ui:VisualElement>
+                <ui:VisualElement class="dash-col" style="width: 320px; margin-left: 24px;">
+                    <ui:TextField name="lan-name" label="Your name" />
+                    <ui:TextField name="lan-address" label="Or join by address" style="margin-top: 12px;" />
+                    <ui:Button name="lan-connect" class="menu__button" text="Connect" />
+                    <ui:Button name="lan-host" class="menu__button" text="Host a Game" style="margin-top: 16px;" />
+                    <ui:Label class="text text--dim" picking-mode="Ignore" style="white-space: normal; margin-top: 8px;"
+                              text="If nobody appears, allow Craftwar through Windows Firewall on private networks — UDP 27015 for the game and 27016 for discovery." />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:Button name="lan-back" class="menu__button" text="Back" style="width: 140px; margin-top: 14px;" />
+        </ui:VisualElement>
+
+        <!-- Host setup: its OWN window, not bolted onto the browse/chat panel.
+             Shared by LAN and Online (like panel-lobby) — MainMenuController.
+             ShowHostSetup(online) remembers which flavor of Host*Game to call
+             and which panel Back returns to. -->
+        <ui:VisualElement name="panel-host-setup" class="menu menu--wide">
+            <ui:VisualElement class="dash-header">
+                <ui:Label class="dash-header__title" text="Host a Game" picking-mode="Ignore" />
+            </ui:VisualElement>
+            <ui:VisualElement class="dash-columns">
+                <ui:VisualElement class="dash-col dash-col--narrow" style="width: 280px;">
+                    <ui:Image name="host-setup-thumb" picking-mode="Ignore" scale-mode="ScaleToFit"
+                              style="width: 260px; height: 260px; align-self: center; margin-bottom: 10px;" />
+                    <ui:VisualElement name="host-setup-map-row" style="flex-direction: row; align-items: center;">
+                        <ui:Button name="host-setup-map-prev" class="menu__button" text="&lt;" />
+                        <ui:Label name="host-setup-map-label" class="text" picking-mode="Ignore"
+                                  style="flex-grow: 1; -unity-text-align: middle-center;" />
+                        <ui:Button name="host-setup-map-next" class="menu__button" text="&gt;" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="dash-main">
+                    <ui:TextField name="host-setup-name" label="Game name" />
+                    <ui:VisualElement name="host-setup-players-row"
+                                       style="flex-direction: row; align-items: center; margin-top: 10px;">
+                        <ui:Button name="host-setup-players-prev" class="menu__button" text="&lt;" />
+                        <ui:Label name="host-setup-players-label" class="text" picking-mode="Ignore"
+                                  style="flex-grow: 1; -unity-text-align: middle-center;" />
+                        <ui:Button name="host-setup-players-next" class="menu__button" text="&gt;" />
+                    </ui:VisualElement>
+                    <ui:Button name="host-setup-gametype" class="menu__button" text="Game Type: Free For All"
+                               style="margin-top: 10px;" />
+                    <ui:Button name="host-setup-speed" class="menu__button" text="Game Speed: Normal" />
+                    <ui:Label name="host-setup-status" class="text text--dim" picking-mode="Ignore"
+                              style="white-space: normal;" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement style="flex-direction: row; margin-top: 14px;">
+                <ui:Button name="host-setup-create" class="menu__button" text="Create Game"
+                           style="flex-grow: 1; margin-right: 8px;" />
+                <ui:Button name="host-setup-back" class="menu__button" text="Back" style="width: 140px;" />
+            </ui:VisualElement>
         </ui:VisualElement>
 
         <!-- The room itself, once hosting or joined. Shared by LAN and
              Online — the chat row is only live over Online (RelayPeerSocket);
              it sits inert for a LAN session, which has no chat channel. -->
-        <ui:VisualElement name="panel-lobby" class="menu menu--wide">
-            <ui:Label name="lobby-title" class="menu__title" text="Lobby" picking-mode="Ignore" />
-            <ui:Label name="lobby-map" class="text" picking-mode="Ignore" />
-            <ui:VisualElement name="lobby-slots" />
-            <ui:Label name="lobby-status" class="text text--dim" picking-mode="Ignore"
-                      style="white-space: normal;" />
-            <ui:ScrollView name="lobby-chat-log" class="panel"
-                           style="height: 140px; margin-top: 4px; margin-bottom: 4px; padding: 4px;" />
-            <ui:VisualElement name="lobby-chat-row" style="flex-direction: row;">
-                <ui:TextField name="lobby-chat-input" style="flex-grow: 1;" />
-                <ui:Button name="lobby-chat-send" class="menu__button" text="Send" />
+        <ui:VisualElement name="panel-lobby" class="menu menu--dashboard-lg">
+            <ui:VisualElement class="dash-header">
+                <ui:Label name="lobby-title" class="dash-header__title" text="Lobby" picking-mode="Ignore" />
             </ui:VisualElement>
-            <ui:Button name="lobby-start" class="menu__button" text="Start" />
-            <ui:Button name="lobby-leave" class="menu__button" text="Leave" />
+            <ui:VisualElement class="dash-columns">
+                <ui:VisualElement class="dash-main">
+                    <ui:VisualElement style="flex-direction: row; align-items: center; margin-bottom: 10px;">
+                        <ui:Image name="lobby-map-thumb" picking-mode="Ignore" scale-mode="ScaleToFit"
+                                  style="width: 140px; height: 140px; margin-right: 12px;" />
+                        <ui:Label name="lobby-map" class="text" picking-mode="Ignore" />
+                    </ui:VisualElement>
+                    <ui:ScrollView class="panel list-body list-body--tall">
+                        <ui:VisualElement name="lobby-slots" style="width: 100%;" />
+                    </ui:ScrollView>
+                    <ui:Label name="lobby-status" class="text text--dim" picking-mode="Ignore"
+                              style="white-space: normal; margin-top: 8px;" />
+                </ui:VisualElement>
+                <ui:VisualElement class="dash-col" style="width: 320px; margin-left: 24px;">
+                    <ui:Label text="Chat" class="menu__section-title" picking-mode="Ignore" />
+                    <ui:ScrollView name="lobby-chat-log" class="panel list-body" />
+                    <ui:VisualElement name="lobby-chat-row" style="flex-direction: row; margin-top: 8px;">
+                        <ui:TextField name="lobby-chat-input" style="flex-grow: 1;" />
+                        <ui:Button name="lobby-chat-send" class="menu__button" text="Send" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement style="flex-direction: row; margin-top: 14px;">
+                <ui:Button name="lobby-start" class="menu__button" text="Start" style="flex-grow: 1; margin-right: 8px;" />
+                <ui:Button name="lobby-leave" class="menu__button" text="Leave" style="width: 140px;" />
+            </ui:VisualElement>
         </ui:VisualElement>
 
         <!-- Online browser: login, then create/join a room on the relay
-             server. The room itself reuses panel-lobby, same as LAN. -->
-        <ui:VisualElement name="panel-online" class="menu menu--wide">
-            <ui:Label class="menu__title" text="Multiplayer (Online)" picking-mode="Ignore" />
+             server. The room itself reuses panel-lobby, same as LAN.
+             Logged-in shape is a full dashboard - left nav rail switches
+             between the game browser and channel chat, a persistent
+             friends/roster pane sits on the right the whole time, same as
+             the classic Battle.net chat environment. -->
+        <ui:VisualElement name="panel-online" class="menu menu--dashboard-xl">
+            <ui:VisualElement class="dash-header">
+                <ui:Label class="dash-header__title" text="Multiplayer (Online)" picking-mode="Ignore" />
+                <ui:Label name="online-welcome" class="dash-header__welcome" picking-mode="Ignore" />
+                <ui:Button name="online-back" class="menu__button dash-header__back" text="Back" />
+            </ui:VisualElement>
 
-            <ui:VisualElement name="online-login">
+            <ui:VisualElement name="online-login" style="width: 420px; align-self: center;">
                 <ui:TextField name="online-server" label="Server address" value="127.0.0.1:27015" />
                 <ui:TextField name="online-username" label="Username" />
                 <ui:TextField name="online-password" label="Password" password="true" />
@@ -113,38 +209,84 @@
                 </ui:VisualElement>
             </ui:VisualElement>
 
-            <ui:VisualElement name="online-browser">
-                <ui:Label name="online-welcome" class="text" picking-mode="Ignore" />
-                <ui:VisualElement name="online-rooms" />
-                <ui:Label name="online-status" class="text text--dim" picking-mode="Ignore"
-                          style="white-space: normal;" />
-                <ui:VisualElement name="online-browser-row" style="flex-direction: row;">
-                    <ui:Button name="online-host" class="menu__button" text="Host a Game" />
-                    <ui:Button name="online-refresh" class="menu__button" text="Refresh" />
+            <!-- Shown once logged in (MainMenuController.Online.ShowOnlineSection);
+                 online-browser and online-social are the two nav-rail pages,
+                 only one of which is ever visible (ShowOnlineTab). -->
+            <ui:VisualElement name="online-logged-in" class="dash-columns">
+                <ui:VisualElement class="nav-rail">
+                    <ui:Button name="online-nav-games" class="menu__button nav-rail__button" text="Game List" />
+                    <ui:Button name="online-nav-chat" class="menu__button nav-rail__button" text="Channel Chat" />
                 </ui:VisualElement>
-            </ui:VisualElement>
 
-            <!-- Chat channel (M12): visible once logged in, independent of
-                 whatever room panel-lobby currently shows or doesn't. Chat
-                 log + input on the left, a scrolling member list on the
-                 right — same shape as the Battle.net channel screen. -->
-            <ui:VisualElement name="online-social">
-                <ui:Label name="social-channel-label" class="text" picking-mode="Ignore"
-                          style="-unity-font-style: bold; margin-bottom: 4px;" />
-                <ui:VisualElement style="flex-direction: row;">
-                    <ui:VisualElement style="flex-grow: 1; margin-right: 8px;">
-                        <ui:ScrollView name="social-chat-log" class="panel"
-                                       style="height: 140px; padding: 4px;" />
-                        <ui:VisualElement name="social-chat-row" style="flex-direction: row; margin-top: 4px;">
-                            <ui:TextField name="social-chat-input" style="flex-grow: 1;" />
-                            <ui:Button name="social-chat-send" class="menu__button" text="Send" />
+                <ui:VisualElement class="dash-main">
+                    <ui:VisualElement name="online-browser" class="dash-page">
+                        <ui:VisualElement class="dash-page__toolbar">
+                            <ui:Label text="Open Games" class="menu__section-title" picking-mode="Ignore" />
+                            <ui:Button name="online-host" class="menu__button" text="Host a Game" />
+                            <ui:Button name="online-refresh" class="menu__button" text="Refresh" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="table-header">
+                            <ui:Label text="" class="table-header__cell" style="width: 102px;" />
+                            <ui:Label text="Host" class="table-header__cell" style="width: 220px;" />
+                            <ui:Label text="Map" class="table-header__cell" style="flex-grow: 1;" />
+                            <ui:Label text="" class="table-header__cell" style="width: 70px;" />
+                        </ui:VisualElement>
+                        <ui:ScrollView class="panel list-body list-body--tall">
+                            <ui:VisualElement name="online-rooms" style="width: 100%;" />
+                        </ui:ScrollView>
+                        <ui:Label name="online-status" class="text text--dim" picking-mode="Ignore"
+                                  style="white-space: normal; margin-top: 6px;" />
+                    </ui:VisualElement>
+
+                    <!-- Chat channel (M12): chat log + input on the left, a
+                         scrolling member list on the right — same shape as
+                         the Battle.net channel screen. -->
+                    <ui:VisualElement name="online-social" class="dash-page">
+                        <ui:Label name="social-channel-label" class="menu__section-title" picking-mode="Ignore" />
+                        <ui:Label name="social-motd" class="text text--dim" picking-mode="Ignore"
+                                  style="white-space: normal; margin-bottom: 4px;" />
+                        <!-- Op-only; MainMenuController.Social.cs shows/hides this row
+                             based on whether the local account is the channel op. -->
+                        <ui:VisualElement name="social-motd-edit-row" style="flex-direction: row; margin-bottom: 8px;">
+                            <ui:TextField name="social-motd-input" style="flex-grow: 1;" />
+                            <ui:Button name="social-motd-set" class="menu__button" text="Set MOTD" />
+                        </ui:VisualElement>
+                        <ui:VisualElement style="flex-direction: row; flex-grow: 1;">
+                            <ui:VisualElement style="flex-grow: 1; margin-right: 12px;">
+                                <ui:ScrollView name="social-chat-log" class="panel list-body list-body--tall" />
+                                <ui:VisualElement name="social-chat-row" style="flex-direction: row; margin-top: 8px;">
+                                    <ui:TextField name="social-chat-input" style="flex-grow: 1;" />
+                                    <ui:Button name="social-chat-send" class="menu__button" text="Send" />
+                                </ui:VisualElement>
+                                <ui:Label class="text text--dim" picking-mode="Ignore" style="white-space: normal;"
+                                          text="Whisper with: /w name message" />
+                            </ui:VisualElement>
+                            <ui:VisualElement style="width: 220px;">
+                                <ui:Label text="Channel Members" class="menu__section-title" picking-mode="Ignore" />
+                                <ui:ScrollView name="social-members" class="panel list-body list-body--tall" />
+                            </ui:VisualElement>
                         </ui:VisualElement>
                     </ui:VisualElement>
-                    <ui:ScrollView name="social-members" class="panel" style="width: 160px; height: 140px; padding: 4px;" />
+                </ui:VisualElement>
+
+                <!-- Persistent friends/roster pane: add by name, see who's
+                     online, respond to pending requests. Stays visible
+                     regardless of nav-rail tab, same as Battle.net's buddy
+                     list. Presence is polled, not pushed (see
+                     SocialClient.RequestFriendList) — matches the M12
+                     decision that presence generally isn't proactively
+                     pushed. -->
+                <ui:VisualElement class="roster-pane">
+                    <ui:Label text="Friends" class="menu__section-title" picking-mode="Ignore" />
+                    <ui:VisualElement name="friend-add-row" style="flex-direction: row;">
+                        <ui:TextField name="friend-add-input" style="flex-grow: 1;" />
+                        <ui:Button name="friend-add-send" class="menu__button" text="Add" />
+                    </ui:VisualElement>
+                    <ui:Label name="friend-add-status" class="text text--dim" picking-mode="Ignore"
+                              style="white-space: normal;" />
+                    <ui:ScrollView name="friends-list" class="panel list-body list-body--tall" />
                 </ui:VisualElement>
             </ui:VisualElement>
-
-            <ui:Button name="online-back" class="menu__button" text="Back" />
         </ui:VisualElement>
 
         <!-- Locate game data (first run and re-runnable) -->

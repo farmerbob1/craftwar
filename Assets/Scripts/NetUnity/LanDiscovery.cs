@@ -12,6 +12,7 @@ namespace Craftwar.Net.Unity
     public struct LanGameInfo
     {
         public string HostName;
+        public string GameName;
         public string MapName;
         public byte PlayersPresent;
         public byte PlayersMax;
@@ -103,6 +104,7 @@ namespace Craftwar.Net.Unity
             w.WriteByte(info.PlayersMax);
             NetMessages.WriteString(ref w, info.HostName ?? "");
             NetMessages.WriteString(ref w, info.MapName ?? "");
+            NetMessages.WriteString(ref w, info.GameName ?? "");
             byte[] payload = w.ToArray();
 
             foreach (var target in _broadcastTargets)
@@ -170,6 +172,7 @@ namespace Craftwar.Net.Unity
                 info.PlayersMax = r.ReadByte();
                 info.HostName = NetMessages.ReadString(ref r);
                 info.MapName = NetMessages.ReadString(ref r);
+                info.GameName = NetMessages.ReadString(ref r);
                 info.Address = sender.Address.ToString();
                 info.LastSeenTime = now;
                 return true;

@@ -47,7 +47,7 @@ namespace Craftwar.NetServer.Tests
             OnlineAccountClient.Register("127.0.0.1", _server.Port, "thrall", "hunter22345");
 
             using var hostSocket = RelayPeerSocket.Host("127.0.0.1", _server.Port,
-                mapName: "Skirmish.pud", hostName: "grom", maxPlayers: 2);
+                mapName: "Skirmish.pud", hostName: "grom", roomName: "Test Game", maxPlayers: 2);
             hostSocket.ReportMatchResult("Skirmish.pud", "1v1",
                 new[] { "grom", "thrall" }, new[] { true, false });
 
@@ -95,7 +95,7 @@ namespace Craftwar.NetServer.Tests
             Assert.IsEmpty(OnlineAccountClient.ListRooms("127.0.0.1", _server.Port));
 
             using var hostSocket = RelayPeerSocket.Host("127.0.0.1", _server.Port,
-                mapName: "Skirmish.pud", hostName: "Grom", maxPlayers: 4);
+                mapName: "Skirmish.pud", hostName: "Grom", roomName: "Grom's Game", maxPlayers: 4);
 
             var rooms = OnlineAccountClient.ListRooms("127.0.0.1", _server.Port);
             Assert.AreEqual(1, rooms.Length);
@@ -107,10 +107,74 @@ namespace Craftwar.NetServer.Tests
         }
 
         [Test]
+        public void OnlineAccountClient_GetRating_ReturnsTrueForARegisteredAccountAndFalseForAGuest()
+        {
+            OnlineAccountClient.Register("127.0.0.1", _server.Port, "grom", "hunter22345");
+
+            bool found = OnlineAccountClient.GetRating("127.0.0.1", _server.Port, "grom",
+                out int rating, out int games);
+            Assert.IsTrue(found);
+            Assert.AreEqual(1500, rating, "Glickman's own default, seeded at registration");
+            Assert.AreEqual(0, games);
+
+            bool guestFound = OnlineAccountClient.GetRating("127.0.0.1", _server.Port,
+                "nobody-signed-up", out _, out _);
+            Assert.IsFalse(guestFound);
+        }
+
+        [Test]
+        public void RelayPeerSocket_GetRating_RoundTripsOverTheAsyncConnection()
+        {
+            OnlineAccountClient.Register("127.0.0.1", _server.Port, "grom", "hunter22345");
+            using var socket = RelayPeerSocket.Host("127.0.0.1", _server.Port,
+                mapName: "Skirmish.pud", hostName: "grom", roomName: "Test Game", maxPlayers: 2);
+
+            socket.SendGetRating("grom");
+
+            string username = null;
+            bool found = false;
+            int rating = 0, games = 0;
+            for (int i = 0; i < 200 && username == null; i++)
+            {
+                if (socket.TryReceiveGetRatingResult(out username, out found, out rating, out games))
+                    break;
+                System.Threading.Thread.Sleep(5);
+            }
+
+            Assert.AreEqual("grom", username);
+            Assert.IsTrue(found);
+            Assert.AreEqual(1500, rating);
+            Assert.AreEqual(0, games);
+        }
+
+        [Test]
+        public void ListRoomsResult_CarriesTheHostsRealRating()
+        {
+            OnlineAccountClient.Register("127.0.0.1", _server.Port, "grom", "hunter22345");
+            OnlineAccountClient.Register("127.0.0.1", _server.Port, "thrall", "hunter22345");
+
+            using var hostSocket = RelayPeerSocket.Host("127.0.0.1", _server.Port,
+                mapName: "Skirmish.pud", hostName: "grom", roomName: "Test Game", maxPlayers: 2);
+            hostSocket.ReportMatchResult("Skirmish.pud", "1v1", new[] { "grom", "thrall" }, new[] { true, false });
+
+            RoomSummary room = default;
+            for (int i = 0; i < 200 && room.HostRating <= 1500; i++)
+            {
+                System.Threading.Thread.Sleep(10);
+                var rooms = OnlineAccountClient.ListRooms("127.0.0.1", _server.Port);
+                if (rooms.Length > 0)
+                    room = rooms[0];
+            }
+
+            Assert.IsTrue(room.HostRatingKnown);
+            Assert.Greater(room.HostRating, 1500, "the winner's rating must be reflected in the room listing");
+        }
+
+        [Test]
         public void Chat_RelaysToEveryRoomMember_IncludingTheSender()
         {
             using var hostSocket = RelayPeerSocket.Host("127.0.0.1", _server.Port,
-                mapName: "Skirmish.pud", hostName: "Grom", maxPlayers: 4);
+                mapName: "Skirmish.pud", hostName: "Grom", roomName: "Grom's Game", maxPlayers: 4);
             using var clientSocket = RelayPeerSocket.Join("127.0.0.1", _server.Port,
                 hostSocket.RoomId, playerName: "Thrall");
 
@@ -140,7 +204,7 @@ namespace Craftwar.NetServer.Tests
             const int Delay = 2;
 
             using var hostSocket = RelayPeerSocket.Host("127.0.0.1", _server.Port,
-                mapName: "Skirmish.pud", hostName: "Grom", maxPlayers: 4);
+                mapName: "Skirmish.pud", hostName: "Grom", roomName: "Grom's Game", maxPlayers: 4);
             Assert.AreEqual(0, hostSocket.LocalPeerId, "the room creator must be room-peer 0");
 
             using var clientSocket = RelayPeerSocket.Join("127.0.0.1", _server.Port,
@@ -212,7 +276,7 @@ namespace Craftwar.NetServer.Tests
             const int Delay = 2;
 
             using var hostSocket = RelayPeerSocket.Host("127.0.0.1", _server.Port,
-                mapName: "Skirmish.pud", hostName: "Grom", maxPlayers: 4);
+                mapName: "Skirmish.pud", hostName: "Grom", roomName: "Grom's Game", maxPlayers: 4);
             var clientSocket = RelayPeerSocket.Join("127.0.0.1", _server.Port,
                 hostSocket.RoomId, playerName: "Thrall");
             Assert.AreEqual(1, clientSocket.LocalPeerId, "the first joiner must be room-peer 1");

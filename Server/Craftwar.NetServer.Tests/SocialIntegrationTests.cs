@@ -145,16 +145,190 @@ namespace Craftwar.NetServer.Tests
             Assert.IsFalse(kickResult.ok);
         }
 
+        [Test]
+        public void OperatorCanSetMotd_ExistingMembersSeeItChange()
+        {
+            using var clientA = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("grom")); // op
+            WaitForJoinResult(clientA);
+            using var clientB = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("thrall"));
+            var joinB = WaitForJoinResult(clientB);
+            Assert.AreEqual("", joinB.motd, "a fresh channel has no MOTD yet");
+            WaitForMemberEvent(clientA);
+
+            clientA.SetChannelMotd("Welcome to the horde");
+
+            var setResult = WaitForMotdSetResult(clientA);
+            Assert.IsTrue(setResult.ok, setResult.reason);
+
+            var changedOnB = WaitForMotdChanged(clientB);
+            Assert.AreEqual(SocialClient.DefaultChannelName, changedOnB.channelName);
+            Assert.AreEqual("Welcome to the horde", changedOnB.motd);
+        }
+
+        [Test]
+        public void NonOperatorCannotSetMotd()
+        {
+            using var clientA = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("grom"));
+            WaitForJoinResult(clientA);
+            using var clientB = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("thrall"));
+            WaitForJoinResult(clientB);
+            WaitForMemberEvent(clientA);
+
+            clientB.SetChannelMotd("hijacked");
+
+            var result = WaitForMotdSetResult(clientB);
+            Assert.IsFalse(result.ok);
+        }
+
+        [Test]
+        public void Motd_SurvivesEveryoneLoggingOutAndTheDefaultChannelBeingRecreated()
+        {
+            // The real bug report: the user set a MOTD, everyone (including
+            // them) disconnected — which destroys the in-memory ChatChannel
+            // once it has no members left (ChannelManager.LeaveInternal) —
+            // and logging back in auto-joins a BRAND NEW "Town Hall" object
+            // with no MOTD, unless it's actually persisted server-side.
+            string token = LoginNewAccount("grom");
+            using (var first = SocialClient.Connect("127.0.0.1", _server.Port, token))
+            {
+                WaitForJoinResult(first);
+                first.SetChannelMotd("Welcome to the horde");
+                var setResult = WaitForMotdSetResult(first);
+                Assert.IsTrue(setResult.ok, setResult.reason);
+            } // Dispose — the only member disconnects, the server destroys the channel
+
+            // Give the server a moment to actually process the disconnect
+            // (ClientConnection.RunAsync's finally block) before rejoining.
+            Thread.Sleep(200);
+
+            using var second = SocialClient.Connect("127.0.0.1", _server.Port, token);
+            var join = WaitForJoinResult(second);
+            Assert.IsTrue(join.ok, join.reason);
+            Assert.AreEqual("Welcome to the horde", join.motd,
+                "a fresh connection rejoining Town Hall must still see the MOTD");
+        }
+
+        [Test]
+        public void FriendRequest_ThenAccept_CreatesASymmetricFriendshipWithPresence()
+        {
+            using var clientA = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("grom"));
+            WaitForJoinResult(clientA);
+            using var clientB = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("thrall"));
+            WaitForJoinResult(clientB);
+            WaitForMemberEvent(clientA);
+
+            clientA.SendFriendRequest(clientB.Username);
+            var reqResult = WaitForFriendRequestResult(clientA);
+            Assert.IsTrue(reqResult.ok, reqResult.reason);
+            Assert.IsFalse(reqResult.becameFriends);
+
+            string received = WaitForFriendRequestReceived(clientB);
+            Assert.AreEqual(clientA.Username, received);
+
+            clientB.RespondToFriendRequest(clientA.Username, accept: true);
+            var respResult = WaitForFriendRespondResult(clientB);
+            Assert.IsTrue(respResult.ok, respResult.reason);
+
+            var answered = WaitForFriendRequestAnswered(clientA);
+            Assert.AreEqual(clientB.Username, answered.byUsername);
+            Assert.IsTrue(answered.accepted);
+
+            clientA.RequestFriendList();
+            var listA = WaitForFriendListResult(clientA);
+            CollectionAssert.AreEqual(new[] { clientB.Username }, listA.friendUsernames);
+            Assert.IsTrue(listA.friendOnline[0], "the friend is connected right now");
+        }
+
+        [Test]
+        public void FriendRequest_MutualBothWays_BecomesFriendsImmediately()
+        {
+            using var clientA = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("grom"));
+            WaitForJoinResult(clientA);
+            using var clientB = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("thrall"));
+            WaitForJoinResult(clientB);
+            WaitForMemberEvent(clientA);
+
+            clientB.SendFriendRequest(clientA.Username);
+            WaitForFriendRequestResult(clientB);
+            WaitForFriendRequestReceived(clientA);
+
+            clientA.SendFriendRequest(clientB.Username);
+            var result = WaitForFriendRequestResult(clientA);
+
+            Assert.IsTrue(result.ok, result.reason);
+            Assert.IsTrue(result.becameFriends, "a request answering an existing one IS the friendship");
+        }
+
+        [Test]
+        public void RemoveFriend_NotifiesTheOtherSide()
+        {
+            using var clientA = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("grom"));
+            WaitForJoinResult(clientA);
+            using var clientB = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("thrall"));
+            WaitForJoinResult(clientB);
+            WaitForMemberEvent(clientA);
+
+            clientA.SendFriendRequest(clientB.Username);
+            WaitForFriendRequestResult(clientA);
+            WaitForFriendRequestReceived(clientB);
+            clientB.RespondToFriendRequest(clientA.Username, true);
+            WaitForFriendRespondResult(clientB);
+            WaitForFriendRequestAnswered(clientA);
+
+            clientA.RemoveFriend(clientB.Username);
+            var removeResult = WaitForFriendRemoveResult(clientA);
+            Assert.IsTrue(removeResult.ok, removeResult.reason);
+
+            string removedBy = WaitForFriendRemoved(clientB);
+            Assert.AreEqual(clientA.Username, removedBy);
+        }
+
+        [Test]
+        public void Whisper_DeliversToRecipientAndEchoesToSender()
+        {
+            using var clientA = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("grom"));
+            WaitForJoinResult(clientA);
+            using var clientB = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("thrall"));
+            WaitForJoinResult(clientB);
+            WaitForMemberEvent(clientA);
+
+            clientA.SendWhisper(clientB.Username, "for the horde, quietly");
+
+            var whisperResult = WaitForWhisperResult(clientA);
+            Assert.IsTrue(whisperResult.ok, whisperResult.reason);
+
+            var seenByB = WaitForWhisperReceived(clientB);
+            Assert.AreEqual(clientA.Username, seenByB.fromUsername);
+            Assert.AreEqual(clientB.Username, seenByB.toUsername);
+            Assert.AreEqual("for the horde, quietly", seenByB.text);
+
+            var echoedToA = WaitForWhisperReceived(clientA);
+            Assert.AreEqual(clientA.Username, echoedToA.fromUsername, "the sender's own echo");
+            Assert.AreEqual("for the horde, quietly", echoedToA.text);
+        }
+
+        [Test]
+        public void Whisper_ToUnknownUser_Fails()
+        {
+            using var clientA = SocialClient.Connect("127.0.0.1", _server.Port, LoginNewAccount("grom"));
+            WaitForJoinResult(clientA);
+
+            clientA.SendWhisper("nobody-signed-up", "hello?");
+
+            var result = WaitForWhisperResult(clientA);
+            Assert.IsFalse(result.ok);
+        }
+
         // --- polling helpers — real async I/O over a real socket, same shape as RelayIntegrationTests ---
 
-        static (bool ok, string reason, string channelName, string[] members, string opUsername) WaitForJoinResult(
-            SocialClient client)
+        static (bool ok, string reason, string channelName, string[] members, string opUsername, string motd)
+            WaitForJoinResult(SocialClient client)
         {
             for (int i = 0; i < 200; i++)
             {
                 if (client.TryReceiveChannelJoinResult(out bool ok, out string reason, out string channelName,
-                        out string[] members, out string opUsername))
-                    return (ok, reason, channelName, members, opUsername);
+                        out string[] members, out string opUsername, out string motd))
+                    return (ok, reason, channelName, members, opUsername, motd);
                 Thread.Sleep(10);
             }
             Assert.Fail("timed out waiting for a channel join result");
@@ -208,6 +382,140 @@ namespace Craftwar.NetServer.Tests
                 Thread.Sleep(10);
             }
             Assert.Fail("timed out waiting to be kicked");
+            return default;
+        }
+
+        static (bool ok, string reason) WaitForMotdSetResult(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveChannelSetMotdResult(out bool ok, out string reason))
+                    return (ok, reason);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a MOTD set result");
+            return default;
+        }
+
+        static (string channelName, string motd) WaitForMotdChanged(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveChannelMotdChanged(out string channelName, out string motd))
+                    return (channelName, motd);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a MOTD change notification");
+            return default;
+        }
+
+        static (bool ok, string reason, bool becameFriends) WaitForFriendRequestResult(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveFriendRequestResult(out bool ok, out string reason, out bool becameFriends))
+                    return (ok, reason, becameFriends);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a friend request result");
+            return default;
+        }
+
+        static string WaitForFriendRequestReceived(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveFriendRequestReceived(out string fromUsername))
+                    return fromUsername;
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a friend request to arrive");
+            return default;
+        }
+
+        static (bool ok, string reason) WaitForFriendRespondResult(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveFriendRespondResult(out bool ok, out string reason))
+                    return (ok, reason);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a friend respond result");
+            return default;
+        }
+
+        static (string byUsername, bool accepted) WaitForFriendRequestAnswered(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveFriendRequestAnswered(out string byUsername, out bool accepted))
+                    return (byUsername, accepted);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a friend request answer");
+            return default;
+        }
+
+        static (bool ok, string reason) WaitForFriendRemoveResult(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveFriendRemoveResult(out bool ok, out string reason))
+                    return (ok, reason);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a friend remove result");
+            return default;
+        }
+
+        static string WaitForFriendRemoved(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveFriendRemoved(out string byUsername))
+                    return byUsername;
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a friend-removed notification");
+            return default;
+        }
+
+        static (string[] friendUsernames, bool[] friendOnline, string[] incoming, string[] outgoing)
+            WaitForFriendListResult(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveFriendListResult(out string[] friendUsernames, out bool[] friendOnline,
+                        out string[] incoming, out string[] outgoing))
+                    return (friendUsernames, friendOnline, incoming, outgoing);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a friend list result");
+            return default;
+        }
+
+        static (bool ok, string reason) WaitForWhisperResult(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveWhisperResult(out bool ok, out string reason))
+                    return (ok, reason);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a whisper result");
+            return default;
+        }
+
+        static (string fromUsername, string toUsername, string text) WaitForWhisperReceived(SocialClient client)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                if (client.TryReceiveWhisperReceived(out string fromUsername, out string toUsername, out string text))
+                    return (fromUsername, toUsername, text);
+                Thread.Sleep(10);
+            }
+            Assert.Fail("timed out waiting for a whisper to arrive");
             return default;
         }
     }

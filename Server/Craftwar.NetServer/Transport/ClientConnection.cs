@@ -32,6 +32,7 @@ namespace Craftwar.NetServer.Transport
         readonly ConnectionRegistry _registry;
         readonly PresenceDirectory _presence;
         readonly ChannelManager _channels;
+        readonly FriendsService _friends;
         readonly Action<string> _log;
         readonly SemaphoreSlim _writeLock = new(1, 1);
 
@@ -49,7 +50,7 @@ namespace Craftwar.NetServer.Transport
 
         public ClientConnection(TcpClient tcp, System.Security.Cryptography.X509Certificates.X509Certificate2 cert,
             AccountService accounts, RatingService ratings, RoomManager rooms, ConnectionRegistry registry,
-            PresenceDirectory presence, ChannelManager channels, Action<string> log)
+            PresenceDirectory presence, ChannelManager channels, FriendsService friends, Action<string> log)
         {
             _tcp = tcp;
             _cert = cert;
@@ -59,6 +60,7 @@ namespace Craftwar.NetServer.Transport
             _registry = registry;
             _presence = presence;
             _channels = channels;
+            _friends = friends;
             _log = log;
         }
 
@@ -205,8 +207,9 @@ namespace Craftwar.NetServer.Transport
 
                 case ControlMessageKind.CreateRoom:
                 {
-                    ControlProtocol.ReadCreateRoom(ref r, out string mapName, out string hostName, out int maxPlayers);
-                    var room = _rooms.CreateRoom(ConnectionId, mapName, hostName, maxPlayers);
+                    ControlProtocol.ReadCreateRoom(ref r, out string mapName, out string hostName,
+                        out string roomName, out int maxPlayers);
+                    var room = _rooms.CreateRoom(ConnectionId, mapName, hostName, roomName, maxPlayers);
                     ControlProtocol.WriteCreateRoomResult(ref w, room.Id);
                     return (w.ToArray(), null);
                 }
@@ -225,6 +228,15 @@ namespace Craftwar.NetServer.Transport
                 case ControlMessageKind.ListRooms:
                 {
                     ControlProtocol.WriteListRoomsResult(ref w, ToSummaries(_rooms.ListRooms()));
+                    return (w.ToArray(), null);
+                }
+
+                case ControlMessageKind.GetRating:
+                {
+                    string username = ControlProtocol.ReadGetRating(ref r);
+                    bool found = _ratings.TryGetRating(username, out var rating, out int games);
+                    ControlProtocol.WriteGetRatingResult(ref w, username, found,
+                        found ? (int)Math.Round(rating.Rating) : 0, games);
                     return (w.ToArray(), null);
                 }
 
@@ -274,14 +286,28 @@ namespace Craftwar.NetServer.Transport
                     if (!ChannelManager.IsValidName(channelName))
                     {
                         ControlProtocol.WriteChannelJoinResult(ref w, false, "invalid channel name", "",
-                            System.Array.Empty<string>(), "");
+                            System.Array.Empty<string>(), "", "");
                         return (w.ToArray(), null);
                     }
 
                     var channel = _channels.Join(AccountId.Value, Username, channelName, out var previousChannel);
                     ControlProtocol.WriteChannelJoinResult(ref w, true, null, channel.Name,
-                        channel.MemberUsernamesSnapshot(), channel.OpUsername);
+                        channel.MemberUsernamesSnapshot(), channel.OpUsername, channel.Motd);
                     return (w.ToArray(), () => AnnounceChannelJoinAsync(channel, previousChannel));
+                }
+
+                case ControlMessageKind.ChannelSetMotd:
+                {
+                    string motd = ControlProtocol.ReadChannelSetMotd(ref r);
+                    if (AccountId == null)
+                        return (null, null);
+
+                    string failure = _channels.TrySetMotd(AccountId.Value, motd, out var channel);
+                    ControlProtocol.WriteChannelSetMotdResult(ref w, failure == null, failure);
+                    Func<Task> after = failure == null
+                        ? () => AnnounceChannelMotdChangedAsync(channel)
+                        : null;
+                    return (w.ToArray(), after);
                 }
 
                 case ControlMessageKind.ChannelChat:
@@ -305,6 +331,85 @@ namespace Craftwar.NetServer.Transport
                         ? () => AnnounceChannelKickAsync(channel, targetAccountId, targetUsername)
                         : null;
                     return (w.ToArray(), after);
+                }
+
+                case ControlMessageKind.FriendRequest:
+                {
+                    string toUsername = ControlProtocol.ReadFriendRequest(ref r);
+                    if (AccountId == null)
+                        return (null, null);
+
+                    string failure = _friends.SendRequest(AccountId.Value, toUsername, out bool becameFriends);
+                    ControlProtocol.WriteFriendRequestResult(ref w, failure == null, failure, becameFriends);
+                    Func<Task> after = failure == null
+                        ? () => becameFriends
+                            ? SendFriendRequestAnsweredAsync(toUsername, Username, accepted: true)
+                            : SendFriendRequestReceivedAsync(toUsername, Username)
+                        : null;
+                    return (w.ToArray(), after);
+                }
+
+                case ControlMessageKind.FriendRespond:
+                {
+                    ControlProtocol.ReadFriendRespond(ref r, out string requesterUsername, out bool accept);
+                    if (AccountId == null)
+                        return (null, null);
+
+                    string failure = _friends.Respond(AccountId.Value, requesterUsername, accept);
+                    ControlProtocol.WriteFriendRespondResult(ref w, failure == null, failure);
+                    Func<Task> after = failure == null
+                        ? () => SendFriendRequestAnsweredAsync(requesterUsername, Username, accept)
+                        : null;
+                    return (w.ToArray(), after);
+                }
+
+                case ControlMessageKind.FriendRemove:
+                {
+                    string friendUsername = ControlProtocol.ReadFriendRemove(ref r);
+                    if (AccountId == null)
+                        return (null, null);
+
+                    string failure = _friends.RemoveFriend(AccountId.Value, friendUsername);
+                    ControlProtocol.WriteFriendRemoveResult(ref w, failure == null, failure);
+                    Func<Task> after = failure == null
+                        ? () => SendFriendRemovedAsync(friendUsername, Username)
+                        : null;
+                    return (w.ToArray(), after);
+                }
+
+                case ControlMessageKind.FriendListRequest:
+                {
+                    if (AccountId == null)
+                        return (null, null);
+
+                    var friends = _friends.ListFriends(AccountId.Value);
+                    var friendUsernames = new string[friends.Count];
+                    var friendOnline = new bool[friends.Count];
+                    for (int i = 0; i < friends.Count; i++)
+                    {
+                        friendUsernames[i] = friends[i].username;
+                        friendOnline[i] = _presence.IsOnline(friends[i].accountId);
+                    }
+                    var incoming = _friends.ListIncomingRequests(AccountId.Value);
+                    var outgoing = _friends.ListOutgoingRequests(AccountId.Value);
+                    ControlProtocol.WriteFriendListResult(ref w, friendUsernames, friendOnline,
+                        incoming.ToArray(), outgoing.ToArray());
+                    return (w.ToArray(), null);
+                }
+
+                case ControlMessageKind.Whisper:
+                {
+                    ControlProtocol.ReadWhisper(ref r, out string toUsername, out string text);
+                    if (AccountId == null)
+                        return (null, null);
+
+                    if (!_friends.TryResolveAccount(toUsername, out long toId))
+                    {
+                        ControlProtocol.WriteWhisperResult(ref w, false, "no such user");
+                        return (w.ToArray(), null);
+                    }
+                    ControlProtocol.WriteWhisperResult(ref w, true, null);
+                    return (w.ToArray(), () => DeliverWhisperAsync(Username, toUsername, toId, text));
                 }
 
                 default:
@@ -469,19 +574,94 @@ namespace Craftwar.NetServer.Transport
             }
         }
 
-        static RoomSummary[] ToSummaries(System.Collections.Generic.IReadOnlyCollection<Room> rooms)
+        /// <summary>Pushes the new MOTD to every CURRENT member of the
+        /// channel, including the op who just set it — ChannelJoinResult
+        /// already carries the MOTD for a fresh join, so this is only for
+        /// people already in the channel when it changes.</summary>
+        async Task AnnounceChannelMotdChangedAsync(ChatChannel channel)
+        {
+            var w = new ByteWriter(64);
+            ControlProtocol.WriteChannelMotdChanged(ref w, channel.Name, channel.Motd);
+            byte[] payload = w.ToArray();
+            foreach (var (accountId, _) in channel.MembersSnapshot())
+                if (_presence.TryGetConnectionId(accountId, out string connId) && _registry.TryGet(connId, out var member))
+                    await member.PushFrameAsync(payload).ConfigureAwait(false);
+        }
+
+        /// <summary>Best-effort: silently does nothing if the target is
+        /// offline — they'll see the pending request next time they poll
+        /// FriendListRequest, same "poll-on-demand" presence model the M12
+        /// plan already settled on.</summary>
+        async Task SendFriendRequestReceivedAsync(string toUsername, string fromUsername)
+        {
+            if (!_friends.TryResolveAccount(toUsername, out long toId))
+                return;
+            if (!_presence.TryGetConnectionId(toId, out string connId) || !_registry.TryGet(connId, out var target))
+                return;
+            var w = new ByteWriter(64);
+            ControlProtocol.WriteFriendRequestReceived(ref w, fromUsername);
+            await target.PushFrameAsync(w.ToArray()).ConfigureAwait(false);
+        }
+
+        async Task SendFriendRequestAnsweredAsync(string toUsername, string byUsername, bool accepted)
+        {
+            if (!_friends.TryResolveAccount(toUsername, out long toId))
+                return;
+            if (!_presence.TryGetConnectionId(toId, out string connId) || !_registry.TryGet(connId, out var target))
+                return;
+            var w = new ByteWriter(64);
+            ControlProtocol.WriteFriendRequestAnswered(ref w, byUsername, accepted);
+            await target.PushFrameAsync(w.ToArray()).ConfigureAwait(false);
+        }
+
+        async Task SendFriendRemovedAsync(string toUsername, string byUsername)
+        {
+            if (!_friends.TryResolveAccount(toUsername, out long toId))
+                return;
+            if (!_presence.TryGetConnectionId(toId, out string connId) || !_registry.TryGet(connId, out var target))
+                return;
+            var w = new ByteWriter(64);
+            ControlProtocol.WriteFriendRemoved(ref w, byUsername);
+            await target.PushFrameAsync(w.ToArray()).ConfigureAwait(false);
+        }
+
+        /// <summary>Delivers to the recipient (if online) AND echoes back to
+        /// the sender — same "one ordering source builds both logs"
+        /// reasoning as BroadcastChatAsync/BroadcastChannelChatAsync. The
+        /// sender already got a WhisperResult ack; this is what actually
+        /// puts the line in both parties' logs.</summary>
+        async Task DeliverWhisperAsync(string fromUsername, string toUsername, long toAccountId, string text)
+        {
+            var w = new ByteWriter(text.Length + fromUsername.Length + toUsername.Length + 16);
+            ControlProtocol.WriteWhisperReceived(ref w, fromUsername, toUsername, text);
+            byte[] payload = w.ToArray();
+
+            if (_presence.TryGetConnectionId(toAccountId, out string toConnId) && _registry.TryGet(toConnId, out var target))
+                await target.PushFrameAsync(payload).ConfigureAwait(false);
+
+            await WriteFrameAsync(payload).ConfigureAwait(false); // echo to the sender (this connection)
+        }
+
+        RoomSummary[] ToSummaries(System.Collections.Generic.IReadOnlyCollection<Room> rooms)
         {
             var summaries = new RoomSummary[rooms.Count];
             int i = 0;
             foreach (var room in rooms)
+            {
+                bool found = _ratings.TryGetRating(room.HostName, out var rating, out int games);
                 summaries[i++] = new RoomSummary
                 {
                     RoomId = room.Id,
                     MapName = room.MapName,
                     HostName = room.HostName,
+                    RoomName = room.RoomName,
                     PlayerCount = room.PlayerCount,
                     MaxPlayers = room.MaxPlayers,
+                    HostRatingKnown = found,
+                    HostRating = found ? (int)Math.Round(rating.Rating) : 0,
+                    HostGamesPlayed = games,
                 };
+            }
             return summaries;
         }
     }

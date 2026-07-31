@@ -90,6 +90,62 @@ namespace Craftwar.Net
         /// ChannelMemberEvent everyone else gets, so that client can show
         /// "you were kicked" rather than just an ordinary departure.</summary>
         ChannelKicked,
+        /// <summary>Client -> server: look up one account's ladder rating, by
+        /// username. Anonymous-callable, same trust level as ListRooms — used
+        /// by the lobby roster and the player-inspect popup. Room-browser
+        /// rows get their host's rating batched directly into
+        /// ListRoomsResult instead (see RoomSummary), so this is NOT called
+        /// once per visible room.</summary>
+        GetRating,
+        GetRatingResult,
+        /// <summary>Client -> server: the channel operator sets the
+        /// channel's message of the day. Refused unless the caller is that
+        /// channel's op — see ChannelManager.TrySetMotd.</summary>
+        ChannelSetMotd,
+        ChannelSetMotdResult,
+        /// <summary>Server -> every member (including the setter, same
+        /// "one ordering source" reasoning as chat broadcasts) when the MOTD
+        /// changes while they're already in the channel. ChannelJoinResult
+        /// already carries the MOTD for a fresh join, so this only matters
+        /// for people already there.</summary>
+        ChannelMotdChanged,
+        /// <summary>Client -> server: send a friend request by username.
+        /// Requires an account-bound connection (Login/ResumeSession) —
+        /// friendship is a property of the ACCOUNT, not a connection.</summary>
+        FriendRequest,
+        FriendRequestResult,
+        /// <summary>Server -> the target account, if online, when someone
+        /// sends them a request.</summary>
+        FriendRequestReceived,
+        /// <summary>Client -> server: accept or decline a pending incoming
+        /// request, named by the requester's username.</summary>
+        FriendRespond,
+        FriendRespondResult,
+        /// <summary>Server -> the original requester, if online, once the
+        /// target responds (either way).</summary>
+        FriendRequestAnswered,
+        FriendRemove,
+        FriendRemoveResult,
+        /// <summary>Server -> the other side of a removed friendship, if
+        /// online, so their list updates without polling.</summary>
+        FriendRemoved,
+        /// <summary>Client -> server: fetch the caller's friends (with
+        /// presence) plus incoming/outgoing pending requests. Poll-on-demand
+        /// by design (same M12 decision as channel presence generally) —
+        /// there is no proactive presence push beyond the request/remove
+        /// events above.</summary>
+        FriendListRequest,
+        FriendListResult,
+        /// <summary>Client -> server: a private message to one other
+        /// account, by username. Not tied to friendship or a shared channel —
+        /// matches the original Battle.net /w model.</summary>
+        Whisper,
+        WhisperResult,
+        /// <summary>Server -> both the recipient AND the sender (so a
+        /// single ordering source builds both logs, same reasoning as every
+        /// other broadcast/echo in this file) — the reader tells the two
+        /// apart by comparing FromUsername against its own username.</summary>
+        WhisperReceived,
     }
 
     public enum AccountResult : byte
@@ -116,20 +172,38 @@ namespace Craftwar.Net
         AlreadyInARoom,
     }
 
-    /// <summary>One room as the browser/list sees it.</summary>
+    /// <summary>One room as the browser/list sees it. The host's rating is
+    /// batched in here rather than fetched per-row with GetRating — avoids
+    /// multiplying OnlineAccountClient's already-accepted "synchronous,
+    /// blocking" gap across every visible room on every browser refresh.
+    /// Rating travels as a rounded whole number — display-only data, not
+    /// hashed sim state, and this folder's source-level purity scan bans the
+    /// fractional numeric types (see WriteGetRatingResult).</summary>
     public struct RoomSummary
     {
         public string RoomId;
         public string MapName;
         public string HostName;
+        /// <summary>Host-chosen title. Empty falls back to "{HostName}'s
+        /// Game" at the display layer (same shape as LobbyPayload.RoomName).</summary>
+        public string RoomName;
         public int PlayerCount;
         public int MaxPlayers;
+        public int HostRating;
+        public int HostGamesPlayed;
+        /// <summary>False when the host isn't a registered account (or a LAN
+        /// game with no server to ask at all) — HostRating/HostGamesPlayed
+        /// are meaningless in that case, not just zero.</summary>
+        public bool HostRatingKnown;
     }
 
     public static class ControlProtocol
     {
-        /// <summary>Bump on any control-plane wire-format change.</summary>
-        public const ushort CurrentVersion = 1;
+        /// <summary>Bump on any control-plane wire-format change.
+        /// 2: GetRating/GetRatingResult + RoomSummary's rating fields (M13).
+        /// 3: CreateRoom/RoomSummary gain a host-chosen RoomName (M13).
+        /// 4: channel MOTD + friends/presence + whispers (M13).</summary>
+        public const ushort CurrentVersion = 4;
 
         public static void WriteHello(ref ByteWriter w, ushort clientVersion)
         {
@@ -220,19 +294,22 @@ namespace Craftwar.Net
             username = NetMessages.ReadString(ref r);
         }
 
-        public static void WriteCreateRoom(ref ByteWriter w, string mapName, string hostName, int maxPlayers)
+        public static void WriteCreateRoom(ref ByteWriter w, string mapName, string hostName, string roomName,
+            int maxPlayers)
         {
             w.WriteByte((byte)ControlMessageKind.CreateRoom);
             NetMessages.WriteString(ref w, mapName);
             NetMessages.WriteString(ref w, hostName);
+            NetMessages.WriteString(ref w, roomName);
             w.WriteByte((byte)maxPlayers);
         }
 
         public static void ReadCreateRoom(ref ByteReader r, out string mapName, out string hostName,
-            out int maxPlayers)
+            out string roomName, out int maxPlayers)
         {
             mapName = NetMessages.ReadString(ref r);
             hostName = NetMessages.ReadString(ref r);
+            roomName = NetMessages.ReadString(ref r);
             maxPlayers = r.ReadByte();
         }
 
@@ -280,8 +357,12 @@ namespace Craftwar.Net
                 NetMessages.WriteString(ref w, room.RoomId);
                 NetMessages.WriteString(ref w, room.MapName);
                 NetMessages.WriteString(ref w, room.HostName);
+                NetMessages.WriteString(ref w, room.RoomName);
                 w.WriteByte((byte)room.PlayerCount);
                 w.WriteByte((byte)room.MaxPlayers);
+                w.WriteByte((byte)(room.HostRatingKnown ? 1 : 0));
+                w.WriteInt(room.HostRating);
+                w.WriteInt(room.HostGamesPlayed);
             }
         }
 
@@ -296,11 +377,50 @@ namespace Craftwar.Net
                     RoomId = NetMessages.ReadString(ref r),
                     MapName = NetMessages.ReadString(ref r),
                     HostName = NetMessages.ReadString(ref r),
+                    RoomName = NetMessages.ReadString(ref r),
                     PlayerCount = r.ReadByte(),
                     MaxPlayers = r.ReadByte(),
+                    HostRatingKnown = r.ReadByte() != 0,
+                    HostRating = r.ReadInt(),
+                    HostGamesPlayed = r.ReadInt(),
                 };
             }
             return rooms;
+        }
+
+        /// <summary>Client -> server: look up one account's ladder rating.
+        /// Rating travels as a rounded whole number: display-only data
+        /// (never hashed sim state), and the fractional numeric types are
+        /// banned from this folder's source (SimPurityTests) since
+        /// Craftwar.Net compiles alongside Craftwar.Sim in the standalone
+        /// harness — callers on either side convert to/from the real
+        /// Glicko-2 rating (kept as a proper number in Craftwar.NetServer and
+        /// Craftwar.App, neither of which that scan covers).</summary>
+        public static void WriteGetRating(ref ByteWriter w, string username)
+        {
+            w.WriteByte((byte)ControlMessageKind.GetRating);
+            NetMessages.WriteString(ref w, username);
+        }
+
+        public static string ReadGetRating(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteGetRatingResult(ref ByteWriter w, string username, bool found,
+            int rating, int gamesPlayed)
+        {
+            w.WriteByte((byte)ControlMessageKind.GetRatingResult);
+            NetMessages.WriteString(ref w, username);
+            w.WriteByte((byte)(found ? 1 : 0));
+            w.WriteInt(rating);
+            w.WriteInt(gamesPlayed);
+        }
+
+        public static void ReadGetRatingResult(ref ByteReader r, out string username, out bool found,
+            out int rating, out int gamesPlayed)
+        {
+            username = NetMessages.ReadString(ref r);
+            found = r.ReadByte() != 0;
+            rating = r.ReadInt();
+            gamesPlayed = r.ReadInt();
         }
 
         /// <summary>Opaque passthrough. <paramref name="targetPeerId"/> of -1
@@ -420,7 +540,7 @@ namespace Craftwar.Net
         public static string ReadChannelJoin(ref ByteReader r) => NetMessages.ReadString(ref r);
 
         public static void WriteChannelJoinResult(ref ByteWriter w, bool ok, string reason, string channelName,
-            string[] memberUsernames, string opUsername)
+            string[] memberUsernames, string opUsername, string motd)
         {
             w.WriteByte((byte)ControlMessageKind.ChannelJoinResult);
             w.WriteByte((byte)(ok ? 1 : 0));
@@ -431,10 +551,11 @@ namespace Craftwar.Net
                 foreach (string name in memberUsernames)
                     NetMessages.WriteString(ref w, name);
             NetMessages.WriteString(ref w, opUsername ?? "");
+            NetMessages.WriteString(ref w, motd ?? "");
         }
 
         public static void ReadChannelJoinResult(ref ByteReader r, out bool ok, out string reason,
-            out string channelName, out string[] memberUsernames, out string opUsername)
+            out string channelName, out string[] memberUsernames, out string opUsername, out string motd)
         {
             ok = r.ReadByte() != 0;
             reason = NetMessages.ReadString(ref r);
@@ -444,6 +565,7 @@ namespace Craftwar.Net
             for (int i = 0; i < count; i++)
                 memberUsernames[i] = NetMessages.ReadString(ref r);
             opUsername = NetMessages.ReadString(ref r);
+            motd = NetMessages.ReadString(ref r);
         }
 
         public static void WriteChannelMemberEvent(ref ByteWriter w, string channelName, string username,
@@ -522,6 +644,237 @@ namespace Craftwar.Net
         {
             channelName = NetMessages.ReadString(ref r);
             byUsername = NetMessages.ReadString(ref r);
+        }
+
+        // --- Channel MOTD ------------------------------------------------------
+
+        public static void WriteChannelSetMotd(ref ByteWriter w, string motd)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelSetMotd);
+            NetMessages.WriteString(ref w, motd ?? "");
+        }
+
+        public static string ReadChannelSetMotd(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteChannelSetMotdResult(ref ByteWriter w, bool ok, string reason)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelSetMotdResult);
+            w.WriteByte((byte)(ok ? 1 : 0));
+            NetMessages.WriteString(ref w, reason ?? "");
+        }
+
+        public static void ReadChannelSetMotdResult(ref ByteReader r, out bool ok, out string reason)
+        {
+            ok = r.ReadByte() != 0;
+            reason = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteChannelMotdChanged(ref ByteWriter w, string channelName, string motd)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelMotdChanged);
+            NetMessages.WriteString(ref w, channelName);
+            NetMessages.WriteString(ref w, motd ?? "");
+        }
+
+        public static void ReadChannelMotdChanged(ref ByteReader r, out string channelName, out string motd)
+        {
+            channelName = NetMessages.ReadString(ref r);
+            motd = NetMessages.ReadString(ref r);
+        }
+
+        // --- Friends -------------------------------------------------------------
+
+        public static void WriteFriendRequest(ref ByteWriter w, string toUsername)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRequest);
+            NetMessages.WriteString(ref w, toUsername);
+        }
+
+        public static string ReadFriendRequest(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteFriendRequestResult(ref ByteWriter w, bool ok, string reason, bool becameFriends)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRequestResult);
+            w.WriteByte((byte)(ok ? 1 : 0));
+            NetMessages.WriteString(ref w, reason ?? "");
+            w.WriteByte((byte)(becameFriends ? 1 : 0));
+        }
+
+        public static void ReadFriendRequestResult(ref ByteReader r, out bool ok, out string reason,
+            out bool becameFriends)
+        {
+            ok = r.ReadByte() != 0;
+            reason = NetMessages.ReadString(ref r);
+            becameFriends = r.ReadByte() != 0;
+        }
+
+        public static void WriteFriendRequestReceived(ref ByteWriter w, string fromUsername)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRequestReceived);
+            NetMessages.WriteString(ref w, fromUsername);
+        }
+
+        public static string ReadFriendRequestReceived(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteFriendRespond(ref ByteWriter w, string requesterUsername, bool accept)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRespond);
+            NetMessages.WriteString(ref w, requesterUsername);
+            w.WriteByte((byte)(accept ? 1 : 0));
+        }
+
+        public static void ReadFriendRespond(ref ByteReader r, out string requesterUsername, out bool accept)
+        {
+            requesterUsername = NetMessages.ReadString(ref r);
+            accept = r.ReadByte() != 0;
+        }
+
+        public static void WriteFriendRespondResult(ref ByteWriter w, bool ok, string reason)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRespondResult);
+            w.WriteByte((byte)(ok ? 1 : 0));
+            NetMessages.WriteString(ref w, reason ?? "");
+        }
+
+        public static void ReadFriendRespondResult(ref ByteReader r, out bool ok, out string reason)
+        {
+            ok = r.ReadByte() != 0;
+            reason = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteFriendRequestAnswered(ref ByteWriter w, string byUsername, bool accepted)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRequestAnswered);
+            NetMessages.WriteString(ref w, byUsername);
+            w.WriteByte((byte)(accepted ? 1 : 0));
+        }
+
+        public static void ReadFriendRequestAnswered(ref ByteReader r, out string byUsername, out bool accepted)
+        {
+            byUsername = NetMessages.ReadString(ref r);
+            accepted = r.ReadByte() != 0;
+        }
+
+        public static void WriteFriendRemove(ref ByteWriter w, string username)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRemove);
+            NetMessages.WriteString(ref w, username);
+        }
+
+        public static string ReadFriendRemove(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteFriendRemoveResult(ref ByteWriter w, bool ok, string reason)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRemoveResult);
+            w.WriteByte((byte)(ok ? 1 : 0));
+            NetMessages.WriteString(ref w, reason ?? "");
+        }
+
+        public static void ReadFriendRemoveResult(ref ByteReader r, out bool ok, out string reason)
+        {
+            ok = r.ReadByte() != 0;
+            reason = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteFriendRemoved(ref ByteWriter w, string byUsername)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendRemoved);
+            NetMessages.WriteString(ref w, byUsername);
+        }
+
+        public static string ReadFriendRemoved(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteFriendListRequest(ref ByteWriter w) =>
+            w.WriteByte((byte)ControlMessageKind.FriendListRequest);
+
+        /// <summary>Parallel arrays for friends (username + online), plus
+        /// incoming/outgoing pending request username lists — same parallel-
+        /// array convention WriteReportMatchResult already uses.</summary>
+        public static void WriteFriendListResult(ref ByteWriter w, string[] friendUsernames, bool[] friendOnline,
+            string[] incomingUsernames, string[] outgoingUsernames)
+        {
+            w.WriteByte((byte)ControlMessageKind.FriendListResult);
+            w.WriteUShort((ushort)friendUsernames.Length);
+            for (int i = 0; i < friendUsernames.Length; i++)
+            {
+                NetMessages.WriteString(ref w, friendUsernames[i]);
+                w.WriteByte((byte)(friendOnline[i] ? 1 : 0));
+            }
+            w.WriteUShort((ushort)incomingUsernames.Length);
+            foreach (string name in incomingUsernames)
+                NetMessages.WriteString(ref w, name);
+            w.WriteUShort((ushort)outgoingUsernames.Length);
+            foreach (string name in outgoingUsernames)
+                NetMessages.WriteString(ref w, name);
+        }
+
+        public static void ReadFriendListResult(ref ByteReader r, out string[] friendUsernames,
+            out bool[] friendOnline, out string[] incomingUsernames, out string[] outgoingUsernames)
+        {
+            int friendCount = r.ReadUShort();
+            friendUsernames = new string[friendCount];
+            friendOnline = new bool[friendCount];
+            for (int i = 0; i < friendCount; i++)
+            {
+                friendUsernames[i] = NetMessages.ReadString(ref r);
+                friendOnline[i] = r.ReadByte() != 0;
+            }
+            int incomingCount = r.ReadUShort();
+            incomingUsernames = new string[incomingCount];
+            for (int i = 0; i < incomingCount; i++)
+                incomingUsernames[i] = NetMessages.ReadString(ref r);
+            int outgoingCount = r.ReadUShort();
+            outgoingUsernames = new string[outgoingCount];
+            for (int i = 0; i < outgoingCount; i++)
+                outgoingUsernames[i] = NetMessages.ReadString(ref r);
+        }
+
+        // --- Whispers --------------------------------------------------------------
+
+        public static void WriteWhisper(ref ByteWriter w, string toUsername, string text)
+        {
+            w.WriteByte((byte)ControlMessageKind.Whisper);
+            NetMessages.WriteString(ref w, toUsername);
+            NetMessages.WriteString(ref w, text);
+        }
+
+        public static void ReadWhisper(ref ByteReader r, out string toUsername, out string text)
+        {
+            toUsername = NetMessages.ReadString(ref r);
+            text = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteWhisperResult(ref ByteWriter w, bool ok, string reason)
+        {
+            w.WriteByte((byte)ControlMessageKind.WhisperResult);
+            w.WriteByte((byte)(ok ? 1 : 0));
+            NetMessages.WriteString(ref w, reason ?? "");
+        }
+
+        public static void ReadWhisperResult(ref ByteReader r, out bool ok, out string reason)
+        {
+            ok = r.ReadByte() != 0;
+            reason = NetMessages.ReadString(ref r);
+        }
+
+        /// <summary>Sent to BOTH the recipient and back to the sender (one
+        /// ordering source builds both logs) — the reader distinguishes
+        /// direction by comparing fromUsername to its own username.</summary>
+        public static void WriteWhisperReceived(ref ByteWriter w, string fromUsername, string toUsername,
+            string text)
+        {
+            w.WriteByte((byte)ControlMessageKind.WhisperReceived);
+            NetMessages.WriteString(ref w, fromUsername);
+            NetMessages.WriteString(ref w, toUsername);
+            NetMessages.WriteString(ref w, text);
+        }
+
+        public static void ReadWhisperReceived(ref ByteReader r, out string fromUsername, out string toUsername,
+            out string text)
+        {
+            fromUsername = NetMessages.ReadString(ref r);
+            toUsername = NetMessages.ReadString(ref r);
+            text = NetMessages.ReadString(ref r);
         }
     }
 }

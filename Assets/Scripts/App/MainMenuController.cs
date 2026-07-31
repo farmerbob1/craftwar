@@ -25,6 +25,7 @@ namespace Craftwar.App
         public const string GameSceneName = "Game";
 
         LocalAssetPaths _paths;
+        VisualElement _root;
         VisualElement _panelMain, _panelSetup, _panelWizard, _panelOptions;
         bool _musicStarted;
 
@@ -37,6 +38,7 @@ namespace Craftwar.App
         int _mapSel;
         Label _mapLabel, _setupWarn;
         VisualElement _mapRow, _slotList;
+        Image _setupMapThumb;
         Button _setupStart;
 
         /// <summary>One configurable seat of the selected map. Defaults come
@@ -80,6 +82,7 @@ namespace Craftwar.App
                 return;
             }
 
+            _root = root;
             _panelMain = root.Q("panel-main");
             _panelSetup = root.Q("panel-setup");
             _panelWizard = root.Q("panel-wizard");
@@ -135,6 +138,7 @@ namespace Craftwar.App
             _setupWarn = root.Q<Label>("setup-warn");
             _mapRow = root.Q("map-row");
             _slotList = root.Q("slot-list");
+            _setupMapThumb = root.Q<Image>("setup-map-thumb");
             _setupStart = root.Q<Button>("setup-start");
             root.Q<Button>("map-prev").clicked += () => Step(-1);
             root.Q<Button>("map-next").clicked += () => Step(1);
@@ -276,6 +280,8 @@ namespace Craftwar.App
                     Debug.LogWarning($"[Craftwar] No slot setup for this map: {e.Message}");
                 }
             }
+            if (_setupMapThumb != null)
+                _setupMapThumb.image = BakeThumbnailFromPud(_setupPud, ThumbnailMaxDimension);
             RebuildSlotRows();
         }
 

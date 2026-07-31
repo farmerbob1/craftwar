@@ -39,6 +39,23 @@ namespace Craftwar.NetServer.Protocol
             }
         }
 
+        /// <summary>Read-only counterpart to ReportResult, for the lobby
+        /// roster / room browser / player-inspect popup. Same trust level as
+        /// ListRooms — callable on an anonymous connection, no auth check.
+        /// An unregistered username simply has no rating, same "not rated"
+        /// treatment ReportResult already gives a guest.</summary>
+        public bool TryGetRating(string username, out GlickoRating rating, out int gamesPlayed)
+        {
+            if (!_accounts.TryGetByUsername(username, out var account))
+            {
+                rating = GlickoRating.Unrated;
+                gamesPlayed = 0;
+                return false;
+            }
+            (rating, gamesPlayed) = _ratings.GetOrDefault(account.Id);
+            return true;
+        }
+
         /// <summary>Unregistered/guest usernames are simply not rated — the
         /// match is still recorded in history with everyone who played, but
         /// only accounts that exist get a Glicko-2 update.</summary>

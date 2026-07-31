@@ -710,6 +710,279 @@ The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
     `.seq` pass is still the standing backlog item.
 
 ## Next milestones (per plan)
+**M13 — lobby/matchmaking polish, all 5 phases landed** (2026-07-31). Plan:
+`C:\Users\mattc\.claude\plans\snoopy-purring-stream.md`. Closes six gaps the
+game-creation flow never had: a host-side map picker, a minimap thumbnail
+preview, a Game Type (FFA/Teams) selector, AI auto-assign + manual override
+for Computer seats, and a new rating-read path (Glicko-2 was write-only since
+M11) feeding a ladder-rank display and a click-to-inspect player popup.
+
+- **Phase 1 — map picker.** `MainMenuController.Lan.cs`/`.Online.cs` gained a
+  shared `StepHostMap`/`RefreshHostMapLabel` (mirrors the skirmish panel's
+  `Step()`), wired to new prev/next buttons in `panel-lan`/`panel-online`.
+  `BuildHostPayload` already read `_lanMapSel` — it just had no UI to change
+  it before. Zero wire changes (`LobbyPayload.MapPath` already flows through).
+- **Phase 2 — minimap thumbnail.** New `MapThumbnail.Bake(PudFile,
+  IMinimapPalette, maxDimension)` (`Assets/Scripts/App/MapThumbnail.cs`):
+  reads straight from `PudFile.Tiles`/`Width`/`Height`, no running `GameSim`
+  needed, reusing `RuntimeTileCatalog`'s existing `IMinimapPalette` and
+  `MinimapView.BakeTerrain`'s row-flip convention. A per-`PudEra`
+  `RuntimeTileCatalog` cache avoids re-decoding a tileset on every arrow-key
+  step. Shown in the map picker, `panel-lobby`'s `lobby-map` area, and
+  (best-effort, filename-matched — `RoomSummary` carries no map hash) each
+  online room-browser row. `MapThumbnailTests.cs` (3 tests, EditMode) pins
+  the row-flip pixel math with a fake palette.
+- **Phase 3 — Game Type (FFA/Teams).** New `LobbyGameType` enum +
+  `LobbyPayload.GameType` byte (wire choke point: `Write`/`Read`), new
+  `LobbyHost.SetGameType` — Ffa forces every non-Closed seat to a unique
+  team (a real reset, not just a label), Teams leaves assignments alone. A
+  host-only dropdown in the lobby roster; the existing per-seat Team
+  dropdown is now only shown once the host has switched to Teams. `Craftwar.
+  Sim`'s team handling is untouched — this is a UX affordance over grouping
+  that already fully worked.
+- **Phase 4 — AI auto-assign + manual override.** `LobbySlot` gained
+  `Strategy` (string; `""` is the same "use default land-attack profile"
+  sentinel `AiProfileLibrary.Resolve` already treated identically).
+  `LobbyHost.SetSeatStatus` now auto-picks a random tier + the default
+  strategy the moment a seat is freshly flipped to Computer — never leaves
+  it unset — and new `CycleSeatTier`/`SetSeatStrategy` let the host cycle
+  either afterward, mirroring skirmish's `StratBtn`/`DiffBtn`. **Gotcha
+  hit immediately**: `SimPurityTests.NetSources_StayEngineFreeAndDeterministic`
+  bans `float`/`double`/`new Random()`/wall-clock time across the ENTIRE
+  `Assets/Scripts/Net` folder, not just `Craftwar.Sim` — `LobbySession.cs`'s
+  first draft used `System.Random`, and `RelayProtocol.cs`'s first draft
+  used `double` for ratings. Fixed: the tier pick uses `Guid.NewGuid().
+  GetHashCode()` instead of `System.Random`; ratings travel the wire as a
+  rounded `int`, with `double` confined to `Craftwar.NetServer` (a separate,
+  unscanned project) and `Craftwar.App` (also unscanned). `ToMatchConfig`'s
+  stale "the lobby never offers a strategy picker" comment is gone — it now
+  reads `slot.Strategy` for real. **Playtest checkpoint, not yet run**: per
+  the M11 playtest-fix note above, whether a solo-hosted match's AI actually
+  ticks through the real lockstep driver (not just `CreateAis()` running) was
+  flagged unverified; this phase is exactly the scenario that would surface
+  it — host alone online/LAN, close every seat but one Computer, Start, watch
+  `NetStatusLine` (F3/backquote) for real progress.
+- **Phase 5 — ladder rank + inspect popup.** New `RatingService.
+  TryGetRating` (server, read-only counterpart to `ReportResult`), new
+  `ControlMessageKind.GetRating`/`GetRatingResult` wire pair, and
+  `RoomSummary` gained `HostRating`/`HostGamesPlayed`/`HostRatingKnown` —
+  batched into `ListRoomsResult` server-side rather than one `GetRating`
+  round trip per visible room (would have multiplied `OnlineAccountClient`'s
+  already-accepted "synchronous, blocking" gap). `GetRating` itself is
+  reserved for the lobby roster and the click-to-inspect popup, both riding
+  the already-open, non-blocking `RelayPeerSocket`. New `Assets/Scripts/App/
+  LadderRank.cs`: a race-agnostic 6-tier table (Peasant/Grunt/Knight/
+  Champion/Warlord/Grand Marshal, ~200-point Glicko-2 bands from 1200) plus
+  an "Unranked" gate below 5 rated games (RD is still wide at that point) —
+  deliberately separate from `VictoryScreen`'s unrelated cosmetic per-race
+  `HumanRanks`/`OrcRanks`/`RankScore` end-of-match title, to avoid confusing
+  the two concepts. Breakpoints/wording are invented, not sourced from any
+  real Battle.net document — cheap to retune. Inspect popup is a simple
+  centered modal built in code (`MainMenuController.ShowInspectPopup`), not
+  an anchored tooltip. `ControlProtocol.CurrentVersion` bumped 1→2 alongside
+  `BuildIdentity.CurrentProtocolVersion` (also bumped, for phases 3-4's
+  `LobbyPayload`/`LobbySlot` changes) — both wire-format bumps landed
+  together this session, so one bump each covers the whole diff rather than
+  churning the constant twice.
+  **Verified for real, not just compiled**: `Craftwar.NetServer.Tests`
+  81/81 (was 52; new `RatingServiceTests` TryGetRating cases +
+  `RelayIntegrationTests` GetRating-over-a-real-socket and
+  ListRoomsResult-carries-a-real-rating cases, all against a real
+  `RelayServerHost`). Standalone Sim/Net harness 318/318 (includes the full
+  AI-match suite, confirming the wire/purity changes didn't regress
+  anything). Unity Editor EditMode, run for real via the connected MCP
+  bridge (not just compile-checked): `LobbyTests` 19/19, `MapThumbnailTests`
+  3/3, `LadderRankTests` 5/5 (caught one real test bug — 1500 rating lands
+  in the Knight band, not Peasant — fixed in the test, not the code),
+  `LobbyAiPathTests` 2/2, `GameSimSetupTests` 3/3, `NetMessageTests` 8/8,
+  `HostClientTests` 10/10.
+  **Not yet done**: the phase-4 playtest checkpoint above (solo-hosted AI
+  actually ticking through the real driver), and a manual click-through of
+  the new UI (map picker, thumbnails, Game Type toggle, Strategy/Tier
+  buttons, rating display, inspect popup) — compile- and unit-verified only,
+  same honesty M11/M12 used for their own UI phases.
+
+**M13 two real bugs found by actual playtesting** (same day):
+
+- **MOTD didn't survive a logout.** `ChatChannel` (and everything about it)
+  is genuinely ephemeral by original M12 design — no DB table, destroyed the
+  moment its last member leaves (`ChannelManager.LeaveInternal`). MOTD had
+  been built as just a field on that object, so it vanished the instant
+  everyone (including the setter) disconnected and got recreated blank on
+  the next join. Fixed with a real `channel_motd` table (`Database.cs`) +
+  new `ChannelMotdRepository`, injected into `ChannelManager` as an
+  **optional** constructor param (`= null`) so the existing in-memory-only
+  unit tests (`new ChannelManager()`) keep working untouched — production
+  (`RelayServerHost`) always supplies a real one. `Join` loads the persisted
+  MOTD when creating a fresh `ChatChannel`; `TrySetMotd` saves it. Verified
+  both as a unit test (`ChannelManagerTests.Motd_Survives...`, destroy +
+  recreate the in-memory object, same repo) AND as a real-socket integration
+  test reproducing the exact user report (`SocialIntegrationTests.
+  Motd_SurvivesEveryoneLoggingOutAndTheDefaultChannelBeingRecreated`: set
+  MOTD, dispose the only connection, wait for the server to actually process
+  the disconnect, reconnect fresh, confirm the MOTD is still there).
+- **Returning from a match dropped the whole online session, not just the
+  room.** `MainMenuController` (and everything on it — `_onlineSessionToken`,
+  the live `SocialClient` chat connection) is destroyed and recreated on
+  every Menu&lt;-&gt;Game scene transition; nothing ever re-established it
+  except manually clicking Log In again, so coming back from ANY match
+  (not just leaving a room) silently logged the player out of chat/friends
+  — "it just shows the window" (the blank login form, credentials
+  pre-filled but not submitted). Root-caused by tracing the actual scene-
+  load path (`StartMatch`/`GameLoopRunner.QuitToMenu`) rather than guessing.
+  Fixed the way `NetSession` already solves the identical problem for the
+  game socket: new `OnlineSession` static (survives scene loads by
+  definition) carrying the session token + username + the live
+  `SocialClient` itself. `ShowOnline()` now adopts an active `OnlineSession`
+  on a fresh `MainMenuController` instead of showing the login form;
+  since the new instance's cached roster/MOTD/member state starts empty
+  even though the connection never actually dropped, it forces a resync by
+  rejoining the last-known channel (`OnlineSession.CurrentChannel`, reusing
+  `SocialClient.JoinChannel`'s existing "leave whatever channel you're in,
+  join this one" behavior rather than a new wire message — a harmless
+  leave+immediately-rejoin blip to other members). `OnDestroy()` no longer
+  calls `CloseSocialConnection()` (that ran on every scene reload, which was
+  the actual bug) — only the online panel's Back button now means "log out"
+  for real, and it explicitly clears `_onlineSessionToken`/
+  `_onlineLoggedInUsername` too, which — turns out — nothing had ever reset
+  before either.
+  **Verified**: `Craftwar.NetServer.Tests` 105/105 (103 → 105, the two new
+  cases above). Unity Editor EditMode compiles clean (`LobbyTests` 19/19).
+  **Not yet done**: an actual play-a-match-and-return click-through — I
+  can't drive play mode myself; this needs a real two-scene round trip to
+  confirm chat/friends are still live on return.
+
+**M13 lobby UI cleanup + M12 completion** (same day, from further playtest
+feedback): two fixes to the M13 UI itself, plus the friends/whispers slice of
+M12 that was scoped in the original M12 plan but never built (only chat
+channels shipped — see M12 phase 1 above), now added at the user's explicit
+request, along with a per-channel MOTD (which M12 never scoped at all).
+
+- **Lobby seat-closing fix, narrowed.** A first pass made ANY Closed seat
+  vanish from the roster for everyone including the host — too broad: it
+  also killed the host's ability to reopen a seat they close manually
+  in-lobby (the original M11 design's whole reason for showing Closed seats
+  to the host at all). Fixed with `MainMenuController`'s new
+  `_cappedClosedSeats` (local-only, never on the wire): `BuildHostPayload`
+  records exactly which seat indices it Closed for the player-count cap;
+  `RebuildLobby` hides only those from the host, while a seat the host
+  closes afterward via the dropdown still shows and can be reopened, same as
+  before this feature existed.
+- **"Ugliest UI I've seen" fix**: the lobby seat row and room-browser row
+  each had a separate "Info" button bolted on next to the name, plus
+  "Seat N: name (You) [rating]" label clutter. Removed both — a player's
+  name is now itself the clickable control (`Label.pickingMode = Position` +
+  `RegisterCallback<ClickEvent>`, no separate button), and the label text is
+  now just `name (You) — rating`. Room browser: the row is thumbnail + name
+  (clickable for host info) + map/count + a single "Join" button, not two
+  buttons stacked.
+- **Friends + presence + whispers** (M12's original scope, now built):
+  - **Server**: new `friend_requests`/`friendships` tables (`Database.cs`,
+    the latter stored as two rows per friendship — one per direction — so
+    "list my friends" is a single indexed lookup). New `FriendsRepository`
+    (Db) + `FriendsService` (Protocol, business logic only, no socket
+    knowledge — same split as `RatingService`/`AccountService`, takes
+    `AccountRepository` directly for username resolution like `RatingService`
+    does). **A mutual request completes the friendship immediately**: if B
+    already requested A, A requesting B doesn't create a second pending row,
+    it just accepts — proven by
+    `FriendsServiceTests.SendRequest_WhenTheOtherSideAlreadyAsked_...`.
+    Presence is **polled, not pushed** (`PresenceDirectory.IsOnline`, already
+    anticipating exactly this in its own doc comment from M12 phase 1) —
+    matches the M12 plan's settled presence model; request/accept/remove
+    events DO push (`FriendRequestReceived`/`FriendRequestAnswered`/
+    `FriendRemoved`), online/offline status itself only updates on the next
+    `FriendListRequest` poll (client polls every 5s while connected, plus
+    immediately after any push event lands).
+  - **Whispers**: not restricted to friends — matches the real Battle.net
+    `/w name message` model, where you can whisper anyone by username.
+    `Whisper`/`WhisperResult`/`WhisperReceived`; the recipient AND the
+    sender both get `WhisperReceived` (one ordering source builds both
+    logs, same reasoning as every other chat echo in this file), told apart
+    by comparing `fromUsername` to your own.
+  - **Client**: `SocialClient.cs` gained `SendFriendRequest`/
+    `RespondToFriendRequest`/`RemoveFriend`/`RequestFriendList`/
+    `SendWhisper` + matching `TryReceiveXxx` queues, same pattern as the
+    existing channel methods. `MainMenuController.Social.cs`: a Friends
+    section (add-by-name, incoming requests with Accept/Decline, friends
+    with online dot + Whisper/Remove, outgoing shown as "(pending)") using
+    the same small-inline-button convention the existing channel Kick
+    button already established — deliberately NOT another big styled
+    button per the "not a mobile game" UI feedback. Whisper composition
+    reuses the existing chat input via `/w name message` (clicking a
+    friend's "Whisper" button just pre-fills that prefix) rather than a
+    separate compose box.
+- **Channel MOTD, per-channel, op-only**: `ChatChannel.Motd` (resets
+  naturally when a channel is recreated — no DB table, channels are still
+  ephemeral) + `ChannelManager.TrySetMotd` (refuses non-ops).
+  `ChannelJoinResult` now carries the channel's current MOTD so a fresh join
+  sees it immediately; `ChannelMotdChanged` pushes to members already in the
+  channel when the op changes it. Client: a MOTD label always visible, an
+  edit row (textfield + "Set MOTD" button) shown only when
+  `AmChannelOp` is true.
+- **Wire bump**: `ControlProtocol.CurrentVersion` 3→4 (this whole batch:
+  MOTD + friends + whispers + `ChannelJoinResult`'s new `motd` field).
+  `BuildIdentity.CurrentProtocolVersion` untouched — none of this touches
+  `LobbyPayload`/the peer-to-peer lockstep handshake.
+  **Verified for real, over real sockets, not just unit-tested**:
+  `Craftwar.NetServer.Tests` 103/103 (was 81 before this session's earlier
+  M13 work, 96 after the MOTD/friends unit tests, 103 after 7 new real-socket
+  `SocialIntegrationTests` covering MOTD set+broadcast+non-op-refusal, the
+  full request→receive→accept→presence flow, the mutual-request-is-instant-
+  friendship path, remove-notifies-the-other-side, and whisper delivery to
+  both parties + the unknown-user failure path). Unity Editor EditMode
+  (compile-proof via `LobbyTests`/`NetMessageTests`, both green) confirms the
+  whole `MainMenuController.Social.cs` rewrite compiles; the actual UI has
+  NOT been manually clicked through yet.
+
+**M13 UI follow-up fixes** (same day, from playtest feedback): the first
+pass jammed the host map-picker into `panel-lan`/`panel-online` right next
+to the room browser and chat — wrong, hosting needed to be its own screen.
+New `panel-host-setup` (shared by LAN/Online, entered via "Host a Game",
+exited via Create or Back) now owns the whole pre-creation decision: map,
+game name, player count, and Game Type — the FFA/Teams toggle from phase 3
+was real but had been buried inside the post-creation lobby roster instead
+of shown up front where a host actually expects it (still adjustable in the
+lobby afterward too). Minimap previews enlarged 3-4x (host setup 256px,
+lobby 220px, room-browser rows 96px, up from 64/80/32).
+
+Two features never existed before this pass, both added properly rather
+than bolted on:
+- **Room name.** New `LobbyPayload.RoomName` (wire choke point) and
+  `RelayProtocol`'s `RoomSummary.RoomName`/`CreateRoom`'s `roomName` param
+  (server `Room.RoomName`, `RoomManager.CreateRoom`) — shown in both the LAN
+  beacon (`LanGameInfo.GameName`, its own UDP wire addition) and the online
+  room browser, falling back to "{host}'s Game" when left blank. Also now
+  the lobby's own title once inside.
+- **Player count.** A "Players: N" stepper in Host Setup, bounded [2, the
+  map's own slot count] (recomputed on every map change via
+  `MatchSetup.ControllerFor` over the parsed PUD — same check
+  `BuildHostPayload` already used). Reducing it doesn't just hide a control:
+  `BuildHostPayload` now Closes the seats beyond the cap outright, and
+  online hosting passes that same capped count (`payload.PlayableCount()`)
+  as the room's real `RelayPeerSocket.Host` maxPlayers instead of a flat
+  `SimConstants.MaxPlayers` — the server's join-cap now matches what the
+  host actually chose, not always 8.
+
+**A real latent bug fixed as a side effect**: `BuildHostPayload`'s own
+seat-naming always read the LAN name field (`PlayerName()`) even when
+hosting ONLINE, so an online host's own roster entry showed whatever was
+last typed in the LAN panel instead of their logged-in username. New
+`HostDisplayName()` picks the right source per `_hostSetupIsOnline`.
+
+Wire-format bumps for this round: `BuildIdentity.CurrentProtocolVersion`
+2→3 (`LobbyPayload.RoomName`), `ControlProtocol.CurrentVersion` 2→3
+(`CreateRoom`/`RoomSummary.RoomName`).
+**Verified**: `Craftwar.NetServer.Tests` 81/81 (`RoomManagerTests`/
+`RelayIntegrationTests` call sites updated for the new `roomName` param).
+Standalone Sim/Net harness rebuilt clean; full run in progress. Unity
+Editor EditMode via the connected MCP bridge: asset refresh clean (no
+compile errors), `LobbyTests` 19/19 (extended with a `RoomName` round-trip
+assertion), `NetMessageTests` 8/8, `HostClientTests` 10/10.
+**Not yet done**: manual click-through of the reshuffled host-setup flow
+(Game Type shown up front, player-count capping, room name display in both
+browsers) — UI-only churn, compile- and unit-verified only.
+
 **M12 — Battle.net-style social layer** is the current milestone (started
 2026-07-27): chat channels, whispers, friends with presence, and clans/guilds
 with tags, built on top of the M11 relay server's accounts/sessions. Purely

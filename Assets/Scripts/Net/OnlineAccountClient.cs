@@ -58,6 +58,22 @@ namespace Craftwar.Net
             return ControlProtocol.ReadListRoomsResult(ref r);
         }
 
+        /// <summary>One-shot rating lookup, for symmetry/testability with the
+        /// rest of this class. The room browser itself doesn't call this per
+        /// row — RoomSummary already carries each room's host rating (see
+        /// ListRooms) — this is the entry point for a click-to-inspect popup
+        /// on a browser row before joining it.</summary>
+        public static bool GetRating(string serverHost, int serverPort, string username,
+            out int rating, out int gamesPlayed)
+        {
+            using var conn = OpenAndHello(serverHost, serverPort);
+            var w = new ByteWriter(username.Length + 16);
+            ControlProtocol.WriteGetRating(ref w, username);
+            var r = SendAndReceive(conn, w);
+            ControlProtocol.ReadGetRatingResult(ref r, out _, out bool found, out rating, out gamesPlayed);
+            return found;
+        }
+
         static SslStream OpenAndHello(string serverHost, int serverPort)
         {
             var tcp = new TcpClient();
