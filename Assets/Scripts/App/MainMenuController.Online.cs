@@ -33,7 +33,7 @@ namespace Craftwar.App
         Label _onlineAuthStatus, _onlineWelcome, _onlineStatus;
         TextField _onlineServerField, _onlineUsernameField, _onlinePasswordField;
 
-        VisualElement _lobbyChatLog;
+        ScrollView _lobbyChatLog;
         TextField _lobbyChatInput;
         Button _lobbyChatSend;
 
@@ -61,15 +61,23 @@ namespace Craftwar.App
             _onlineUsernameField = root.Q<TextField>("online-username");
             _onlinePasswordField = root.Q<TextField>("online-password");
 
+            var savedLogin = OnlineLoginSettings.Current;
+            if (_onlineServerField != null && !string.IsNullOrEmpty(savedLogin.server))
+                _onlineServerField.value = savedLogin.server;
+            if (_onlineUsernameField != null)
+                _onlineUsernameField.value = savedLogin.username;
+            if (_onlinePasswordField != null)
+                _onlinePasswordField.value = savedLogin.password;
+
             // Shared with the LAN lobby room — see the UXML comment on
             // panel-lobby. Inert (nothing ever calls SendChat/TryReceiveChat)
             // for a LAN session, which has no chat channel.
-            _lobbyChatLog = root.Q("lobby-chat-log");
+            _lobbyChatLog = root.Q<ScrollView>("lobby-chat-log");
             _lobbyChatInput = root.Q<TextField>("lobby-chat-input");
             _lobbyChatSend = root.Q<Button>("lobby-chat-send");
 
             root.Q<Button>("multiplayer-online").clicked += ShowOnline;
-            root.Q<Button>("online-back").clicked += () => { LeaveNetworking(); ShowMain(); };
+            root.Q<Button>("online-back").clicked += () => { LeaveNetworking(); CloseSocialConnection(); ShowMain(); };
             root.Q<Button>("online-login-btn").clicked += () => Authenticate(register: false);
             root.Q<Button>("online-register-btn").clicked += () => Authenticate(register: true);
             root.Q<Button>("online-host").clicked += HostOnlineGame;
@@ -83,6 +91,8 @@ namespace Craftwar.App
             if (_onlineSocket != null)
                 while (_onlineSocket.TryReceiveChat(out string senderName, out string text))
                     AppendChatLine(senderName, text);
+
+            UpdateSocial();
 
             bool browsing = _panelOnline != null && _panelOnline.style.display == DisplayStyle.Flex
                 && _lobbyHost == null && _lobbyClient == null && _onlineSessionToken != null;
@@ -117,6 +127,7 @@ namespace Craftwar.App
         {
             Show(_onlineLoginSection, !loggedIn);
             Show(_onlineBrowserSection, loggedIn);
+            ShowSocialSection(loggedIn);
             if (loggedIn && _onlineWelcome != null)
                 _onlineWelcome.text = $"Logged in as {_onlineLoggedInUsername}";
             if (loggedIn)
@@ -161,6 +172,13 @@ namespace Craftwar.App
                 _onlineSessionToken = token;
                 _onlineLoggedInUsername = username;
                 ShowOnlineSection(loggedIn: true);
+                OpenSocialConnection(host, port);
+
+                var savedLogin = OnlineLoginSettings.Current;
+                savedLogin.server = _onlineServerField?.value ?? savedLogin.server;
+                savedLogin.username = username;
+                savedLogin.password = password;
+                OnlineLoginSettings.Save();
             }
             catch (Exception e)
             {
@@ -182,6 +200,15 @@ namespace Craftwar.App
 
         void RefreshOnlineRooms()
         {
+            // Every caller of this — the login-time refresh in
+            // ShowOnlineSection AND the recurring poll in Update() — shares
+            // one "next refresh due" clock, or the two race: logging in
+            // fires this explicitly, then Update()'s own 3-second check
+            // (never having been pushed out by that first call) fires again
+            // on the very next frame, opening a second short-lived
+            // connection right on top of the first.
+            _nextOnlineRoomRefresh = Time.realtimeSinceStartup + 3f;
+
             if (_onlineRoomsList == null || !TryParseServerAddress(out string host, out int port))
                 return;
 
@@ -303,9 +330,11 @@ namespace Craftwar.App
                 return;
             var line = new Label($"{senderName}: {text}") { pickingMode = PickingMode.Ignore };
             line.AddToClassList("text");
+            line.style.whiteSpace = WhiteSpace.Normal;
             _lobbyChatLog.Add(line);
             while (_lobbyChatLog.childCount > MaxChatLines)
                 _lobbyChatLog.RemoveAt(0);
+            _lobbyChatLog.scrollOffset = new Vector2(0, float.MaxValue);
         }
 
         // --- Plumbing ------------------------------------------------------------

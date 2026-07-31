@@ -43,8 +43,18 @@ namespace Craftwar.Net.Unity
 
         public static bool Active => Socket != null;
 
-        /// <summary>Build the driver for this match, or null for single player.</summary>
+        /// <summary>
+        /// Build the driver for this match, or null for single player.
+        /// <paramref name="localComputerSlots"/> — slots the HOST will run a
+        /// computer player for locally (ignored for a client) — must be known
+        /// before the returned driver is constructed: its constructor
+        /// bootstraps turn 0's submission immediately, and a slot registered
+        /// only afterward (e.g. via a post-hoc HostTurnExchange.AddLocalSlot
+        /// call once CreateAis() runs) misses that first bootstrap turn and
+        /// stalls the match until drop-grace force-substitutes it.
+        /// </summary>
         public static INetLockstepDriver CreateDriver(
+            IEnumerable<byte> localComputerSlots,
             out HostTurnExchange host, out ClientTurnExchange client)
         {
             host = null;
@@ -60,6 +70,9 @@ namespace Craftwar.Net.Unity
                     m => UnityEngine.Debug.LogWarning(m));
                 foreach (var pair in SlotByPeerId)
                     host.AssignSlot(pair.Key, pair.Value);
+                if (localComputerSlots != null)
+                    foreach (byte slot in localComputerSlots)
+                        host.AddLocalSlot(slot);
                 exchange = host;
             }
             else

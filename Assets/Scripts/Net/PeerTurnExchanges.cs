@@ -40,6 +40,17 @@ namespace Craftwar.Net
         readonly List<GameCommand> _scratch = new List<GameCommand>();
         readonly Action<string> _log;
 
+        // Every slot whose input arrives bundled inside THIS peer's own
+        // SendInput call: the host's own seat, plus any computer player the
+        // host runs locally (CreateAis()) — its commands ride inside the same
+        // local buffer as the human's, tagged with their own Player field.
+        // SubmitInput is per-slot and TurnRelay.TryFreeze waits forever on any
+        // participating slot nobody ever submits for, so every one of these
+        // needs its own SubmitInput call each turn, even an empty one on a
+        // turn the AI had nothing to say.
+        readonly HashSet<byte> _localSlots = new HashSet<byte>();
+        readonly List<GameCommand> _perSlotScratch = new List<GameCommand>();
+
         int _broadcastThroughTurn = -1;
 
         public HostTurnExchange(IPacketPeer peer, TurnRelay relay, byte localSlot, Action<string> log = null)
@@ -48,8 +59,15 @@ namespace Craftwar.Net
             _relay = relay;
             _localSlot = localSlot;
             _log = log;
+            _localSlots.Add(localSlot);
             _relay.Desynced += OnRelayDesync;
         }
+
+        /// <summary>Register a computer player the host runs locally, so its
+        /// commands (bundled inside this peer's own SendInput call) reach its
+        /// own slot's turn bucket instead of being discarded as if they were
+        /// a hostile client speaking for a slot it isn't.</summary>
+        public void AddLocalSlot(byte slot) => _localSlots.Add(slot);
 
         public NetStatus Status { get; private set; } = NetStatus.Running;
 
@@ -71,8 +89,33 @@ namespace Craftwar.Net
         /// <summary>Bind a transport peer to the lobby seat it was given.</summary>
         public void AssignSlot(int peerId, byte slot) => _slotByPeer[peerId] = slot;
 
-        public void SendInput(int turn, List<GameCommand> commands, int hashTurn, uint stateHash) =>
-            _relay.SubmitInput(_localSlot, turn, commands, hashTurn, stateHash);
+        /// <summary>
+        /// The local driver hands over ONE bundle mixing the human's own
+        /// commands with every locally-run computer player's — SubmitLocalCommand
+        /// makes no distinction, same as LocalLockstepDriver. TurnRelay expects
+        /// one SubmitInput per participating slot per turn, so this splits the
+        /// bundle back apart by Player and submits each locally-driven slot
+        /// separately (including an empty submission for a slot with nothing to
+        /// say this turn) — otherwise a computer player's slot never receives
+        /// its own contribution and its turn bucket waits forever.
+        /// </summary>
+        public void SendInput(int turn, List<GameCommand> commands, int hashTurn, uint stateHash)
+        {
+            foreach (byte slot in _localSlots)
+            {
+                _perSlotScratch.Clear();
+                for (int i = 0; i < commands.Count; i++)
+                    if (commands[i].Player == slot)
+                        _perSlotScratch.Add(commands[i]);
+
+                // The state hash identifies this peer, not any one slot it
+                // happens to also drive — only the real local slot carries it.
+                if (slot == _localSlot)
+                    _relay.SubmitInput(slot, turn, _perSlotScratch, hashTurn, stateHash);
+                else
+                    _relay.SubmitInput(slot, turn, _perSlotScratch, -1, 0u);
+            }
+        }
 
         public bool TryGetCommit(int turn, List<GameCommand> into) =>
             _relay.TryGetCommitted(turn, into);

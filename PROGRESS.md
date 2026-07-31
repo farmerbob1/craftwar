@@ -710,7 +710,104 @@ The folder also disambiguates race — `Human/x_sub.grp` is the submarine (526),
     `.seq` pass is still the standing backlog item.
 
 ## Next milestones (per plan)
-**M11 — online relay server** is the current milestone (started 2026-07-26).
+**M12 — Battle.net-style social layer** is the current milestone (started
+2026-07-27): chat channels, whispers, friends with presence, and clans/guilds
+with tags, built on top of the M11 relay server's accounts/sessions. Purely
+social/meta-game — no `Craftwar.Sim` changes, no lockstep interaction, and by
+deliberate design zero changes to the game-traffic relay path itself
+(`TurnRelay`/`HostTurnExchange`/`ClientTurnExchange`/`TurnLockstepDriver`,
+`RelayPeerSocket`/`RoomManager`). Plan: `C:\Users\mattc\.claude\plans\
+witty-wibbling-pixel.md` (scope settled with the user via `AskUserQuestion`,
+an adversarial review against the real M11 code, and the phase breakdown are
+all there). Scope, settled with the user before any code was written: all
+four features in v1 (nothing deferred), ephemeral channels (Battle.net model,
+no DB table), clans invite-only with 3 ranks (Leader/Officer/Member), presence
+is poll-on-demand not proactively pushed, clan tags are a display-only
+decoration (never rename the player in lobby/room/match identity), and
+channel-scoped kick (no server-wide bans) is in v1.
+
+**The headline mechanism finding, from the adversarial review**: no
+connection was ever bound to an account before this milestone.
+`AccountService.Login`/`ResumeSession` issued/resolved a session token, but
+`ClientConnection` discarded the `accountId` every time, and the two
+client-side auth flows ran on disjoint, short-lived connections
+(`OnlineAccountClient`) separate from the long-lived room connection
+(`RelayPeerSocket`, which never authenticates at all — a room's `hostName` is
+just a self-reported string). A social layer needs the opposite: a live
+directory of "this open socket belongs to account X", independent of room
+membership. Fixed in phase 1 (below) rather than treated as a per-feature
+workaround.
+
+- **Phase 1 DONE (server fully verified over real sockets; client-side
+  compile-checked, not yet playtested)** — foundation + chat channels.
+  - **`ClientConnection` identity binding**: `Login`/`ResumeSession` now
+    store `AccountId`/`Username` on the connection instance that receives
+    them (previously discarded) and register the account in a new
+    `Transport/PresenceDirectory.cs` (`accountId -> connectionId`, alongside
+    the existing connectionId-keyed `ConnectionRegistry`). `Remove` is
+    conditioned on the connectionId still matching what's registered — a
+    short-lived one-shot login connection and a long-lived social connection
+    can briefly both hold a registration for the same account, and an
+    unconditional remove would let the short-lived one's teardown evict the
+    persistent connection's entry out from under it.
+  - **`Protocol/ChannelManager.cs`**: ephemeral chat channels (exist from
+    first join to last leave, no DB table), one channel per account at a
+    time — joining a new one leaves whatever one you were in, matching
+    original Battle.net. The operator (kick rights) is whoever has been a
+    member longest, tracked via an explicit join-order `List<long>` rather
+    than `Dictionary` iteration order, so migration when the op disconnects
+    is deterministic.
+  - **Wire additions** (`RelayProtocol.cs`, shared by client and server same
+    as the rest of the control-plane format): `ChannelJoin`/
+    `ChannelJoinResult`, `ChannelMemberEvent` (push), `ChannelChat`/
+    `ChannelChatBroadcast`, `ChannelKick`/`ChannelKickResult`,
+    `ChannelKicked` (push, distinct from an ordinary departure — only ever
+    raised about your own account). Channel chat carries no sender field —
+    unlike room chat, this connection is account-bound, so the server fills
+    in the sender rather than trusting a self-reported string.
+  - **New client-side `SocialClient.cs`** (`Assets/Scripts/Net/`, pure BCL
+    like `RelayPeerSocket`, zero Unity dependency): a persistent connection
+    entirely separate from `RelayPeerSocket`/`OnlineAccountClient` by
+    design. `Connect(host, port, sessionToken)` resumes the session obtained
+    from the existing one-shot login, then auto-joins the default channel
+    ("Town Hall") — the join result arrives asynchronously through the same
+    `TryReceiveChannelJoinResult` queue as any later join, no special
+    first-frame case.
+  - **Client UI**: new `MainMenuController.Social.cs` partial (same pattern
+    as `.Lan.cs`/`.Online.cs`) + an `online-social` section in
+    `MainMenu.uxml` (member chips, chat log, input, a Kick button next to
+    members when you're the op) — visible whenever the online panel is,
+    independent of whether a room is being hosted/browsed/joined. Wired with
+    four small, additive edits to already-existing files (one call site
+    each): `MainMenuController.cs.Start()` gains `InitSocial(root)`;
+    `.Online.cs`'s `Authenticate()` opens the social connection right after
+    login, its `Update()` drains it, its `ShowOnlineSection`/`online-back`
+    show/tear it down; `.Lan.cs`'s `OnDestroy()` disposes it. `RelayPeerSocket`,
+    `OnlineAccountClient`, and the room/lobby code paths were not touched.
+  - **Verified**: 75/75 `Craftwar.NetServer.Tests` (was 52) — 17 new
+    pure-logic `ChannelManagerTests` (op assignment/migration, one-channel-
+    at-a-time, kick permission checks, name validation) and 6 new real-socket
+    `SocialIntegrationTests` (real `RelayServerHost`, real `SocialClient`s
+    over real TCP+TLS: auto-join, a second joiner sees the roster and the
+    first member is notified, chat reaches everyone including the sender,
+    switching channels announces the departure to the old one, the operator
+    can kick and the kicked account gets the distinct `ChannelKicked` push,
+    a non-operator's kick is refused). `dotnet build`/`dotnet test` both run
+    clean from a cold process (a stale `Craftwar.NetServer.exe` from an
+    earlier session had to be stopped first — killed with the user's
+    explicit go-ahead). Unity-side (`SocialClient.cs`'s Unity-agnostic
+    compile, `MainMenuController.Social.cs`, `MainMenu.uxml`) compile-checked
+    via the connected MCP editor instance (`assets-refresh` + `console-get-
+    logs`, no errors) — not yet manually playtested.
+  - **Known gaps, explicitly not built yet**: whispers, friends, clans, and
+    channel-scoped kick's clan-aware permission story are phases 2-4, not
+    this one. `PresenceStatus` (Online vs InGame) does not exist yet — it's
+    phase 3's job, the first actual consumer. A manual two-client playtest
+    (join, chat, switch channels, kick) has not been run this session.
+
+**M11 — online relay server**, superseded by M12 above for social features;
+its accounts/rooms/relay/ladder machinery is exactly what M12 builds on top
+of, unmodified. Was the milestone before this one (started 2026-07-26).
 LAN was dropped as a target (nobody would use it); M10's transport-agnostic
 net stack (turn scheduling, desync detection, lobby negotiation, pause/
 observers, `SimSerializer`) carries over almost entirely, sitting behind a
@@ -1145,3 +1242,77 @@ M10 scope, as it stood:
   128x128 8-player map), which is free only because tests are its only caller.
 - `SimSerializer` for join/reconnect — also what unblocks the pause menu's
   disabled Save button.
+
+## Playtest fix (post-M11, found starting a lobby match with closed seats + a computer)
+
+Reported bug, two claimed symptoms: starting an online/LAN match with some
+seats Closed and one seat Computer spawned every map-defined slot's starting
+units (not just the human + the AI), and the Computer seat's units never did
+anything.
+
+**Root cause 1 (confirmed, fixed): `GameSim.Setup` spawned units for
+lobby-closed seats.** The per-unit spawn loop
+(`Assets/Scripts/Sim/Core/GameSim.cs`) only skipped a slot when the *map's own*
+OWNR byte marked it not-in-game (`MatchSetup.IsInGame`); it never checked the
+*lobby's* resolved `Controller`, which `Setup` deliberately forces to
+`Controller.None` for a Closed seat while leaving `InGame` true (so a Closed
+seat on an 8-player map still got its Town Hall + starting workers). The fix
+can't just skip every `Controller.None` slot, though: passive-computer and
+both rescue owner kinds are *also* `Controller.None` by design
+(`MatchSetup.ControllerFor`) and must keep spawning as scenery (`VictoryTests.
+PassiveAndRescueSlots_DoNotBlockVictory` already covered the victory side of
+this InGame-but-not-a-participant distinction). The fix reads the PUD's actual
+owner byte for the slot: `Controller.None` skips spawning only when that byte
+was Human/Computer (i.e. a real seat the lobby closed); passive-computer/
+rescue owner bytes still spawn regardless of `Controller`. New
+`GameSimSetupTests.cs`: a closed Human/Computer seat spawns nothing, passive/
+rescue slots are unaffected, and a fully-resolved match (nothing closed) is
+unaffected.
+
+**Root cause 2 (partially confirmed): `MainMenuController.Lan.ToMatchConfig`
+never set `SlotConfig.aiType`, unlike the skirmish path
+(`MainMenuController.StartSkirmish`, which reads the PUD's real AIPL byte per
+slot).** Fixed — `ToMatchConfig` now parses the map and reads
+`pud.AiType[p]`, falling back to 0 if the map can't be read. `aiStrategy` was
+left alone: the lobby has no strategy picker (`LobbySlot` carries no such
+field), so it stays `""`, which `AiProfileLibrary.Resolve` already treats as
+the same built-in land-attack profile the skirmish path defaults to — no
+functional gap there, and no strategy selector was added (nothing in the
+lobby UI to drive one from).
+
+**However, this does not fully explain "the Computer seat's units never did
+anything."** A standalone repro (dotnet+NUnitLite harness, see
+`sim-standalone-harness` — this needed reconstructing outside
+`Craftwar.App`'s `AiProfileLibrary`/`MatchConfig`, since those need UnityEngine
+and the Unity Editor's MCP bridge dropped its connection mid-session and did
+not reconnect) built a `MatchSetup` exactly the way `ToMatchConfig` +
+`ToMatchSetup` would for a Human+Computer lobby, with `aiType=0`/`aiStrategy=
+""`/`aiTier=Normal` — the *unfixed* defaults — and constructed the `AiPlayer`
+with `GameLoopRunner.CreateAis()`'s exact formula. The AI built up, expanded,
+and defeated an idle human in 29,350 ticks: `AiBehaviorMap.FromAiplByte(0)` is
+`LandAttack`, not `Passive` (only byte `0x01` maps to `Passive`), and
+`AiProfileLibrary.Resolve("")` is the same default profile the skirmish path
+names explicitly — both defaults were already behaviorally identical to what
+`AiMatchTests.IdleHuman_LosesToAi` already exercises via the 2-arg
+`GameSim.Setup` path. New `LobbyAiPathTests.cs` (Unity EditMode, not yet run —
+see below) pins this down permanently via the actual `Craftwar.App` types.
+
+**Compile-checked only, not run in the Unity Editor.** The MCP bridge to the
+Unity Editor disconnected during the `LobbyAiPathTests` repro (a >120s
+tests-run call) and did not reconnect (`list_engine_instances` kept reporting
+no connected instance even though the `Unity.exe` processes were still
+running) — batch mode wasn't an option either, since the editor was still up.
+Root cause 1's fix and its regression tests were fully verified via the
+standalone Sim+Net harness (all 4 new tests green, including a version of the
+lobby-AI repro built from pure `Craftwar.Sim` types). Root cause 2's
+`MainMenuController.Lan.cs` edit and `LobbyAiPathTests.cs` (which use
+`Craftwar.App`) are hand-checked against the surrounding code but **not
+compiled or run** — run the Unity Test Runner (or a closed-editor batch run)
+before trusting them, and this still leaves the original "AI never acts"
+report unexplained. If it reproduces again, it is not the two causes above;
+worth checking next: whether `GameLoopRunner.CreateAis()` actually runs at all
+for a solo-hosted LAN/online match (`_net == null || NetSession.IsHost`), and
+whether AI-submitted commands actually reach `Advance` through the real
+`ILockstepDriver`/turn-scheduling path for a single-participant hosted game —
+neither is modeled by the sim-only harness test, which drives `Advance`
+directly every tick with no driver in between.

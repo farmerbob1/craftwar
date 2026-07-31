@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.ivanmurzak.unity.mcp": "0.86.1",
+    "com.ivanmurzak.unity.mcp": "0.86.3",
     "com.ivanmurzak.unity.mcp.cinemachine": "1.0.14",
     "com.ivanmurzak.unity.mcp.inputsystem": "1.0.14",
     "com.ivanmurzak.unity.mcp.tilemap": "1.0.12",

@@ -24,6 +24,8 @@ namespace Craftwar.NetServer.Transport
         readonly RatingService _ratings;
         readonly RoomManager _rooms;
         readonly ConnectionRegistry _registry;
+        readonly PresenceDirectory _presence;
+        readonly ChannelManager _channels;
         readonly Action<string> _log;
         readonly CancellationTokenSource _cts = new();
         Task _acceptLoop;
@@ -41,6 +43,8 @@ namespace Craftwar.NetServer.Transport
             _ratings = new RatingService(accountRepo, new RatingRepository(db));
             _rooms = new RoomManager();
             _registry = new ConnectionRegistry();
+            _presence = new PresenceDirectory();
+            _channels = new ChannelManager();
             _cert = CertificateProvider.Load(config);
 
             _listener = new TcpListener(IPAddress.Parse(config.Host), config.Port);
@@ -66,7 +70,8 @@ namespace Craftwar.NetServer.Transport
                     break;
                 }
                 tcp.NoDelay = true;
-                var conn = new ClientConnection(tcp, _cert, _accounts, _ratings, _rooms, _registry, _log);
+                var conn = new ClientConnection(tcp, _cert, _accounts, _ratings, _rooms, _registry, _presence,
+                    _channels, _log);
                 _ = conn.RunAsync(); // fire-and-forget: one task per connection, errors logged inside
             }
         }

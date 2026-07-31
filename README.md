@@ -19,13 +19,16 @@ be a modern RTS front end.
 
 Playable single-player skirmish against computer opponents on the original melee
 maps: full tech tree, economy, naval and air units, fog of war, minimap, control
-groups, replays, and a data-driven utility-based AI.
+groups, replays, and a data-driven utility-based AI. LAN and online multiplayer
+both work — host or join a match over LAN discovery, or through a self-hosted
+relay server with accounts and room browsing.
 
-Milestones **M0–M9.5** are complete (scaffold, map pipeline, movement, combat,
-economy, tech tree, fog/minimap/sound, naval/air, HUD, AI). LAN lockstep (M10),
-online play with team vision (M11) and the campaign track (M13) are still ahead.
-`PROGRESS.md` is the running log and is the place to start if you want the
-detail.
+Milestones **M0–M11** are complete (scaffold, map pipeline, movement, combat,
+economy, tech tree, fog/minimap/sound, naval/air, HUD, AI, LAN lockstep, and
+online play via a self-hosted relay server). **M12** (a Battle.net-style social
+layer — chat channels, friends/presence, clans) is in progress. The campaign
+track (M13) is still ahead. `PROGRESS.md` is the running log and is the place
+to start if you want the detail.
 
 ---
 
@@ -70,11 +73,18 @@ enforceable rather than aspirational.
 |---|---|
 | `Craftwar.Sim` | Game logic, PUD loader, pathfinding, PRNG. **No engine references** |
 | `Craftwar.View` | Rendering, input, UI, audio. References Sim |
-| `Craftwar.Net` | Lockstep driver; Unity Transport later |
+| `Craftwar.Net` | Lockstep driver; turn relay/exchange, LAN (Unity Transport) and online (relay-server) sockets |
 | `Craftwar.Import` | Runtime asset extraction from a local install |
-| `Craftwar.App` | Bootstrap, match setup, scene flow |
+| `Craftwar.App` | Bootstrap, match setup, scene flow, menu/lobby UI |
 | `Craftwar.EditorTools` | Editor-only: import window, data codegen, project setup |
 | `Craftwar.Sim.Tests` | EditMode determinism suite |
+
+`Server/Craftwar.NetServer` is a separate, plain-.NET console project — the
+self-hosted relay server for online play (TLS control plane, accounts, room
+browsing, and now a social layer). It has its own test project
+(`Craftwar.NetServer.Tests`) and its own runbook, `Server/README.md`. Run it
+locally with `dotnet run` from `Server/Craftwar.NetServer`; the game's online
+menu points at it by host:port (`127.0.0.1:27015` by default).
 
 ### The three rules
 

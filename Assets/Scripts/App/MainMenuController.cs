@@ -90,6 +90,7 @@ namespace Craftwar.App
             root.Q<Button>("locate").clicked += ShowWizard;
             InitLan(root);
             InitOnline(root);
+            InitSocial(root);
             root.Q<Button>("quit").clicked += Quit;
             root.Q<Button>("options").clicked += ShowOptions;
 
@@ -123,7 +124,11 @@ namespace Craftwar.App
             if (_tabSound != null)
                 _tabSound.clicked += () => ShowOptionsTab(soundTab: true);
 
-            root.Q<Button>("options-back")?.RegisterCallback<ClickEvent>(_ => ShowMain());
+            root.Q<Button>("options-back")?.RegisterCallback<ClickEvent>(_ =>
+            {
+                GameplaySettings.Save();
+                ShowMain();
+            });
 
             // Setup panel
             _mapLabel = root.Q<Label>("map-label");
@@ -587,5 +592,13 @@ namespace Craftwar.App
             Application.Quit();
 #endif
         }
+
+        /// <summary>Safety net: GameplaySettings otherwise only saves on a
+        /// slider's PointerUpEvent or an options button click, so a drag
+        /// whose release doesn't land cleanly (easy in the small Editor Game
+        /// View) can leave an in-session change unsaved. Unity raises this
+        /// both for a real quit and for stopping Play Mode in the editor, so
+        /// it covers "changed a setting, stopped Play Mode, it reverted".</summary>
+        void OnApplicationQuit() => GameplaySettings.Save();
     }
 }

@@ -348,7 +348,11 @@ namespace Craftwar.App
             for (int p = 0; p < payload.Slots.Length; p++)
             {
                 ref LobbySlot slot = ref payload.Slots[p];
-                if (slot.SeatStatus == (byte)LobbySeatStatus.Closed)
+                // Hidden from joiners (irrelevant to them, keeps the roster
+                // uncluttered) but always shown to the host — otherwise
+                // closing a seat removes the only control that can reopen
+                // it, with no way back short of restarting the lobby.
+                if (!isHost && slot.SeatStatus == (byte)LobbySeatStatus.Closed)
                     continue;
                 _lobbySlotList.Add(BuildSeatRow(p, payload, mySlot, isHost));
             }
@@ -366,68 +370,123 @@ namespace Craftwar.App
                 _lobbyStart.SetEnabled(_lobbyHost.CanStart());
         }
 
-        /// <summary>One roster row. Host-only interactive controls (seat
-        /// status cycle, team) are plain UI Toolkit elements built in code —
-        /// lobby-slots is an empty container the whole roster is already
-        /// built into at runtime, same as before this change.</summary>
+        static readonly List<string> StatusChoices = new List<string> { "Closed", "Open", "Computer" };
+        static readonly List<string> RaceChoices = new List<string> { "Human", "Orc" };
+
+        static List<string> TeamChoices()
+        {
+            var list = new List<string>(SimConstants.MaxPlayers);
+            for (int i = 0; i < SimConstants.MaxPlayers; i++)
+                list.Add($"Team {i + 1}");
+            return list;
+        }
+
+        /// <summary>One roster row. Host-only interactive controls (status,
+        /// race, team) are DropdownFields built in code, disabled (but still
+        /// showing the current value) for anyone who isn't the host — lobby-
+        /// slots is an empty container the whole roster is built into at
+        /// runtime, same as before this change.</summary>
         VisualElement BuildSeatRow(int p, LobbyPayload payload, byte mySlot, bool isHost)
         {
             ref LobbySlot slot = ref payload.Slots[p];
+            int seat = p;
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.marginBottom = 4;
 
             string who = (LobbySeatStatus)slot.SeatStatus switch
             {
                 LobbySeatStatus.Human => string.IsNullOrEmpty(slot.Name) ? "Player" : slot.Name,
                 LobbySeatStatus.Computer => $"Computer ({(Craftwar.Sim.Ai.AiTier)slot.AiTier})",
+                LobbySeatStatus.Closed => "Closed",
                 _ => "Open",
             };
             if (p == mySlot)
                 who += "  (You)";
-            var label = new Label($"Seat {p + 1}:  {who}   [{(Race)slot.Race}]  Team {slot.Team + 1}")
-            {
-                pickingMode = PickingMode.Ignore,
-            };
+            var label = new Label($"Seat {p + 1}:  {who}") { pickingMode = PickingMode.Ignore };
             label.AddToClassList("text");
+            label.style.width = 180;
+            label.style.flexShrink = 0;
             row.Add(label);
 
-            // A human-occupied seat only changes by that person leaving; the
-            // host can only toggle a seat nobody is sitting in.
-            if (isHost && (LobbySeatStatus)slot.SeatStatus != LobbySeatStatus.Human)
+            // A human-occupied seat's status only changes by that person
+            // leaving; the host can only toggle a seat nobody is sitting in.
+            // Race/team stay host-controlled regardless of who is seated —
+            // not self-service, matching SetSeatTeam's existing behavior.
+            bool statusEditable = isHost && (LobbySeatStatus)slot.SeatStatus != LobbySeatStatus.Human;
+            var statusField = new DropdownField
             {
-                int seat = p;
-                var cycle = new Button(() => CycleSeatStatus(seat)) { text = "Closed/Open/AI" };
-                cycle.AddToClassList("menu__button");
-                row.Add(cycle);
-            }
+                choices = StatusChoices,
+                index = StatusChoices.IndexOf(StatusChoiceFor((LobbySeatStatus)slot.SeatStatus)),
+            };
+            HidePhantomLabel(statusField);
+            statusField.style.width = 130;
+            statusField.style.marginRight = 4;
+            statusField.SetEnabled(statusEditable);
+            if (statusEditable)
+                statusField.RegisterValueChangedCallback(e => SetSeatStatusFromChoice(seat, e.newValue));
+            row.Add(statusField);
+
+            var raceField = new DropdownField
+            {
+                choices = RaceChoices,
+                index = (Race)slot.Race == Race.Orc ? 1 : 0,
+            };
+            HidePhantomLabel(raceField);
+            raceField.style.width = 130;
+            raceField.style.marginRight = 4;
+            raceField.SetEnabled(isHost);
             if (isHost)
+                raceField.RegisterValueChangedCallback(e =>
+                    _lobbyHost.SetSeatRace(seat, e.newValue == "Orc" ? Race.Orc : Race.Human));
+            row.Add(raceField);
+
+            var teamChoices = TeamChoices();
+            var teamField = new DropdownField
             {
-                int seat = p;
-                var team = new Button(() => CycleSeatTeam(seat)) { text = "Team" };
-                team.AddToClassList("menu__button");
-                row.Add(team);
-            }
+                choices = teamChoices,
+                index = Mathf.Clamp(slot.Team, 0, teamChoices.Count - 1),
+            };
+            HidePhantomLabel(teamField);
+            teamField.style.width = 130;
+            teamField.SetEnabled(isHost);
+            if (isHost)
+                teamField.RegisterValueChangedCallback(e =>
+                    _lobbyHost.SetSeatTeam(seat, (byte)teamChoices.IndexOf(e.newValue)));
+            row.Add(teamField);
+
             return row;
         }
 
-        void CycleSeatStatus(int seat)
+        /// <summary>BaseField<T> always builds a caption Label even when no
+        /// label text is ever set; the default theme reserves real width for
+        /// it (sized for two-column Inspector rows), which is most of why
+        /// these dropdowns rendered as a sliver of visible text. None of our
+        /// DropdownFields use that caption, so removing it from layout
+        /// entirely is safe here (unlike a blanket CSS rule, which would also
+        /// hit TextFields that DO want their label, e.g. Username/Password).</summary>
+        static void HidePhantomLabel(DropdownField field) =>
+            field.labelElement.style.display = DisplayStyle.None;
+
+        static string StatusChoiceFor(LobbySeatStatus status) => status switch
+        {
+            LobbySeatStatus.Open => "Open",
+            LobbySeatStatus.Computer => "Computer",
+            LobbySeatStatus.Human => "Open", // never actually shown editable, see statusEditable
+            _ => "Closed",
+        };
+
+        void SetSeatStatusFromChoice(int seat, string choice)
         {
             if (_lobbyHost == null) return;
-            var current = (LobbySeatStatus)_lobbyHost.Payload.Slots[seat].SeatStatus;
-            var next = current switch
+            var status = choice switch
             {
-                LobbySeatStatus.Closed => LobbySeatStatus.Open,
-                LobbySeatStatus.Open => LobbySeatStatus.Computer,
+                "Open" => LobbySeatStatus.Open,
+                "Computer" => LobbySeatStatus.Computer,
                 _ => LobbySeatStatus.Closed,
             };
-            _lobbyHost.SetSeatStatus(seat, next);
-        }
-
-        void CycleSeatTeam(int seat)
-        {
-            if (_lobbyHost == null) return;
-            byte next = (byte)((_lobbyHost.Payload.Slots[seat].Team + 1) % SimConstants.MaxPlayers);
-            _lobbyHost.SetSeatTeam(seat, next);
+            _lobbyHost.SetSeatStatus(seat, status);
         }
 
         void SetLobbyStatus(string text)
@@ -500,6 +559,14 @@ namespace Craftwar.App
 
         static MatchConfig ToMatchConfig(LobbyPayload payload, byte localSlot)
         {
+            // The lobby never offers a strategy picker (LobbySlot carries no
+            // such field), so aiStrategy stays "" — SlotConfig's own default,
+            // which AiProfileLibrary.Resolve treats as the same built-in
+            // land-attack profile StartSkirmish falls back to. aiType is the
+            // map's own AIPL byte, same as StartSkirmish reads from _setupPud:
+            // a slot the map scripted as passive/sea/air must keep behaving
+            // that way even when the host promotes it to Computer.
+            var pud = TryParse(ReadMapBytes(payload.MapPath));
             var config = new MatchConfig
             {
                 mapPath = payload.MapPath,
@@ -523,6 +590,7 @@ namespace Craftwar.App
                     race = (Race)slot.Race,
                     team = slot.Team,
                     aiTier = slot.AiTier,
+                    aiType = pud != null ? pud.AiType[p] : (byte)0,
                 };
             }
             return config;
@@ -589,7 +657,11 @@ namespace Craftwar.App
             _discovery = null;
         }
 
-        void OnDestroy() => LeaveNetworking();
+        void OnDestroy()
+        {
+            LeaveNetworking();
+            CloseSocialConnection();
+        }
 
         // --- Identity ------------------------------------------------------------
 

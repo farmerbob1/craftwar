@@ -53,3 +53,61 @@
 .bar__fill--low {
     background-color: var(--cw-hp-low);
 }
+
+/* TextField (and other BaseField controls) come from Unity's own default
+   runtime theme with no color override — its caption/typed-text color reads
+   as near-black, which disappears against our near-black --cw-panel-bg-solid
+   panels. Explicit contrast here, not just inheritance, since the default
+   theme sets color directly on these same classes (same-specificity import
+   order is what actually wins — see ThemeDark.tss). */
+.unity-base-field__label {
+    color: var(--cw-text);
+}
+
+.unity-base-text-field__input {
+    background-color: rgb(15, 16, 19);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.unity-base-text-field__input .unity-text-element,
+TextField .unity-text-element {
+    color: var(--cw-text);
+}
+
+/* DropdownField (status/race/team pickers): same default-theme mismatch as
+   TextField above, plus BaseField always builds a caption Label even when
+   no label text is set — the default theme reserves real width for it
+   (sized for two-column Inspector rows), which is what ate almost the whole
+   box down to 3-4 visible characters. The label is hidden per-instance in
+   C# (labelElement.style.display = None) since only OUR dropdowns are
+   label-less; this just re-themes what's left to match the dark panel. */
+.unity-base-popup-field__input {
+    background-color: var(--cw-btn-bg);
+    padding-left: 4px;
+    padding-right: 2px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: var(--cw-panel-border);
+    border-right-color: var(--cw-panel-border);
+    border-top-color: var(--cw-panel-border);
+    border-bottom-color: var(--cw-panel-border);
+}
+
+.unity-base-popup-field__text {
+    color: var(--cw-text);
+}
+
+.unity-base-popup-field__input:hover {
+    background-color: var(--cw-btn-bg-hover);
+}

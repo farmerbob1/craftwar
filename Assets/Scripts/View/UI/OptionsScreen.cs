@@ -60,7 +60,7 @@ namespace Craftwar.View
             SoundOptionsPanel.Build(_soundPage);
             menu.Add(_soundPage);
 
-            var back = new Button(() => _manager.Pop()) { text = "Back" };
+            var back = new Button(() => { GameplaySettings.Save(); _manager.Pop(); }) { text = "Back" };
             back.AddToClassList("menu__button");
             menu.Add(back);
 

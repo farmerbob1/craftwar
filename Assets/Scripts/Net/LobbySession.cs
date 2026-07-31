@@ -156,6 +156,18 @@ namespace Craftwar.Net
             Changed?.Invoke();
         }
 
+        /// <summary>Host-only: assign a seat's race. Like <see cref="SetSeatTeam"/>
+        /// (and unlike <see cref="SetSeatStatus"/>) this works regardless of
+        /// whether the seat is currently Human-occupied — race is host-
+        /// controlled in this version, not self-service by whoever joined.</summary>
+        public void SetSeatRace(int seat, Race race)
+        {
+            if (seat < 0 || seat >= Payload.Slots.Length) return;
+            Payload.Slots[seat].Race = (byte)race;
+            BroadcastState();
+            Changed?.Invoke();
+        }
+
         /// <summary>False while any playable seat is still Open — AI presence
         /// must be a deliberate host choice, never a default at start time.</summary>
         public bool CanStart() => !Payload.HasOpenSeats();

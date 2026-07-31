@@ -30,6 +30,8 @@ namespace Craftwar.NetServer.Transport
         readonly RatingService _ratings;
         readonly RoomManager _rooms;
         readonly ConnectionRegistry _registry;
+        readonly PresenceDirectory _presence;
+        readonly ChannelManager _channels;
         readonly Action<string> _log;
         readonly SemaphoreSlim _writeLock = new(1, 1);
 
@@ -37,9 +39,17 @@ namespace Craftwar.NetServer.Transport
 
         public string ConnectionId { get; } = Guid.NewGuid().ToString("N");
 
+        /// <summary>Set once Login/ResumeSession succeeds ON THIS connection
+        /// (see BindIdentity) — null for an anonymous connection (e.g. a
+        /// RelayPeerSocket room connection, which never authenticates; see
+        /// M12 plan mechanism note 2). Social message handling below checks
+        /// this before doing anything account-scoped.</summary>
+        public long? AccountId { get; private set; }
+        public string Username { get; private set; }
+
         public ClientConnection(TcpClient tcp, System.Security.Cryptography.X509Certificates.X509Certificate2 cert,
             AccountService accounts, RatingService ratings, RoomManager rooms, ConnectionRegistry registry,
-            Action<string> log)
+            PresenceDirectory presence, ChannelManager channels, Action<string> log)
         {
             _tcp = tcp;
             _cert = cert;
@@ -47,7 +57,21 @@ namespace Craftwar.NetServer.Transport
             _ratings = ratings;
             _rooms = rooms;
             _registry = registry;
+            _presence = presence;
+            _channels = channels;
             _log = log;
+        }
+
+        /// <summary>Binds this connection to an account after a successful
+        /// Login/ResumeSession — see M12 plan mechanism note 1 (no
+        /// connection was ever bound to an account before this). Safe to
+        /// call again (e.g. a stray re-auth): both AccountId/Username and
+        /// the PresenceDirectory entry simply overwrite.</summary>
+        void BindIdentity(long accountId, string username)
+        {
+            AccountId = accountId;
+            Username = username;
+            _presence.Add(accountId, ConnectionId);
         }
 
         public async Task RunAsync()
@@ -89,6 +113,9 @@ namespace Craftwar.NetServer.Transport
             {
                 _registry.Remove(this);
                 await LeaveRoomAsync().ConfigureAwait(false);
+                await LeaveChannelAsync().ConfigureAwait(false);
+                if (AccountId.HasValue)
+                    _presence.Remove(AccountId.Value, ConnectionId);
                 _tcp.Dispose();
                 _log($"[conn {remote}] closed");
             }
@@ -159,7 +186,9 @@ namespace Craftwar.NetServer.Transport
                 case ControlMessageKind.Login:
                 {
                     ControlProtocol.ReadLogin(ref r, out string username, out string password);
-                    var result = _accounts.Login(username, password, out string token, out _);
+                    var result = _accounts.Login(username, password, out string token, out long accountId);
+                    if (result == AccountResult.Ok)
+                        BindIdentity(accountId, username);
                     ControlProtocol.WriteLoginResult(ref w, result, token);
                     return (w.ToArray(), null);
                 }
@@ -167,7 +196,9 @@ namespace Craftwar.NetServer.Transport
                 case ControlMessageKind.ResumeSession:
                 {
                     string token = ControlProtocol.ReadResumeSession(ref r);
-                    var result = _accounts.ResumeSession(token, out _, out string username);
+                    var result = _accounts.ResumeSession(token, out long accountId, out string username);
+                    if (result == AccountResult.Ok)
+                        BindIdentity(accountId, username);
                     ControlProtocol.WriteResumeSessionResult(ref w, result, username);
                     return (w.ToArray(), null);
                 }
@@ -232,6 +263,48 @@ namespace Craftwar.NetServer.Transport
                     }
                     ControlProtocol.WriteReportMatchResultAck(ref w, ok);
                     return (w.ToArray(), null);
+                }
+
+                case ControlMessageKind.ChannelJoin:
+                {
+                    string channelName = ControlProtocol.ReadChannelJoin(ref r);
+                    if (AccountId == null)
+                        return (null, null); // anonymous connection — see AccountId's doc comment
+
+                    if (!ChannelManager.IsValidName(channelName))
+                    {
+                        ControlProtocol.WriteChannelJoinResult(ref w, false, "invalid channel name", "",
+                            System.Array.Empty<string>(), "");
+                        return (w.ToArray(), null);
+                    }
+
+                    var channel = _channels.Join(AccountId.Value, Username, channelName, out var previousChannel);
+                    ControlProtocol.WriteChannelJoinResult(ref w, true, null, channel.Name,
+                        channel.MemberUsernamesSnapshot(), channel.OpUsername);
+                    return (w.ToArray(), () => AnnounceChannelJoinAsync(channel, previousChannel));
+                }
+
+                case ControlMessageKind.ChannelChat:
+                {
+                    string text = ControlProtocol.ReadChannelChat(ref r);
+                    if (AccountId == null)
+                        return (null, null);
+                    return (null, () => BroadcastChannelChatAsync(text));
+                }
+
+                case ControlMessageKind.ChannelKick:
+                {
+                    string targetUsername = ControlProtocol.ReadChannelKick(ref r);
+                    if (AccountId == null)
+                        return (null, null);
+
+                    string failure = _channels.TryKick(AccountId.Value, targetUsername, out var channel,
+                        out long targetAccountId);
+                    ControlProtocol.WriteChannelKickResult(ref w, failure == null, failure);
+                    Func<Task> after = failure == null
+                        ? () => AnnounceChannelKickAsync(channel, targetAccountId, targetUsername)
+                        : null;
+                    return (w.ToArray(), after);
                 }
 
                 default:
@@ -314,6 +387,84 @@ namespace Craftwar.NetServer.Transport
                 if (peerId == myPeerId)
                     continue;
                 if (_registry.TryGet(connectionId, out var member))
+                    await member.PushFrameAsync(payload).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>Announces a channel join both ways: the channel just
+        /// left (if any) learns the mover departed, and the new channel's
+        /// OTHER members (the mover already knows via ChannelJoinResult)
+        /// learn about the newcomer. Mirrors AnnounceJoinAsync's reciprocal
+        /// shape for rooms.</summary>
+        async Task AnnounceChannelJoinAsync(ChatChannel channel, ChatChannel previousChannel)
+        {
+            if (previousChannel != null)
+                await BroadcastChannelMemberEventAsync(previousChannel, Username, joined: false)
+                    .ConfigureAwait(false);
+
+            await BroadcastChannelMemberEventAsync(channel, Username, joined: true, excludeAccountId: AccountId)
+                .ConfigureAwait(false);
+        }
+
+        /// <summary>Unlike RelayAsync's room chat, this echoes back to the
+        /// sender too — same reasoning as BroadcastChatAsync: one ordering
+        /// source for everyone's log, not the sender adding its own line
+        /// locally.</summary>
+        async Task BroadcastChannelChatAsync(string text)
+        {
+            if (!_channels.TryGetChannelOf(AccountId.Value, out var channel))
+                return; // not in a channel — a stray chat message is simply dropped
+
+            var w = new ByteWriter(text.Length + Username.Length + 16);
+            ControlProtocol.WriteChannelChatBroadcast(ref w, channel.Name, Username, text);
+            byte[] payload = w.ToArray();
+            foreach (var (accountId, _) in channel.MembersSnapshot())
+                if (_presence.TryGetConnectionId(accountId, out string connId) && _registry.TryGet(connId, out var member))
+                    await member.PushFrameAsync(payload).ConfigureAwait(false);
+        }
+
+        /// <summary>Tells the kicked account directly (ChannelKicked, so its
+        /// client can show "you were kicked" rather than an ordinary
+        /// departure) before the remaining members get the ordinary
+        /// ChannelMemberEvent departure notice.</summary>
+        async Task AnnounceChannelKickAsync(ChatChannel channel, long targetAccountId, string targetUsername)
+        {
+            if (_presence.TryGetConnectionId(targetAccountId, out string targetConnId)
+                && _registry.TryGet(targetConnId, out var target))
+            {
+                var kw = new ByteWriter(64);
+                ControlProtocol.WriteChannelKicked(ref kw, channel.Name, Username);
+                await target.PushFrameAsync(kw.ToArray()).ConfigureAwait(false);
+            }
+
+            await BroadcastChannelMemberEventAsync(channel, targetUsername, joined: false).ConfigureAwait(false);
+        }
+
+        async Task LeaveChannelAsync()
+        {
+            if (AccountId == null)
+                return;
+            var channel = _channels.Leave(AccountId.Value);
+            if (channel != null)
+                await BroadcastChannelMemberEventAsync(channel, Username, joined: false).ConfigureAwait(false);
+        }
+
+        /// <summary>Pushes a ChannelMemberEvent to every CURRENT member of
+        /// <paramref name="channel"/> (post-mutation state — a departed
+        /// subject is already absent from it), optionally skipping one
+        /// account (the mover, for a join announcement they already learned
+        /// of via their own direct reply).</summary>
+        async Task BroadcastChannelMemberEventAsync(ChatChannel channel, string subjectUsername, bool joined,
+            long? excludeAccountId = null)
+        {
+            var w = new ByteWriter(64);
+            ControlProtocol.WriteChannelMemberEvent(ref w, channel.Name, subjectUsername, joined, channel.OpUsername);
+            byte[] payload = w.ToArray();
+            foreach (var (accountId, _) in channel.MembersSnapshot())
+            {
+                if (excludeAccountId.HasValue && accountId == excludeAccountId.Value)
+                    continue;
+                if (_presence.TryGetConnectionId(accountId, out string connId) && _registry.TryGet(connId, out var member))
                     await member.PushFrameAsync(payload).ConfigureAwait(false);
             }
         }

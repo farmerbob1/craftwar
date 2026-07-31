@@ -137,9 +137,23 @@ namespace Craftwar.Sim
             {
                 if (entry.Type == (byte)UnitTypeId.HumanStart || entry.Type == (byte)UnitTypeId.OrcStart)
                     continue;
-                // Skip units of slots that are not playing (except neutral 15).
-                if (entry.Owner < SimConstants.MaxPlayers && !State.Players[entry.Owner].InGame)
-                    continue;
+                if (entry.Owner < SimConstants.MaxPlayers)
+                {
+                    // Skip units of slots that are not playing (except neutral 15).
+                    if (!State.Players[entry.Owner].InGame)
+                        continue;
+                    // Passive-computer/rescue slots are Controller.None by design
+                    // (MatchSetup.ControllerFor) yet must still spawn as scenery.
+                    // A lobby-closed Human/Computer slot is also Controller.None
+                    // but the map's own owner byte says it should have been a real
+                    // participant, so only that case gets skipped here.
+                    byte ownerByte = pud.Owner[entry.Owner];
+                    bool isScenerySlot = ownerByte == (byte)PudOwner.PassiveComputer
+                        || ownerByte == (byte)PudOwner.RescuePassive
+                        || ownerByte == (byte)PudOwner.RescueActive;
+                    if (!isScenerySlot && State.Players[entry.Owner].Controller == Controller.None)
+                        continue;
+                }
 
                 var id = State.SpawnUnit(entry.Type, entry.Owner, entry.X, entry.Y);
                 if (State.TryGetUnitIndex(id, out int idx))

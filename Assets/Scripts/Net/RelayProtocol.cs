@@ -60,6 +60,36 @@ namespace Craftwar.Net
         /// records match history.</summary>
         ReportMatchResult,
         ReportMatchResultAck,
+        /// <summary>Client -> server: join a named chat channel (created on
+        /// first join if it doesn't exist yet — channels are ephemeral, see
+        /// ChannelManager). Leaves whatever channel the connection was
+        /// already in, if any — one channel at a time, matching the
+        /// original Battle.net model. Requires the connection to already be
+        /// account-bound (see ClientConnection's Login/ResumeSession
+        /// handling) — sent nowhere near this on an anonymous connection.</summary>
+        ChannelJoin,
+        ChannelJoinResult,
+        /// <summary>Server -> every member of a channel (including the
+        /// mover, for a join): someone joined or left, plus who the
+        /// channel's current operator is after the change — clients just
+        /// overwrite their local "who can kick" state from this field every
+        /// time rather than tracking migration themselves.</summary>
+        ChannelMemberEvent,
+        /// <summary>Client -> server: chat in whatever channel this
+        /// connection is currently in. No sender field — unlike room chat,
+        /// this connection is account-bound, so the server fills in the
+        /// sender from that, not a self-reported string.</summary>
+        ChannelChat,
+        ChannelChatBroadcast,
+        /// <summary>Client -> server: kick a member from the caller's
+        /// current channel, by username. Refused unless the caller is that
+        /// channel's operator.</summary>
+        ChannelKick,
+        ChannelKickResult,
+        /// <summary>Server -> the kicked account only, distinct from the
+        /// ChannelMemberEvent everyone else gets, so that client can show
+        /// "you were kicked" rather than just an ordinary departure.</summary>
+        ChannelKicked,
     }
 
     public enum AccountResult : byte
@@ -380,5 +410,118 @@ namespace Craftwar.Net
         }
 
         public static bool ReadReportMatchResultAck(ref ByteReader r) => r.ReadByte() != 0;
+
+        public static void WriteChannelJoin(ref ByteWriter w, string channelName)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelJoin);
+            NetMessages.WriteString(ref w, channelName);
+        }
+
+        public static string ReadChannelJoin(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteChannelJoinResult(ref ByteWriter w, bool ok, string reason, string channelName,
+            string[] memberUsernames, string opUsername)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelJoinResult);
+            w.WriteByte((byte)(ok ? 1 : 0));
+            NetMessages.WriteString(ref w, reason ?? "");
+            NetMessages.WriteString(ref w, channelName ?? "");
+            w.WriteUShort((ushort)(memberUsernames?.Length ?? 0));
+            if (memberUsernames != null)
+                foreach (string name in memberUsernames)
+                    NetMessages.WriteString(ref w, name);
+            NetMessages.WriteString(ref w, opUsername ?? "");
+        }
+
+        public static void ReadChannelJoinResult(ref ByteReader r, out bool ok, out string reason,
+            out string channelName, out string[] memberUsernames, out string opUsername)
+        {
+            ok = r.ReadByte() != 0;
+            reason = NetMessages.ReadString(ref r);
+            channelName = NetMessages.ReadString(ref r);
+            int count = r.ReadUShort();
+            memberUsernames = new string[count];
+            for (int i = 0; i < count; i++)
+                memberUsernames[i] = NetMessages.ReadString(ref r);
+            opUsername = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteChannelMemberEvent(ref ByteWriter w, string channelName, string username,
+            bool joined, string opUsername)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelMemberEvent);
+            NetMessages.WriteString(ref w, channelName);
+            NetMessages.WriteString(ref w, username);
+            w.WriteByte((byte)(joined ? 1 : 0));
+            NetMessages.WriteString(ref w, opUsername ?? "");
+        }
+
+        public static void ReadChannelMemberEvent(ref ByteReader r, out string channelName, out string username,
+            out bool joined, out string opUsername)
+        {
+            channelName = NetMessages.ReadString(ref r);
+            username = NetMessages.ReadString(ref r);
+            joined = r.ReadByte() != 0;
+            opUsername = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteChannelChat(ref ByteWriter w, string text)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelChat);
+            NetMessages.WriteString(ref w, text);
+        }
+
+        public static string ReadChannelChat(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteChannelChatBroadcast(ref ByteWriter w, string channelName, string senderUsername,
+            string text)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelChatBroadcast);
+            NetMessages.WriteString(ref w, channelName);
+            NetMessages.WriteString(ref w, senderUsername);
+            NetMessages.WriteString(ref w, text);
+        }
+
+        public static void ReadChannelChatBroadcast(ref ByteReader r, out string channelName,
+            out string senderUsername, out string text)
+        {
+            channelName = NetMessages.ReadString(ref r);
+            senderUsername = NetMessages.ReadString(ref r);
+            text = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteChannelKick(ref ByteWriter w, string targetUsername)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelKick);
+            NetMessages.WriteString(ref w, targetUsername);
+        }
+
+        public static string ReadChannelKick(ref ByteReader r) => NetMessages.ReadString(ref r);
+
+        public static void WriteChannelKickResult(ref ByteWriter w, bool ok, string reason)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelKickResult);
+            w.WriteByte((byte)(ok ? 1 : 0));
+            NetMessages.WriteString(ref w, reason ?? "");
+        }
+
+        public static void ReadChannelKickResult(ref ByteReader r, out bool ok, out string reason)
+        {
+            ok = r.ReadByte() != 0;
+            reason = NetMessages.ReadString(ref r);
+        }
+
+        public static void WriteChannelKicked(ref ByteWriter w, string channelName, string byUsername)
+        {
+            w.WriteByte((byte)ControlMessageKind.ChannelKicked);
+            NetMessages.WriteString(ref w, channelName);
+            NetMessages.WriteString(ref w, byUsername ?? "");
+        }
+
+        public static void ReadChannelKicked(ref ByteReader r, out string channelName, out string byUsername)
+        {
+            channelName = NetMessages.ReadString(ref r);
+            byUsername = NetMessages.ReadString(ref r);
+        }
     }
 }

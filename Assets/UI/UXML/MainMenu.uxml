@@ -86,8 +86,8 @@
             <ui:VisualElement name="lobby-slots" />
             <ui:Label name="lobby-status" class="text text--dim" picking-mode="Ignore"
                       style="white-space: normal;" />
-            <ui:VisualElement name="lobby-chat-log" class="text text--dim"
-                               style="flex-grow: 1; min-height: 80px; white-space: normal;" />
+            <ui:ScrollView name="lobby-chat-log" class="panel"
+                           style="height: 140px; margin-top: 4px; margin-bottom: 4px; padding: 4px;" />
             <ui:VisualElement name="lobby-chat-row" style="flex-direction: row;">
                 <ui:TextField name="lobby-chat-input" style="flex-grow: 1;" />
                 <ui:Button name="lobby-chat-send" class="menu__button" text="Send" />
@@ -121,6 +121,26 @@
                 <ui:VisualElement name="online-browser-row" style="flex-direction: row;">
                     <ui:Button name="online-host" class="menu__button" text="Host a Game" />
                     <ui:Button name="online-refresh" class="menu__button" text="Refresh" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <!-- Chat channel (M12): visible once logged in, independent of
+                 whatever room panel-lobby currently shows or doesn't. Chat
+                 log + input on the left, a scrolling member list on the
+                 right — same shape as the Battle.net channel screen. -->
+            <ui:VisualElement name="online-social">
+                <ui:Label name="social-channel-label" class="text" picking-mode="Ignore"
+                          style="-unity-font-style: bold; margin-bottom: 4px;" />
+                <ui:VisualElement style="flex-direction: row;">
+                    <ui:VisualElement style="flex-grow: 1; margin-right: 8px;">
+                        <ui:ScrollView name="social-chat-log" class="panel"
+                                       style="height: 140px; padding: 4px;" />
+                        <ui:VisualElement name="social-chat-row" style="flex-direction: row; margin-top: 4px;">
+                            <ui:TextField name="social-chat-input" style="flex-grow: 1;" />
+                            <ui:Button name="social-chat-send" class="menu__button" text="Send" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:ScrollView name="social-members" class="panel" style="width: 160px; height: 140px; padding: 4px;" />
                 </ui:VisualElement>
             </ui:VisualElement>
 

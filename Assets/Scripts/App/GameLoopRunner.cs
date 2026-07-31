@@ -199,11 +199,25 @@ namespace Craftwar.App
                     sim.Setup(_map, rules); // no lobby: the map's own OWNR/SIDE
             }
 
+            // Which slots this peer will run a computer player for — needed
+            // BEFORE the driver is built (see NetSession.CreateDriver) rather
+            // than derived from CreateAis() afterward, since by then the
+            // driver's first bootstrapped turn has already been sent without
+            // it. Same InGame/Controller check CreateAis() uses below.
+            List<byte> localComputerSlots = null;
+            if (!Net.Unity.NetSession.Active || Net.Unity.NetSession.IsHost)
+            {
+                localComputerSlots = new List<byte>();
+                for (byte p = 0; p < SimConstants.MaxPlayers; p++)
+                    if (sim.State.Players[p].Controller == Controller.Computer && sim.State.Players[p].InGame)
+                        localComputerSlots.Add(p);
+            }
+
             // A lobby that already negotiated seats hands its live connection
             // over through NetSession; otherwise this is single player, which is
             // still lockstep — just with one participant and no latency.
             ILockstepDriver driver;
-            _net = Net.Unity.NetSession.CreateDriver(out var hostExchange, out var clientExchange);
+            _net = Net.Unity.NetSession.CreateDriver(localComputerSlots, out var hostExchange, out var clientExchange);
             if (_net != null)
             {
                 driver = _net;
@@ -739,6 +753,13 @@ namespace Craftwar.App
 
         public void QuitToMenu()
         {
+            // NetSession is a menu-scene-to-game-scene handoff static, but
+            // nothing ever cleared it on the way back out: a finished online/
+            // LAN match left Socket/IsHost/ParticipatingSlots set, so the next
+            // match started in the same process — even an offline skirmish —
+            // saw NetSession.Active still true and tried to build a network
+            // driver over the old (by now dead) socket.
+            Net.Unity.NetSession.Clear();
             if (Application.CanStreamedLevelBeLoaded(MenuSceneName))
                 SceneManager.LoadScene(MenuSceneName);
             else
@@ -807,5 +828,12 @@ namespace Craftwar.App
         /// <summary>Safety net for crashes and alt-F4; a clean end-of-match has
         /// already written its own timestamped copy.</summary>
         void OnDestroy() => SaveReplay(Path.Combine(ReplayDir, "last-session.cwrp"));
+
+        /// <summary>Same safety net as MainMenuController's — GameplaySettings
+        /// otherwise only saves on a slider's PointerUpEvent or an options
+        /// button click, so quitting mid-match (or stopping Play Mode, which
+        /// Unity also routes through this) right after adjusting a setting in
+        /// the in-game Options screen could otherwise lose it.</summary>
+        void OnApplicationQuit() => View.GameplaySettings.Save();
     }
 }
