@@ -1,7 +1,6 @@
 using System.IO;
 using Craftwar.App;
 using Craftwar.Import;
-using Craftwar.Import.War2;
 using Craftwar.Sim.Pud;
 using Craftwar.View;
 using NUnit.Framework;
@@ -37,8 +36,9 @@ namespace Craftwar.Sim.Tests
                 Assert.Ignore("Local WC2 data not present");
 
             var pud = PudFile.Parse(File.ReadAllBytes(MapPath));
-            var assets = new LooseFileAssetSource(installs[0].DataRoot);
-            var catalog = RuntimeTileCatalog.Build(assets, pud.Era);
+            var catalog = BakedTileCatalog.Load(pud.Era);
+            if (catalog == null)
+                Assert.Ignore("Baked terrain table not present. Run Craftwar/Setup/Import Warcraft II Assets.");
             Assert.Greater(catalog.TileCount, 300);
 
             _gridGo = new GameObject("Grid", typeof(Grid));

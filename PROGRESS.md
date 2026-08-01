@@ -1589,3 +1589,102 @@ whether AI-submitted commands actually reach `Advance` through the real
 `ILockstepDriver`/turn-scheduling path for a single-participant hosted game —
 neither is modeled by the sim-only harness test, which drives `Advance`
 directly every tick with no driver in between.
+
+## M14 — Warcraft II asset bake pipeline (in progress)
+
+Goal: retire the live-install runtime pipeline entirely. Previously every
+asset class (sprites, tilesets, palettes, sound, music, HUD icons, strings,
+maps) was decoded on demand from a live WC2 install via `IAssetSource` —
+meaning Play mode and every build needed that install present. Now a new
+Editor-only importer (`Craftwar/Setup/Import Warcraft II Assets`,
+`Wc2AssetImporter.Run`) bakes everything once into real Unity assets under
+`Assets/GameData/Extracted/` (gitignored, same precedent as the old Music Ogg
+cache); Play mode and builds read only those baked assets. Plan file:
+`C:\Users\mattc\.claude\plans\golden-petting-raccoon.md`.
+
+- **Tilesets/palettes** → `TilesetBaker` → `TerrainTileTable` (per era) →
+  `BakedTileCatalog` (replaces `RuntimeTileCatalog`, now deleted).
+- **Sound + music** → `SoundBaker`/`MusicBaker` → `SoundTable`/`MusicTable` →
+  `BakedAudioBank`/`BakedMusicLibrary` (replace `LooseAudioBank` (deleted) and
+  `MusicLibrary` (still present only because `ImportFlowTests` references it —
+  retire together in the M14 test sweep)). WC2's WAVs are already plain PCM,
+  so this is a copy-and-catalog step, not a decode.
+- **Icons/portraits + strings** → `IconBaker`/`StringBaker` →
+  `IconTable`/`LocalizedStringTable` → `BakedIconAtlas`/`BakedStringTable`
+  (replace `IconAtlas`/`Wc2StringTable`, not yet deleted — same test
+  dependency as above). HUD chrome (`BG_Human/Orc.png`) and the portrait
+  team-colour mask were *not* baked: nothing in the current runtime reads
+  either.
+- **Unit/building sprites — the big one.** User's explicit call: bake one
+  master (neutral) sprite + one team-colour mask per frame instead of 8
+  pre-tinted copies; recolour at draw time. `SpriteBaker` decodes every
+  `(typeId, era)` → file (`War2Sprites.FileForUnit`) and `(typeId, carry,
+  era)` carry-override combo, deduplicated by `(file, era)` — **not just
+  file**, because the original always decodes with the *match's* era
+  palette regardless of which file it came from, so the same file can
+  legitimately need up to 4 different bakes. Foundation/corpse art is always
+  decoded with player colour 0 hardcoded in the original, so those are baked
+  flat with no mask at all. New shader `Assets/Shaders/UnitTeamColor.shader`
+  (`Craftwar/UnitTeamColor`) samples a mask atlas (R channel = shade+1, baked
+  **linear**/non-sRGB so the byte value round-trips exactly) against a
+  hardcoded 8×4 `TeamRamps` LUT, keyed by a `_PlayerColor` MaterialPropertyBlock
+  property `UnitViewPool` sets per renderer (`ApplyTeamColor`). Shared
+  material `Assets/Resources/Materials/UnitTeamColor.mat` (a normal committed
+  asset — zero Blizzard content), created by `TeamColorMaterialSetup`.
+  `IUnitSpriteProvider` gained `Texture2D MaskFor(ushort typeId, byte carry)`.
+  Corpses/remembered-fog-buildings/the construction-site foundation frame all
+  needed explicit "don't use the unit's own mask here" handling since they
+  either reuse the same renderer or a different, unrelated atlas layout — see
+  `UnitViewPool.ApplyTeamColor` call sites and the `useMask`/`BuildingMemory`
+  plumbing. `UnitSpriteBank` (old runtime decoder) is deleted;
+  `BakedUnitSpriteBank` replaces it.
+- **PUD maps.** Simpler than first planned: no new map data model.
+  `MapBaker` just copies each map's raw bytes into
+  `Assets/GameData/Extracted/Resources/Maps/<name>.pud.bytes` (Unity imports
+  `.bytes` as a binary `TextAsset` automatically), so `PudFile.Parse` and
+  everything downstream (`MatchSetup.FromPud`, `GameSim.Setup`,
+  `TerrainMap.FromPud`) are untouched. Thumbnails are pre-baked too
+  (`MapThumbnail.Bake` against the already-baked terrain palette, read
+  straight off the `TerrainTileTable` asset at bake time rather than through
+  `BakedTileCatalog.Load`/Resources, to sidestep any doubt about Editor-time
+  Resources-cache freshness mid-bake). `MapList.TryReadMapBytes` is a new
+  shared choke point (Resources catalog first, then StreamingAssets/mapsDir
+  file fallback) used by `GameLoopRunner`, `MainMenuController(.Lan.cs)` —
+  `ResolveMapPath` is gone. Wire format did **not** change:
+  `MatchConfig.mapPath`/`LobbyPayload.MapPath` still carry the same bare
+  filename string as before; only where the bytes are read from changed.
+
+**Known gap / important caution for whoever continues this:** the
+`Craftwar.Import` assembly was **not** flipped to Editor-only as originally
+planned. `MainMenuController` still has a pre-existing, now-vestigial
+first-run "locate your WC2 install" wizard (`Wc2InstallLocator`,
+`AssetResolution`, `IAssetSource` calls directly in non-editor-guarded code)
+that the user did not ask to have removed — since it's needed to keep
+compiling in Player builds, `Craftwar.App` must keep referencing
+`Craftwar.Import`, so Import keeps shipping in builds too (only as compiled
+decoder code; no Blizzard *data* ever ships either way). Removing that wizard
+is the remaining prerequisite if `Craftwar.Import.asmdef` is ever flipped to
+`includePlatforms: ["Editor"]`.
+
+**Also not yet done (M14 continues):** the test sweep (retire
+`AssetSourceParityTests`, rewrite `ImportFlowTests` off the now-dead
+`MusicLibrary`/`IconAtlas`/`Wc2StringTable`/`LooseAudioBank`-shaped
+assertions), and the final no-install proof (rename the WC2 install away,
+confirm Menu/skirmish/build all still work).
+
+**Verification status: incomplete, and this is important.** The tileset,
+sound, music, icon, and string bakes were run for real against the actual
+install and confirmed via console logs (391–397 tiles/era, 293 sound clips +
+1556 unit-voice entries, 18/18 music tracks, 703 icons, 11 locale tables — all
+clean, no errors) and the full EditMode suite passed (407/407) after the
+tileset phase landed. **The sprite bake (`SpriteBaker`, ~370 file×era atlases)
+crashed the Unity Editor** when run once via the MCP automation bridge — most
+likely hundreds of un-disposed `Texture2D` allocations in one uninterrupted
+call (now fixed: `Object.DestroyImmediate` after each atlas is written, plus
+`AssetDatabase.StartAssetEditing`/`StopAssetEditing` batching around the
+whole pass) — but the fix itself has **not been re-run or confirmed**. Run
+`Craftwar/Setup/Import Warcraft II Assets` from the Editor menu directly (not
+scripted) before trusting any of the sprite/team-color/map baking code above,
+and watch the console for the periodic "N/M sprite banks baked" progress
+lines. The team-colour shader has not been visually verified in Play mode at
+all yet.

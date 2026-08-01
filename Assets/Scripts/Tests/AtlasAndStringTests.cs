@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using Craftwar.App;
 using Craftwar.Import;
@@ -77,6 +78,27 @@ namespace Craftwar.Sim.Tests
         }
 
         // ---------- string table ----------
+        // Wc2StringTable (the old runtime wrapper) is retired in favour of
+        // BakedStringTable, which reads a pre-parsed LocalizedStringTable
+        // asset rather than JSON — so these test the raw decode primitive the
+        // bake step (Craftwar.EditorTools.StringBaker) actually relies on.
+
+        static Dictionary<string, string> LoadStringMap(IAssetSource source, string locale = "enus")
+        {
+            if (!source.TryRead($"strings/{locale}.json", out var bytes))
+                return null;
+            try
+            {
+                return JsonValue.Parse(System.Text.Encoding.UTF8.GetString(bytes)).ToStringMap();
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        static string NameFor(Dictionary<string, string> table, UnitTypeId type) =>
+            table.TryGetValue("unit_" + (int)type, out var name) ? name : null;
 
         [Test]
         public void StringTable_GivesRealUnitNames()
@@ -85,16 +107,16 @@ namespace Craftwar.Sim.Tests
             if (source == null)
                 Assert.Ignore("WC2 install not present on this machine");
 
-            var table = Wc2StringTable.Load(source);
+            var table = LoadStringMap(source);
             Assert.IsNotNull(table);
             Assert.Greater(table.Count, 1000);
 
-            Assert.AreEqual("Footman", table.UnitName(UnitTypeId.Footman));
-            Assert.AreEqual("Peasant", table.UnitName(UnitTypeId.Peasant));
-            Assert.AreEqual("Town Hall", table.UnitName(UnitTypeId.TownHall));
+            Assert.AreEqual("Footman", NameFor(table, UnitTypeId.Footman));
+            Assert.AreEqual("Peasant", NameFor(table, UnitTypeId.Peasant));
+            Assert.AreEqual("Town Hall", NameFor(table, UnitTypeId.TownHall));
             // The case reflection gets wrong: "ElvenLumberMill" -> "Elven Lumber Mill"
             // happens to work, but the real table is the authority.
-            Assert.AreEqual("Elven Lumber Mill", table.UnitName(UnitTypeId.ElvenLumberMill));
+            Assert.AreEqual("Elven Lumber Mill", NameFor(table, UnitTypeId.ElvenLumberMill));
         }
 
         [Test]
@@ -104,12 +126,12 @@ namespace Craftwar.Sim.Tests
             if (source == null)
                 Assert.Ignore("WC2 install not present on this machine");
 
-            var table = Wc2StringTable.Load(source);
+            var table = LoadStringMap(source);
             int named = 0, missing = 0;
             foreach (var v in System.Enum.GetValues(typeof(UnitTypeId)))
             {
                 var type = (UnitTypeId)v;
-                if (string.IsNullOrEmpty(table.UnitName(type)))
+                if (string.IsNullOrEmpty(NameFor(table, type)))
                     missing++;
                 else
                     named++;
@@ -124,7 +146,7 @@ namespace Craftwar.Sim.Tests
             var source = Source();
             if (source == null)
                 Assert.Ignore("WC2 install not present on this machine");
-            Assert.IsNull(Wc2StringTable.Load(source, "zzZZ"));
+            Assert.IsNull(LoadStringMap(source, "zzzz"));
         }
 
         // ---------- icon table ----------

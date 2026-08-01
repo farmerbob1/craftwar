@@ -63,7 +63,7 @@ namespace Craftwar.App
 
         // Lazily built per PudEra (only 4 exist) so stepping the map picker
         // doesn't re-decode a whole tileset atlas on every click.
-        readonly Dictionary<PudEra, RuntimeTileCatalog> _tileCatalogCache = new Dictionary<PudEra, RuntimeTileCatalog>();
+        readonly Dictionary<PudEra, BakedTileCatalog> _tileCatalogCache = new Dictionary<PudEra, BakedTileCatalog>();
 
         LanDiscovery _discovery;
         UtpPeerSocket _socket;
@@ -360,7 +360,7 @@ namespace Craftwar.App
 
         /// <summary>Terrain-only preview, no running GameSim needed — reads
         /// straight from an already-parsed PudFile, reusing whatever
-        /// RuntimeTileCatalog this era already has cached.</summary>
+        /// BakedTileCatalog this era already has cached.</summary>
         Texture2D BakeThumbnailFromPud(PudFile pud, int maxDimension)
         {
             if (pud == null)
@@ -388,12 +388,11 @@ namespace Craftwar.App
             return null;
         }
 
-        RuntimeTileCatalog GetTileCatalog(PudEra era)
+        BakedTileCatalog GetTileCatalog(PudEra era)
         {
             if (_tileCatalogCache.TryGetValue(era, out var cached))
                 return cached;
-            var source = AssetResolution.ResolveAssetSource(_paths, out _);
-            var catalog = source != null ? RuntimeTileCatalog.Build(source, era) : null;
+            var catalog = BakedTileCatalog.Load(era);
             if (catalog != null)
                 _tileCatalogCache[era] = catalog;
             return catalog;
@@ -1217,22 +1216,12 @@ namespace Craftwar.App
             return identity;
         }
 
-        static byte[] ReadMapBytes(string value)
-        {
-            try
-            {
-                string path = value.IndexOf(Path.DirectorySeparatorChar) >= 0
-                              || value.IndexOf(Path.AltDirectorySeparatorChar) >= 0
-                    ? value
-                    : Path.Combine(Application.streamingAssetsPath,
-                        GameLoopRunner.MapsFolder, value);
-                return File.Exists(path) ? File.ReadAllBytes(path) : null;
-            }
-            catch (IOException)
-            {
-                return null;
-            }
-        }
+        /// <summary>Baked Resources catalog first, then StreamingAssets — same
+        /// resolution MapList.TryReadMapBytes uses everywhere else. No
+        /// LocalAssetPaths here: every caller already has a concrete map
+        /// value, never the "use the per-machine default" case.</summary>
+        static byte[] ReadMapBytes(string value) =>
+            MapList.TryReadMapBytes(null, value, out var bytes) ? bytes : null;
 
         static PudFile TryParse(byte[] bytes)
         {

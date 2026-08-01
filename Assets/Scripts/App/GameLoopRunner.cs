@@ -146,35 +146,30 @@ namespace Craftwar.App
             View.HudScreen.SetLocalPlayer(_config.localSlot);
 
             var paths = LocalAssetPaths.Load();
-            var assets = AssetResolution.ResolveAssetSource(paths, out string dataRoot);
-            if (assets == null)
+
+            if (!MapList.TryReadMapBytes(paths, _config.mapPath, out var mapBytes))
             {
-                Debug.LogError(
-                    "[Craftwar] No Warcraft II data found. Set dataRoot in " +
-                    $"{LocalAssetPaths.ProjectRootPath} to your installation's Data folder.");
+                Debug.LogError($"[Craftwar] Map not found: {_config.mapPath}");
                 return;
             }
-
-            string mapPath = ResolveMapPath(paths, _config.mapPath);
-            if (!File.Exists(mapPath))
-            {
-                Debug.LogError($"[Craftwar] Map not found: {mapPath}");
-                return;
-            }
-
-            var mapBytes = File.ReadAllBytes(mapPath);
             _map = PudFile.Parse(mapBytes);
-            var catalog = RuntimeTileCatalog.Build(assets, _map.Era);
+            var catalog = BakedTileCatalog.Load(_map.Era);
+            if (catalog == null)
+            {
+                Debug.LogError($"[Craftwar] No baked terrain for era {_map.Era}. " +
+                                "Run Craftwar/Setup/Import Warcraft II Assets.");
+                return;
+            }
             _tileResolver = catalog;
 
             tilemapView.LoadMap(_map, catalog);
             cameraRig.SetMapBounds(_map.Width, _map.Height);
 
             BuildSim(mapBytes);
-            BuildView(assets, catalog);
-            BuildAudioAndNames(assets, paths, dataRoot);
+            BuildView(catalog);
+            BuildAudioAndNames(paths);
             WireInput();
-            CenterCamera(mapPath, catalog);
+            CenterCamera(_config.mapPath, catalog);
         }
 
         void BuildSim(byte[] mapBytes)
@@ -319,9 +314,9 @@ namespace Craftwar.App
             }
         }
 
-        void BuildView(IAssetSource assets, RuntimeTileCatalog catalog)
+        void BuildView(BakedTileCatalog catalog)
         {
-            var spriteBank = new UnitSpriteBank(assets, _map.Era);
+            var spriteBank = BakedUnitSpriteBank.Load(_map.Era);
             var uiState = new View.UIState();
             unitViewPool.Init(this, spriteBank, _map.Height, uiState.Selection);
 
@@ -355,19 +350,20 @@ namespace Craftwar.App
 
         View.ControlGroups _groups;
 
-        void BuildAudioAndNames(IAssetSource assets, LocalAssetPaths paths, string dataRoot)
+        void BuildAudioAndNames(LocalAssetPaths paths)
         {
-            _audio.Init(new LooseAudioBank(assets), View.HudScreen.LocalPlayer);
+            View.IAudioProvider audioProvider = BakedAudioBank.Load() ?? (View.IAudioProvider)new PlaceholderAudioBank();
+            _audio.Init(audioProvider, View.HudScreen.LocalPlayer);
 
             // Real names and icons, where the installation provides them. Both are
             // injected rather than looked up, so a machine with no data still
             // renders the reflection-derived names and initials boxes.
-            View.UnitNames.SetStringTable(Wc2StringTable.Load(assets, paths?.locale ?? "enUS"));
-            var icons = IconAtlas.Load(assets, _map.Era);
+            View.UnitNames.SetStringTable(BakedStringTable.Load(paths?.locale ?? "enUS"));
+            var icons = BakedIconAtlas.Load(_map.Era);
             if (icons != null)
                 _ui.Hud?.SetIconProvider(icons);
 
-            var music = MusicLibrary.Create(paths, dataRoot);
+            var music = BakedMusicLibrary.Load();
             if (music != null)
             {
                 _music = View.MusicDirector.Ensure(music);
@@ -398,7 +394,7 @@ namespace Craftwar.App
             View.GameplaySettings.Save();
         }
 
-        void CenterCamera(string mapPath, RuntimeTileCatalog catalog)
+        void CenterCamera(string mapPath, BakedTileCatalog catalog)
         {
             // Centre on OUR start location, not seat 0's. This was hardcoded to
             // owner 0 back when the human was always seat 0; a client playing any
@@ -424,23 +420,6 @@ namespace Craftwar.App
             Debug.Log($"[Craftwar] Loaded '{Path.GetFileName(mapPath)}' " +
                       $"{_map.Width}x{_map.Height} {_map.Era}, {_map.Units.Count} map units, " +
                       $"{Sim.State.HighestUnitIndex} sim units, {catalog.TileCount} tiles.");
-        }
-
-        /// <summary>
-        /// Empty override falls back to the per-machine LocalAssetPaths default.
-        /// A bare file name means "one of the maps shipped in StreamingAssets",
-        /// which keeps the scene portable; a value with a separator is honoured
-        /// verbatim, so existing absolute overrides keep working.
-        /// </summary>
-        public static string ResolveMapPath(LocalAssetPaths paths, string mapPath)
-        {
-            if (string.IsNullOrEmpty(mapPath))
-                return paths == null
-                    ? string.Empty
-                    : Path.Combine(paths.mapsDir ?? "", paths.defaultMap ?? "");
-
-            bool bareName = mapPath.IndexOf('/') < 0 && mapPath.IndexOf('\\') < 0;
-            return bareName ? Path.Combine(StreamingMapsDir, mapPath) : mapPath;
         }
 
         // --- Sim driver ---------------------------------------------------------

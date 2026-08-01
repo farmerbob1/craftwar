@@ -8,7 +8,7 @@ namespace Craftwar.App
     /// Bakes a static terrain preview straight from parsed PUD data — no
     /// running GameSim required, unlike MinimapView (which this mirrors: same
     /// one-pixel-per-tile bake, same row-flip convention, same
-    /// IMinimapPalette contract RuntimeTileCatalog already implements). Used
+    /// IMinimapPalette contract BakedTileCatalog already implements). Used
     /// for the host-side map picker and the lobby's map preview.
     /// </summary>
     public static class MapThumbnail

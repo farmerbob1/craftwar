@@ -271,9 +271,8 @@ namespace Craftwar.App
             {
                 try
                 {
-                    string path = GameLoopRunner.ResolveMapPath(_paths, _maps[_mapSel].Value);
-                    if (File.Exists(path))
-                        _setupPud = PudFile.Parse(File.ReadAllBytes(path));
+                    if (MapList.TryReadMapBytes(_paths, _maps[_mapSel].Value, out var bytes))
+                        _setupPud = PudFile.Parse(bytes);
                 }
                 catch (System.Exception e)
                 {
@@ -579,10 +578,7 @@ namespace Craftwar.App
         {
             if (_musicStarted)
                 return;
-            string dataRoot = _paths?.dataRoot;
-            if (string.IsNullOrEmpty(dataRoot))
-                AssetResolution.TryFindUsableInstall(out dataRoot);
-            var music = MusicLibrary.Create(_paths, dataRoot);
+            var music = BakedMusicLibrary.Load();
             if (music != null)
             {
                 MusicDirector.Ensure(music).Play(MusicCue.Menu);

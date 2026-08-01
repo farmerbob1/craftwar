@@ -7,13 +7,11 @@ using NUnit.Framework;
 namespace Craftwar.Sim.Tests
 {
     /// <summary>
-    /// The M8 success criterion that the old pipeline provably failed: a machine
-    /// with no configuration at all can find the game, record where it is, and
-    /// load every asset class from it.
-    ///
-    /// Exercises the same steps as MainMenuController's locate-data flow without
-    /// the UI, so the
-    /// flow is covered by the gate rather than only by clicking through it.
+    /// Coverage for the decode primitives the Editor-time importer
+    /// (<c>Craftwar.EditorTools.Wc2AssetImporter</c>) bakes from — the runtime
+    /// no longer touches any of this (see the Baked* classes in Craftwar.App),
+    /// but a fresh install must still decode cleanly for the bake to work.
+    /// Install-gated like the rest of this project's "real data" tests.
     /// </summary>
     public class ImportFlowTests
     {
@@ -26,7 +24,7 @@ namespace Craftwar.Sim.Tests
 
             var best = found[0];
 
-            // What the wizard writes.
+            // What the (still-present, now vestigial) locate-install wizard writes.
             var paths = new LocalAssetPaths { dataRoot = best.DataRoot };
             var mapFolders = Wc2InstallLocator.MapFolders(best.DataRoot);
             if (mapFolders.Count > 0)
@@ -82,10 +80,15 @@ namespace Craftwar.Sim.Tests
             Assert.IsTrue(source.TryRead(Wc2SoundCatalog.BldgMineCollapse, out var wav));
             Assert.Greater(RiffWav.Decode(wav).FrameCount, 0);
 
-            // Names.
-            var strings = Wc2StringTable.Load(source);
-            Assert.IsNotNull(strings);
-            Assert.AreEqual("Footman", strings.UnitName(UnitTypeId.Footman));
+            // Music.
+            Assert.IsTrue(source.TryRead("music/human1_r.wav", out var musicWav));
+            Assert.Greater(RiffWav.Decode(musicWav).FrameCount, 0);
+
+            // Names: the raw JSON decode BakedStringTable's bake step relies on
+            // (Wc2StringTable, the old runtime wrapper, is retired).
+            Assert.IsTrue(source.TryRead("strings/enus.json", out var stringsJson));
+            var strings = JsonValue.Parse(System.Text.Encoding.UTF8.GetString(stringsJson)).ToStringMap();
+            Assert.AreEqual("Footman", strings["unit_0"]);
 
             // Icons.
             Assert.IsTrue(source.TryRead("art/classic/hud/portrait-face.json", out var atlasJson));
@@ -97,24 +100,6 @@ namespace Craftwar.Sim.Tests
             var mapFolders = Wc2InstallLocator.MapFolders(found[0].DataRoot);
             Assert.Greater(mapFolders.Count, 0, "no map folder found");
             Assert.Greater(Directory.GetFiles(mapFolders[0], "*.pud").Length, 0, "no .pud maps");
-        }
-
-        [Test]
-        public void MusicResolves_FromEitherSource()
-        {
-            var found = Wc2InstallLocator.Find();
-            if (found.Count == 0 || !found[0].IsUsable)
-                Assert.Ignore("no WC2 install on this machine");
-
-            var library = MusicLibrary.Create(null, found[0].DataRoot);
-            Assert.IsNotNull(library, "no music source at all");
-
-            // Six in-game tracks per race, whether they come from the converted
-            // Ogg cache or straight from the installation's WAVs.
-            Assert.AreEqual(6, library.TracksFor(Craftwar.View.MusicCue.InGame, Race.Human).Count);
-            Assert.AreEqual(6, library.TracksFor(Craftwar.View.MusicCue.InGame, Race.Orc).Count);
-            Assert.AreEqual(1, library.TracksFor(Craftwar.View.MusicCue.Menu, Race.Human).Count);
-            Assert.AreEqual(1, library.TracksFor(Craftwar.View.MusicCue.Victory, Race.Orc).Count);
         }
     }
 }

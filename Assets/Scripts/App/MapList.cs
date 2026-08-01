@@ -24,10 +24,30 @@ namespace Craftwar.App
     /// </summary>
     public static class MapList
     {
+        /// <summary>Where the importer bakes raw .pud bytes as TextAssets — see
+        /// Craftwar.EditorTools.MapBaker. A bare map name (with its .pud
+        /// extension) doubles as both the wire-format value and the
+        /// Resources key, so nothing downstream needs to know a bake even
+        /// happened.</summary>
+        public const string ResourcesFolder = "Maps";
+
         public static List<MapEntry> Find(LocalAssetPaths paths)
         {
             var entries = new List<MapEntry>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Baked maps first: no install required, and identical on every
+            // machine that shipped the same build.
+            foreach (var asset in Resources.LoadAll<TextAsset>(ResourcesFolder))
+            {
+                if (!seen.Add(asset.name))
+                    continue;
+                entries.Add(new MapEntry
+                {
+                    Label = Path.GetFileNameWithoutExtension(asset.name),
+                    Value = asset.name,
+                });
+            }
 
             // Dev maps shipped in StreamingAssets: store the bare name.
             AddFrom(GameLoopRunner.StreamingMapsDir, bareName: true, entries, seen);
@@ -38,6 +58,53 @@ namespace Craftwar.App
 
             entries.Sort((a, b) => string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase));
             return entries;
+        }
+
+        /// <summary>
+        /// Resolves a wire-format map value (a bare baked/StreamingAssets name,
+        /// an absolute path, or empty for the per-machine default) to bytes.
+        /// Tries the baked Resources catalog first — the only path that needs
+        /// no install and is guaranteed identical across every machine running
+        /// the same build — then falls back to disk exactly as before.
+        /// </summary>
+        public static bool TryReadMapBytes(LocalAssetPaths paths, string mapPath, out byte[] bytes)
+        {
+            bytes = null;
+            string value = string.IsNullOrEmpty(mapPath) ? paths?.defaultMap : mapPath;
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            bool bareName = value.IndexOf('/') < 0 && value.IndexOf('\\') < 0;
+            if (bareName)
+            {
+                var asset = Resources.Load<TextAsset>($"{ResourcesFolder}/{value}");
+                if (asset != null)
+                {
+                    bytes = asset.bytes;
+                    return true;
+                }
+            }
+
+            var candidates = bareName
+                ? new[]
+                {
+                    Path.Combine(GameLoopRunner.StreamingMapsDir, value),
+                    paths != null && !string.IsNullOrEmpty(paths.mapsDir) ? Path.Combine(paths.mapsDir, value) : null,
+                }
+                : new[] { value };
+
+            foreach (var candidate in candidates)
+            {
+                if (string.IsNullOrEmpty(candidate) || !File.Exists(candidate))
+                    continue;
+                try
+                {
+                    bytes = File.ReadAllBytes(candidate);
+                    return true;
+                }
+                catch (IOException) { }
+            }
+            return false;
         }
 
         static void AddFrom(string dir, bool bareName, List<MapEntry> entries, HashSet<string> seen)

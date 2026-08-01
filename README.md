@@ -9,8 +9,9 @@ its own data — unit stats, upgrade tables, the damage roll, the diagonal-speed
 quirk, forest retiling, harvest cycles — while the presentation layer is free to
 be a modern RTS front end.
 
-> **You need your own copy of Warcraft II to play this.**
-> No Blizzard assets are included or distributed here. See
+> **You need your own copy of Warcraft II to build this from source.**
+> No Blizzard assets are included or distributed here — nothing is committed
+> to this repository. A built Player, however, needs no install at all: see
 > [Getting the game data](#getting-the-game-data).
 
 ---
@@ -34,19 +35,38 @@ to start if you want the detail.
 
 ## Getting the game data
 
-Craftwar reads art, sound, music and maps from an existing Warcraft II
-installation at runtime. Nothing is copied into the repository and nothing is
-redistributed — the files stay where they are.
+Art, sound, music, HUD icons, strings and maps are baked **once, at Editor
+time**, from an existing Warcraft II installation into real Unity assets —
+not streamed from the install at runtime. After that bake, Play mode and any
+Player build you make are entirely self-contained; the install is never
+touched again and doesn't need to exist on whatever machine runs the build.
 
 Supported source: **Warcraft II Remastered** (everything ships loose and
 uncompressed under `x86/Data/`, which is what the importer targets).
 
-On first run the menu opens a locator wizard that scans for an install; you can
-also point it at a folder by hand. Once found, the path is remembered in
-`LocalAssetPaths.json`, which is gitignored precisely so it never travels.
+To bake the assets:
 
-Original `.pud` maps, `.war`/`.mpq` archives and anything decoded out of them are
-gitignored as a hard rule. If you are contributing, do not commit Blizzard data.
+1. Point `LocalAssetPaths.json` (project root, gitignored, create it if
+   missing) at your install's `Data` folder:
+   ```json
+   { "dataRoot": "C:\\Program Files (x86)\\Warcraft II Remastered\\x86\\Data" }
+   ```
+2. Run **`Craftwar/Setup/Import Warcraft II Assets`** from the Editor menu.
+   It decodes tilesets, unit/building sprites (+ a team-colour mask, recoloured
+   at draw time — see the `Craftwar/UnitTeamColor` shader), sound effects,
+   music, HUD icons, strings and every shipped map into
+   `Assets/GameData/Extracted/`.
+
+That folder is gitignored — nothing it produces is ever committed or
+distributed — but it's a normal part of your local Unity project from then on,
+so builds include it exactly like any other asset. The sprite bake covers a
+few hundred (unit × era) combinations and can take several minutes; run it
+directly from the Editor menu rather than scripting it, and watch the console
+for its periodic progress lines.
+
+Original `.pud` maps, `.war`/`.mpq` archives and anything decoded out of them
+are gitignored as a hard rule. If you are contributing, do not commit Blizzard
+data.
 
 ---
 
@@ -56,7 +76,10 @@ Unity **6000.5.4f1**. Open the project, then:
 
 1. `Craftwar/Setup/Ensure 2D Renderer` — creates and assigns the 2D renderer and
    the Game scene if they are missing.
-2. Open `Assets/Scenes/Menu.unity` and press Play.
+2. `Craftwar/Setup/Import Warcraft II Assets` — bakes art/sound/maps from your
+   own install; see [Getting the game data](#getting-the-game-data). Skip this
+   if `Assets/GameData/Extracted/` is already populated.
+3. Open `Assets/Scenes/Menu.unity` and press Play.
 
 Pressing Play directly on `Game.unity` also works and loads the map named in the
 `GameLoopRunner` inspector — the quicker loop when working on gameplay.
@@ -74,7 +97,7 @@ enforceable rather than aspirational.
 | `Craftwar.Sim` | Game logic, PUD loader, pathfinding, PRNG. **No engine references** |
 | `Craftwar.View` | Rendering, input, UI, audio. References Sim |
 | `Craftwar.Net` | Lockstep driver; turn relay/exchange, LAN (Unity Transport) and online (relay-server) sockets |
-| `Craftwar.Import` | Runtime asset extraction from a local install |
+| `Craftwar.Import` | GRP/PPL/WAV/PUD decode core, used by the Editor-time bake pipeline (not at runtime) |
 | `Craftwar.App` | Bootstrap, match setup, scene flow, menu/lobby UI |
 | `Craftwar.EditorTools` | Editor-only: import window, data codegen, project setup |
 | `Craftwar.Sim.Tests` | EditMode determinism suite |

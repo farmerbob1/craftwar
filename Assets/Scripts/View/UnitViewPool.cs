@@ -60,6 +60,15 @@ namespace Craftwar.View
         Sprite GetCorpseFrame(int block, byte facing, out bool flipX);
         /// <summary>Number of 5-facing blocks in the corpse bank, 0 if absent.</summary>
         int CorpseBlockCount { get; }
+        /// <summary>
+        /// The team-colour mask atlas backing whichever sprite <see cref="Get"/>/
+        /// <see cref="GetAnimFrame"/>/<see cref="GetBuildingFrame"/> last
+        /// returned for this (type, carry) — same atlas layout as the sprite's
+        /// own texture, sampled with its UVs. Null when the bank has no
+        /// team-colour pixels (buildings without a scaffold flag, foundation,
+        /// corpse) or hasn't been baked.
+        /// </summary>
+        Texture2D MaskFor(ushort typeId, byte carry);
     }
 
     /// <summary>
@@ -85,6 +94,8 @@ namespace Craftwar.View
         // Scenery sits below every unit but above the terrain (order 0): an oil
         // patch is flat on the water and ships sail *over* it, so it must never
         // win the row tie-break against a hull crossing its top row.
+        /// <summary>Matches Craftwar.EditorTools.TeamColorMaterialSetup.ResourcePath.</summary>
+        const string TeamColorResourcePath = "Materials/UnitTeamColor";
         const int SceneryBand = 500;
         const int GroundBand = 1000;
         const int AirBand = 10000;
@@ -111,6 +122,10 @@ namespace Craftwar.View
             public bool FlipX;
             public Vector3 Position;
             public int SortingOrder;
+            public ushort TypeId;
+            public byte Player;
+            public byte Carry;
+            public bool UseMask;
         }
 
         readonly Dictionary<int, BuildingMemory> _memory = new Dictionary<int, BuildingMemory>();
@@ -120,6 +135,11 @@ namespace Craftwar.View
         static readonly Color GhostTint = new Color(1f, 1f, 1f, 0.85f);
         Sprite _fallback;
         Sprite _selBoxSprite;
+        Material _teamColorMaterial;
+        Material _defaultSpriteMaterial;
+        MaterialPropertyBlock _teamColorBlock;
+        static readonly int MaskTexId = Shader.PropertyToID("_MaskTex");
+        static readonly int PlayerColorId = Shader.PropertyToID("_PlayerColor");
         static readonly Color SelectionGreen = new Color(0.16f, 0.9f, 0.22f, 1f);
         static readonly Color SelectionRed = new Color(0.9f, 0.2f, 0.18f, 1f);
         static readonly Color SelectionYellow = new Color(0.92f, 0.8f, 0.24f, 1f);
@@ -133,6 +153,8 @@ namespace Craftwar.View
             _sprites = sprites;
             _mapHeight = mapHeight;
             Selected = selection;
+            _teamColorMaterial = Resources.Load<Material>(TeamColorResourcePath);
+            _teamColorBlock = new MaterialPropertyBlock();
 
             var tex = new Texture2D(24, 24, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
             var px = new Color32[24 * 24];
@@ -201,6 +223,36 @@ namespace Craftwar.View
         const int CorpseDecayFirst = 2;
         const int CorpseDecayLast = 5;
         const int CorpseShipBlock = 6;
+
+        /// <summary>
+        /// Recolours a renderer's baked-neutral sprite to its owner's team
+        /// colour via the shared <c>Craftwar/UnitTeamColor</c> material and a
+        /// per-renderer MaterialPropertyBlock (mask texture + player index) —
+        /// see IUnitSpriteProvider.MaskFor. Falls back to the SpriteRenderer's
+        /// original default material whenever there is no mask to apply
+        /// (missing bake, or art — foundation/corpse/fallback — that has no
+        /// per-player colour at all), so those cases render unmodified.
+        /// </summary>
+        void ApplyTeamColor(SpriteRenderer sr, ushort typeId, byte carry, byte player, bool tryMask)
+        {
+            Texture2D mask = tryMask && _sprites != null && _teamColorMaterial != null
+                ? _sprites.MaskFor(typeId, carry)
+                : null;
+
+            if (mask == null)
+            {
+                if (!ReferenceEquals(sr.sharedMaterial, _defaultSpriteMaterial))
+                    sr.sharedMaterial = _defaultSpriteMaterial;
+                return;
+            }
+
+            if (!ReferenceEquals(sr.sharedMaterial, _teamColorMaterial))
+                sr.sharedMaterial = _teamColorMaterial;
+            _teamColorBlock.Clear();
+            _teamColorBlock.SetTexture(MaskTexId, mask);
+            _teamColorBlock.SetFloat(PlayerColorId, player);
+            sr.SetPropertyBlock(_teamColorBlock);
+        }
 
         /// <summary>
         /// A flyer's shadow: the same sprite flattened onto the deck, tinted
@@ -280,7 +332,7 @@ namespace Craftwar.View
         /// and a completed building must never be drawn before it is complete.
         /// </summary>
         Sprite ConstructionSprite(ref Unit u, GameState state, Sprite fallbackSprite,
-            ref Color color, ref bool flipX)
+            ref Color color, ref bool flipX, ref bool useMask)
         {
             ref var row = ref state.Rules.Units[u.TypeId];
             int total = GameSim.BuildTicksFor(row.BuildTime);
@@ -293,6 +345,7 @@ namespace Craftwar.View
                 if (site != null)
                 {
                     flipX = false;
+                    useMask = false; // shared foundation bank, not the building's own — different atlas layout
                     return site;
                 }
             }
@@ -333,6 +386,7 @@ namespace Craftwar.View
                     var go = new GameObject($"unit_{i}");
                     go.transform.SetParent(transform, false);
                     sr = go.AddComponent<SpriteRenderer>();
+                    _defaultSpriteMaterial ??= sr.sharedMaterial;
                     _views[i] = sr;
                 }
 
@@ -370,14 +424,16 @@ namespace Craftwar.View
 
                 uint packed = new UnitId((ushort)i, u.Gen).Packed;
                 Color baseColor = Color.white;
+                bool useMask = true;
                 if ((u.Flags & UnitFlags.UnderConstruction) != 0)
-                    sprite = ConstructionSprite(ref u, state, sprite, ref baseColor, ref flipX);
+                    sprite = ConstructionSprite(ref u, state, sprite, ref baseColor, ref flipX, ref useMask);
                 if ((u.Flags & UnitFlags.Hidden) != 0)
                     baseColor.a = 0f;    // inside a mine/depot/site
 
                 sr.sprite = sprite != null ? sprite : _fallback;
                 sr.flipX = flipX;
                 sr.color = baseColor;
+                ApplyTeamColor(sr, u.TypeId, sprite != null && useMask ? (byte)u.Carry : (byte)0, u.Player, sprite != null && useMask);
                 UpdateShadow(i, sr, airborne && baseColor.a > 0f, worldX, worldY);
                 _lastPose[i] = (u.TypeId, u.Player, u.Facing);
 
@@ -400,6 +456,10 @@ namespace Craftwar.View
                             FlipX = flipX,
                             Position = sr.transform.position,
                             SortingOrder = sr.sortingOrder,
+                            TypeId = u.TypeId,
+                            Player = u.Player,
+                            Carry = (byte)u.Carry,
+                            UseMask = useMask,
                         };
                     }
                 }
@@ -448,6 +508,11 @@ namespace Craftwar.View
                 sr.gameObject.name = "corpse";
                 sr.color = Color.white;
                 sr.enabled = true;
+                // Corpse art is a separate shared bank (no per-player colour,
+                // always baked flat) — never the mask/atlas the living unit's
+                // renderer may still be set to.
+                if (!ReferenceEquals(sr.sharedMaterial, _defaultSpriteMaterial))
+                    sr.sharedMaterial = _defaultSpriteMaterial;
                 // The living walk over the dead: drop out of the ground band so
                 // a body never wins the row tie-break against a unit.
                 sr.sortingOrder -= GroundBand;
@@ -525,6 +590,7 @@ namespace Craftwar.View
                 ghost.transform.position = mem.Position;
                 ghost.sortingOrder = mem.SortingOrder;
                 ghost.color = GhostTint;
+                ApplyTeamColor(ghost, mem.TypeId, mem.UseMask ? mem.Carry : (byte)0, mem.Player, mem.UseMask);
             }
 
             foreach (int origin in _memoryToRemove)
@@ -607,7 +673,9 @@ namespace Craftwar.View
                 float alpha = 1f;
                 if (t < deathSeconds)
                 {
-                    // Death throes: the bank's own die blocks, once through.
+                    // Death throes: the bank's own die blocks, once through —
+                    // still the unit's own (masked) bank, unlike the shared
+                    // corpse art that follows.
                     if (_sprites != null && corpse.Layout.HasDeath)
                     {
                         int step = (int)(t / DeathFrameSeconds);
@@ -617,6 +685,7 @@ namespace Craftwar.View
                         {
                             sr.sprite = sprite;
                             sr.flipX = flip;
+                            ApplyTeamColor(sr, corpse.TypeId, 0, corpse.Player, true);
                         }
                     }
                     // A unit that leaves nothing fades out over its last moments
@@ -633,6 +702,8 @@ namespace Craftwar.View
                     {
                         sr.sprite = sprite;
                         sr.flipX = flip;
+                        // Shared corpse bank: always flat/player-0 baked, no mask.
+                        ApplyTeamColor(sr, corpse.TypeId, 0, corpse.Player, false);
                     }
                     alpha = Mathf.Clamp01((CorpseSeconds - rot) / CorpseFadeSeconds);
                 }
