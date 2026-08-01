@@ -95,6 +95,18 @@ namespace Craftwar.Sim
         public const int AcquisitionPeriod = 5;     // ticks between target scans
         public const byte MissileNone = 0x1d;       // UDTA "no missile" id
 
+        // --- Splash (ground-targeted) projectiles: catapult/ballista/ship
+        // cannon, BULLET.C bullet_create + damage_area. The impact point is
+        // the target's position at launch plus a random pixel drift; damage
+        // falls off from full to a quarter beyond the inner radius, both
+        // fixed squared-pixel thresholds against max(dx^2, dy^2) — i.e. a
+        // square blast, not a circle, exactly as the original computes it. ---
+        public const int SplashDriftRange = 8;   // net_rand & (BULLET_DRIFT=7)
+        public const int SplashDriftOffset = 3;  // - (BULLET_DRIFT/2)
+        public const int SplashFullRadiusSqPx = (TilePixels * TilePixels) / 2 - 1;
+        public const int SplashOuterRadiusSqPx =
+            SplashFullRadiusSqPx + TilePixels * TilePixels + (TilePixels * TilePixels) / 4;
+
         /// <summary>Ticks between critter fidget rolls — twice a second. With the
         /// original's odds (~47 in 256 rolls become a step) a sheep wanders a
         /// tile every few seconds, which is the pace it keeps in WC2.</summary>

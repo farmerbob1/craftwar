@@ -341,8 +341,14 @@ namespace Craftwar.View
                         targetPacked = occ;
                     }
                 }
-                else if (state.Terrain.HasWood(tileX, tileY))
+                else if (state.Terrain.HasWood(tileX, tileY) && SelectionHasWorker(state))
                 {
+                    // Only a worker can chop, so only a worker's smart-click
+                    // reads a tree as "harvest". Anyone else's is a plain Move
+                    // — including a flyer landing a destination on a forest
+                    // tile it can fly over, which a blanket Harvest here would
+                    // otherwise silently swallow (Harvest no-ops for non-peons,
+                    // so the unit would just sit there looking unresponsive).
                     op = CommandOp.Harvest; // TargetUnit stays 0 -> wood
                 }
                 else if (SelectionHasLoadedTransport(state)

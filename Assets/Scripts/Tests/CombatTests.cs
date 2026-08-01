@@ -97,6 +97,58 @@ namespace Craftwar.Sim.Tests
             Assert.IsTrue(sawProjectile, "archer must launch visible projectiles");
         }
 
+        /// <summary>
+        /// Catapults/ballistas fire a ground-targeted splash shot (BULLET.C):
+        /// it commits to the target's position the instant it launches and
+        /// never re-aims, so a target that moves away mid-flight is missed —
+        /// while a bystander standing where the shot actually lands still
+        /// takes splash damage even though it was never the locked-on target.
+        /// Regression test for a homing-projectile bug: catapults used to
+        /// chase the target's live position every tick like an arrow.
+        /// </summary>
+        [Test]
+        public unsafe void Catapult_SplashesBystanders_ButDoesNotHomeOnAMovedTarget()
+        {
+            var pud = MakeMap(
+                (UnitTypeId.Catapult, 0, 10, 10),
+                (UnitTypeId.Footman, 1, 10, 18),   // locked-on target, at max range (8)
+                (UnitTypeId.Peasant, 1, 10, 19));  // bystander next to the target
+            var sim = new GameSim(11);
+            sim.Setup(pud, RuleSet.CreateDefault());
+            sim.Advance(new List<GameCommand> { AttackOrder(sim, 0, 1) });
+
+            var none = new List<GameCommand>();
+            int projSlot = -1;
+            for (int t = 0; t < 200 && projSlot < 0; t++)
+            {
+                sim.Advance(none);
+                for (int p = 0; p < sim.State.Projectiles.Length; p++)
+                    if (sim.State.Projectiles[p].Active && sim.State.Projectiles[p].Splash)
+                    {
+                        projSlot = p;
+                        break;
+                    }
+            }
+            Assert.GreaterOrEqual(projSlot, 0, "catapult must fire a ground-targeted splash shot");
+
+            int footmanHpBefore = sim.State.Units[1].Hp;
+            int peasantHpBefore = sim.State.Units[2].Hp;
+
+            // Yank the locked-on target far away mid-flight. A homing shot
+            // would still follow it there; a ground-targeted one cannot.
+            sim.State.Units[1].PixX = 2 * SimConstants.TilePixels;
+            sim.State.Units[1].PixY = 2 * SimConstants.TilePixels;
+
+            for (int t = 0; t < 60 && sim.State.Projectiles[projSlot].Active; t++)
+                sim.Advance(none);
+
+            Assert.IsFalse(sim.State.Projectiles[projSlot].Active, "the shot must land");
+            Assert.AreEqual(footmanHpBefore, sim.State.Units[1].Hp,
+                "a shot fired at a target's old position must miss once the target has moved away");
+            Assert.Less(sim.State.Units[2].Hp, peasantHpBefore,
+                "the bystander standing where the shot actually landed must take splash damage");
+        }
+
         [Test]
         public void OutOfReactRange_NoFight()
         {

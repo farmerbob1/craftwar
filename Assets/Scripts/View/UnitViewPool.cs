@@ -304,8 +304,11 @@ namespace Craftwar.View
 
             // Walking: only while actually mid-step. A unit that is merely
             // holding a path (blocked, waiting, or between orders) stands;
-            // otherwise stuck units tread air.
-            if (u.IsMoving)
+            // otherwise stuck units tread air. Flyers are the exception —
+            // rotors/wings keep going while they hover, so an air unit plays
+            // its gait continuously rather than freezing on frame 0 whenever
+            // it is not mid-tile-step.
+            if (u.IsMoving || state.DomainOf(u.TypeId) == MoveDomain.Air)
                 return layout.WalkBlock((int)(Time.time * 9f));
 
             return layout.WalkBlock(0); // stand

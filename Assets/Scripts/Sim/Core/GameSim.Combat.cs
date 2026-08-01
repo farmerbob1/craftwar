@@ -2,6 +2,16 @@ namespace Craftwar.Sim
 {
     public sealed partial class GameSim
     {
+        // Scratch dedupe list for ApplySplashDamage: a multi-tile unit can
+        // appear at several scanned tiles and must only be hit once, exactly
+        // as BULLET.C's damage_area guards with already_hit/sgpHitUnits.
+        // Sized well past any real blast footprint (7x7 tiles, each holding
+        // at most one surface occupant). Fully rewritten every call, so —
+        // like _pathScratch — it carries no state between calls and is never
+        // hashed.
+        readonly int[] _splashHitScratch = new int[64];
+        int _splashHitCount;
+
         void TickCombat()
         {
             if (State.Terrain == null)
@@ -76,7 +86,7 @@ namespace Craftwar.Sim
                             Sign(target.TileX - u.TileX), Sign(target.TileY - u.TileY));
                         if (u.Cooldown == 0)
                         {
-                            Strike(ref u, ti, ref row);
+                            Strike(ref u, i, ti, ref row);
                             u.Cooldown = (byte)SimConstants.AttackCooldownTicks;
                         }
                     }
@@ -227,37 +237,80 @@ namespace Craftwar.Sim
             return half + State.Rng.Next(half + 1);
         }
 
-        void Strike(ref Unit attacker, int targetIndex, ref UnitTypeData row)
+        void Strike(ref Unit attacker, int attackerIndex, int targetIndex, ref UnitTypeData row)
         {
             ref Unit target = ref State.Units[targetIndex];
-            int damage = RollDamage(ref attacker, ref target);
 
             if (row.MissileWeapon == SimConstants.MissileNone)
             {
-                ApplyDamage(targetIndex, damage, attacker.Player);
+                ApplyDamage(targetIndex, RollDamage(ref attacker, ref target), attacker.Player);
                 return;
             }
 
-            // Ranged: launch a homing projectile carrying the rolled damage.
+            int size = State.Footprint(attacker.TypeId);
+            int startX = attacker.PixX + size * SimConstants.TilePixels / 2;
+            int startY = attacker.PixY + size * SimConstants.TilePixels / 2;
+
+            // Catapult/ballista/ship-cannon: a ground-targeted splash shot. It
+            // commits to the target's CURRENT tile the instant it fires — a
+            // fixed impact point, never re-aimed — and splashes whatever is
+            // standing there (or nearby) when it lands, exactly like the
+            // original's BULLET.C (it is not a homing missile despite sharing
+            // the projectile pool with one).
+            bool splash = row.Is(UnitTypeFlags.CanGroundAttack);
+            int damage = splash
+                ? EffectiveStrength(ref attacker) + EffectivePierce(ref attacker)
+                : RollDamage(ref attacker, ref target);
+
             for (int p = 0; p < State.Projectiles.Length; p++)
             {
                 if (State.Projectiles[p].Active)
                     continue;
-                int size = State.Footprint(attacker.TypeId);
-                State.Projectiles[p] = new Projectile
+
+                if (splash)
                 {
-                    Active = true,
-                    MissileType = row.MissileWeapon,
-                    PixX = attacker.PixX + size * SimConstants.TilePixels / 2,
-                    PixY = attacker.PixY + size * SimConstants.TilePixels / 2,
-                    TargetUnit = new UnitId((ushort)targetIndex, target.Gen).Packed,
-                    Damage = damage,
-                    SourcePlayer = attacker.Player,
-                };
+                    int tsize = State.Footprint(target.TypeId);
+                    int destX = target.PixX + tsize * SimConstants.TilePixels / 2
+                        + State.Rng.Next(SimConstants.SplashDriftRange) - SimConstants.SplashDriftOffset;
+                    int destY = target.PixY + tsize * SimConstants.TilePixels / 2
+                        + State.Rng.Next(SimConstants.SplashDriftRange) - SimConstants.SplashDriftOffset;
+                    State.Projectiles[p] = new Projectile
+                    {
+                        Active = true,
+                        MissileType = row.MissileWeapon,
+                        PixX = startX,
+                        PixY = startY,
+                        Splash = true,
+                        DestPixX = destX,
+                        DestPixY = destY,
+                        SourceUnit = new UnitId((ushort)attackerIndex, attacker.Gen).Packed,
+                        Damage = damage,
+                        SourcePlayer = attacker.Player,
+                    };
+                }
+                else
+                {
+                    State.Projectiles[p] = new Projectile
+                    {
+                        Active = true,
+                        MissileType = row.MissileWeapon,
+                        PixX = startX,
+                        PixY = startY,
+                        TargetUnit = new UnitId((ushort)targetIndex, target.Gen).Packed,
+                        Damage = damage,
+                        SourcePlayer = attacker.Player,
+                    };
+                }
                 return;
             }
+
             // Pool exhausted: land the hit instantly rather than lose it.
-            ApplyDamage(targetIndex, damage, attacker.Player);
+            if (splash)
+                ApplySplashDamage(target.PixX + State.Footprint(target.TypeId) * SimConstants.TilePixels / 2,
+                    target.PixY + State.Footprint(target.TypeId) * SimConstants.TilePixels / 2,
+                    damage, attacker.Player, new UnitId((ushort)attackerIndex, attacker.Gen).Packed);
+            else
+                ApplyDamage(targetIndex, damage, attacker.Player);
         }
 
         void ApplyDamage(int targetIndex, int damage, byte attacker)
@@ -327,6 +380,22 @@ namespace Craftwar.Sim
                 if (!proj.Active)
                     continue;
 
+                if (proj.Splash)
+                {
+                    int sdx = proj.DestPixX - proj.PixX;
+                    int sdy = proj.DestPixY - proj.PixY;
+                    if (sdx >= -speed && sdx <= speed && sdy >= -speed && sdy <= speed)
+                    {
+                        proj.Active = false;
+                        ApplySplashDamage(proj.DestPixX, proj.DestPixY, proj.Damage,
+                            proj.SourcePlayer, proj.SourceUnit);
+                        continue;
+                    }
+                    proj.PixX += sdx > speed ? speed : sdx < -speed ? -speed : sdx;
+                    proj.PixY += sdy > speed ? speed : sdy < -speed ? -speed : sdy;
+                    continue;
+                }
+
                 if (!State.TryGetUnitIndex(UnitId.FromPacked(proj.TargetUnit), out int ti))
                 {
                     proj.Active = false; // target died mid-flight
@@ -348,6 +417,71 @@ namespace Craftwar.Sim
                 }
                 proj.PixX += dx > speed ? speed : dx < -speed ? -speed : dx;
                 proj.PixY += dy > speed ? speed : dy < -speed ? -speed : dy;
+            }
+        }
+
+        /// <summary>
+        /// A catapult/ballista/cannon impact: full damage to whatever is at
+        /// the exact hit pixel, a quarter to anything further out but still in
+        /// the blast, ground units only (BULLET.C damage_area/damage_area_unit
+        /// — a square blast against max(dx^2, dy^2), not a circle). Each
+        /// victim's own armor is applied here, individually, rather than to
+        /// the pre-rolled damage the way a direct hit is — a splash shot has
+        /// no single "defender" at launch time. The shooter never damages
+        /// itself; everyone else, including the shooter's own side, can be
+        /// caught in the blast exactly as in the original.
+        /// </summary>
+        void ApplySplashDamage(int hitPixX, int hitPixY, int rawDamage, byte sourcePlayer, uint sourceUnit)
+        {
+            var terrain = State.Terrain;
+            if (terrain == null)
+                return;
+
+            int hitTileX = hitPixX / SimConstants.TilePixels;
+            int hitTileY = hitPixY / SimConstants.TilePixels;
+            _splashHitCount = 0;
+
+            // A 7x7 window, matching BULLET.C's damage_area — wide enough that
+            // a big building's footprint centre (its occupancy is nearest-tile
+            // only) still falls inside the blast-radius check below even when
+            // the nearest occupied tile is a couple of tiles off from impact.
+            for (int ty = hitTileY - 3; ty <= hitTileY + 3; ty++)
+            {
+                if (ty < 0 || ty >= terrain.Height)
+                    continue;
+                for (int tx = hitTileX - 3; tx <= hitTileX + 3; tx++)
+                {
+                    if (tx < 0 || tx >= terrain.Width)
+                        continue;
+                    uint packed = State.OccupancySurface[ty * terrain.Width + tx];
+                    if (packed == 0 || packed == sourceUnit)
+                        continue;
+                    if (!State.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx))
+                        continue;
+
+                    bool seen = false;
+                    for (int k = 0; k < _splashHitCount; k++)
+                        if (_splashHitScratch[k] == idx) { seen = true; break; }
+                    if (seen)
+                        continue;
+                    if (_splashHitCount < _splashHitScratch.Length)
+                        _splashHitScratch[_splashHitCount++] = idx;
+
+                    ref Unit victim = ref State.Units[idx];
+                    int vsize = State.Footprint(victim.TypeId);
+                    int vx = victim.PixX + vsize * SimConstants.TilePixels / 2 - hitPixX;
+                    int vy = victim.PixY + vsize * SimConstants.TilePixels / 2 - hitPixY;
+                    int distSq = Max(vx * vx, vy * vy);
+                    if (distSq > SimConstants.SplashOuterRadiusSqPx)
+                        continue;
+
+                    int dmg = distSq > SimConstants.SplashFullRadiusSqPx ? rawDamage / 4 : rawDamage;
+                    dmg -= EffectiveArmor(ref victim);
+                    if (dmg <= 0)
+                        continue;
+                    int half = (dmg + 1) / 2;
+                    ApplyDamage(idx, half + State.Rng.Next(half + 1), sourcePlayer);
+                }
             }
         }
     }
