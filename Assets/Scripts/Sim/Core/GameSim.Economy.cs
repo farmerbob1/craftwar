@@ -1025,18 +1025,24 @@ namespace Craftwar.Sim
                     {
                         // Wood with no forest corners: a remnant. Vertical
                         // single-file trees have dedicated column art; anything
-                        // else can't be drawn and is removed (no lumber).
+                        // else (including a cell with wood beside it, which
+                        // makes it part of an L/T-shaped blob rather than a
+                        // clean 1-wide strip) can't be drawn and is removed
+                        // (no lumber).
                         bool woodN = State.Terrain.HasWood(x, y - 1);
                         bool woodS = State.Terrain.HasWood(x, y + 1);
-                        if (woodN && woodS)
+                        bool woodE = State.Terrain.HasWood(x + 1, y);
+                        bool woodW = State.Terrain.HasWood(x - 1, y);
+                        bool singleFile = !woodE && !woodW;
+                        if (singleFile && woodN && woodS)
                         {
                             id = SimConstants.OneTreeMidTileId;
                         }
-                        else if (woodS)
+                        else if (singleFile && woodS)
                         {
                             id = SimConstants.OneTreeTopTileId;
                         }
-                        else if (woodN)
+                        else if (singleFile && woodN)
                         {
                             id = SimConstants.OneTreeBotTileId;
                         }

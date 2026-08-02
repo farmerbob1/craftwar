@@ -30,9 +30,9 @@ Milestones **M0–M14** are complete (scaffold, map pipeline, movement, combat,
 economy, tech tree, fog/minimap/sound, naval/air, HUD, AI, LAN lockstep, online
 play via a self-hosted relay server, lobby/matchmaking polish, and baking every
 Warcraft II asset into the project so Play mode never touches a live install).
-Spellcasting and the social layer (chat channels, friends/presence, clans) are
-the current focus. `PROGRESS.md` is the running log and is the place to start
-if you want the detail.
+Spellcasting has since landed too. The social layer (chat channels,
+friends/presence, clans) is the current focus. `PROGRESS.md` is the running
+log and is the place to start if you want the detail.
 
 ---
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using Craftwar.Sim;
 using Craftwar.Sim.Pud;
 using NUnit.Framework;
@@ -115,6 +116,68 @@ namespace Craftwar.Sim.Tests
                         anyChopped = true;
                 }
             Assert.IsTrue(anyChopped, "the map must lose a tree and open the tile");
+        }
+
+        /// <summary>
+        /// Regression for a forest-remnant bug: the retile pass picked the
+        /// narrow vertical one-tree column art (megatiles 121-123) for any
+        /// wood cell with no full forest corner, checking only its
+        /// north/south neighbor. Two adjacent 1-wide vertical strips could
+        /// each independently pass that check while still touching sideways,
+        /// leaving two separate column pieces jammed together (e.g. one
+        /// column's "bottom" tile directly beside another column's "top"
+        /// tile) — a jagged mismatch, since the art was only ever drawn to
+        /// be flanked by clear ground. This exact chop order, found by random
+        /// search against the pre-fix code, reproduces it: a 3x4 forest
+        /// block chopped down to two side-by-side 1-wide remnants. Mirrors
+        /// TickHarvest's Chop+retile pair and asserts the invariant
+        /// everywhere: a one-tree column tile must never have wood
+        /// immediately east or west of it.
+        /// </summary>
+        [Test]
+        public void ForestRetile_OneTreeColumnArt_NeverAdjacentToSidewaysWood()
+        {
+            var pud = BaseMap();
+            // A 3x4 forest block far from BaseMap's own forest/units.
+            for (int y = 5; y <= 8; y++)
+                for (int x = 5; x <= 7; x++)
+                {
+                    pud.Tiles[y * 32 + x] = 0x0070;
+                    pud.MoveMap[y * 32 + x] = 0x0081;
+                }
+            var sim = Boot(pud);
+            var retile = typeof(GameSim).GetMethod("RetileForestAround",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(retile, "RetileForestAround must still exist for this test to be meaningful");
+
+            (int x, int y)[] chopOrder =
+            {
+                (7, 5), (6, 7), (5, 6), (5, 7), (5, 5), (6, 8),
+            };
+            foreach (var (x, y) in chopOrder)
+            {
+                if (!sim.State.Terrain.HasWood(x, y))
+                    continue;
+                sim.State.Terrain.Chop(x, y);
+                retile.Invoke(sim, new object[] { x, y });
+            }
+
+            for (int y = 4; y <= 9; y++)
+            {
+                for (int x = 4; x <= 8; x++)
+                {
+                    ushort id = sim.State.Tile(y * 32 + x);
+                    bool isColumnArt = id == SimConstants.OneTreeTopTileId
+                        || id == SimConstants.OneTreeMidTileId
+                        || id == SimConstants.OneTreeBotTileId;
+                    if (!isColumnArt)
+                        continue;
+                    Assert.IsFalse(sim.State.Terrain.HasWood(x - 1, y),
+                        $"one-tree column art at ({x},{y}) must not have wood to its west");
+                    Assert.IsFalse(sim.State.Terrain.HasWood(x + 1, y),
+                        $"one-tree column art at ({x},{y}) must not have wood to its east");
+                }
+            }
         }
 
         /// <summary>
