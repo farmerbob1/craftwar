@@ -95,6 +95,8 @@ namespace Craftwar.Sim
         public readonly ushort[][] UnitPaths = new ushort[SimConstants.MaxUnits][];
 
         public readonly Projectile[] Projectiles = new Projectile[SimConstants.MaxProjectiles];
+        public readonly Corpse[] Corpses = new Corpse[SimConstants.MaxCorpses];
+        public readonly RuneTrap[] RuneTraps = new RuneTrap[SimConstants.MaxRuneTraps];
 
         // One unit per tile per layer, exactly like the original.
         // Values are UnitId.Packed (0 = free). Surface = land+sea, Air separate.
@@ -350,6 +352,30 @@ namespace Craftwar.Sim
             _freeList[_freeCount++] = (ushort)index;
         }
 
+        /// <summary>Registers a raisable corpse (Raise Dead's scan target) at
+        /// a tile — called from GameSim.ApplyDamage for an Organic unit's
+        /// death, not from DestroyUnit itself, since that also fires for
+        /// buildings, mines and other non-corpse removals.</summary>
+        public void RegisterCorpse(ushort tileX, ushort tileY)
+        {
+            for (int i = 0; i < Corpses.Length; i++)
+            {
+                if (Corpses[i].Active)
+                    continue;
+                Corpses[i] = new Corpse
+                {
+                    Active = true,
+                    TileX = tileX,
+                    TileY = tileY,
+                    TicksRemaining = SimConstants.CorpseLingerTicks,
+                };
+                return;
+            }
+            // Pool exhausted: drop it — a slightly-early "not raisable"
+            // corpse is harmless, unlike every other pool's fallback which
+            // still has to land a real effect.
+        }
+
         public bool TryGetUnitIndex(UnitId id, out int index)
         {
             index = id.Index;
@@ -398,6 +424,18 @@ namespace Craftwar.Sim
                 {
                     h.Add(i);
                     Projectiles[i].HashInto(ref h);
+                }
+            for (int i = 0; i < Corpses.Length; i++)
+                if (Corpses[i].Active)
+                {
+                    h.Add(i);
+                    Corpses[i].HashInto(ref h);
+                }
+            for (int i = 0; i < RuneTraps.Length; i++)
+                if (RuneTraps[i].Active)
+                {
+                    h.Add(i);
+                    RuneTraps[i].HashInto(ref h);
                 }
             // Only in-game slots explore anything; the rest stay zero.
             for (int p = 0; p < Players.Length; p++)

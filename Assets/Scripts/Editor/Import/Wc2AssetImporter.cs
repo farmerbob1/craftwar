@@ -34,6 +34,7 @@ namespace Craftwar.EditorTools
             IconBaker.Bake(source);
             StringBaker.Bake(source);
             SpriteBaker.Bake(source);
+            MissileSpriteBaker.Bake(source);
             TeamColorMaterialSetup.EnsureMaterial();
             MapBaker.Bake(paths);
 

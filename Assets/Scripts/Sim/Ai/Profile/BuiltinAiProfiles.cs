@@ -34,9 +34,11 @@ rebuildOnly gold=200 lumber=100
 military waveSize=8 suicideBuildingCount=3 postWaveSleep=500 dryWave=1500
 
 # Cumulative build order (each entry raises that role's target by one).
-build Hall,LumberMill,Barracks,Blacksmith,Barracks,Keep,CavalryHall,ScoutTower,GuardTower,Castle,Church,MageHall
-army Soldier:4,Archer:4,Cavalry:8,Siege:2
-research Weapon1,Armor1,Weapon2,Armor2,Missile1,Missile2,RangedUnlock,CavalryUnlock
+# Naval buildings sit at the end: on a landlocked spawn the site search just
+# stalls and skips them after a while, at no cost to the land tech above.
+build Hall,LumberMill,Barracks,Blacksmith,Barracks,Keep,CavalryHall,ScoutTower,GuardTower,Castle,Church,MageHall,AirHall,Shipyard,Refinery,Foundry
+army Soldier:4,Archer:4,Cavalry:8,Siege:2,Caster:2,AirUnit:3,Warship:3,Battleship:1,Tanker:1
+research Weapon1,Armor1,Weapon2,Armor2,Missile1,Missile2,RangedUnlock,CavalryUnlock,EliteRanged1,EliteRanged2,EliteRanged3,NavalWeapon1,NavalWeapon2,NavalArmor1,NavalArmor2
 
 weights farm=300 build=100 worker=100 army=100 research=50 expand=60 wave=100 defend=400 harvest=200 scout=12
 curve affordability logistic 300 40

@@ -58,6 +58,10 @@
     background-color: var(--cw-hp-low);
 }
 
+.bar__fill--mana {
+    background-color: var(--cw-mana);
+}
+
 /* TextField (and other BaseField controls) come from Unity's own default
    runtime theme with no color override — its caption/typed-text color reads
    as near-black, which disappears against our near-black --cw-panel-bg-solid

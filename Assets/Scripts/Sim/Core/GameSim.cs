@@ -165,6 +165,7 @@ namespace Craftwar.Sim
                     if (rules.Units[entry.Type].Is(UnitTypeFlags.GoldMine | UnitTypeFlags.OilPatch))
                         u.ResourceAmount = entry.Alter * 2500;
                     u.Facing = (byte)(State.Rng.Next(8)); // original: random idle facing
+                    InitCasterMana(ref u);
                 }
             }
 
@@ -193,6 +194,9 @@ namespace Craftwar.Sim
             TickCritters();   // before movement, so a new wander starts this tick
             TickMovement();
             TickCombat();
+            TickCasting();
+            TickSpells();
+            TickRunes();
             TickHarvest();
             TickTransport();
             TickConstruction();
@@ -332,6 +336,34 @@ namespace Craftwar.Sim
                     }
                     break;
 
+                // A carrying worker/tanker heads for the nearest compatible
+                // depot (FindDepot, in TickHarvest's ToDepot stage) with
+                // whatever it's holding. ResourceTarget is left untouched —
+                // it still names the mine/wood tile to resume at afterward.
+                case CommandOp.ReturnGoods:
+                    for (int i = 0; i < cmd.SelectionCount; i++)
+                    {
+                        var id = UnitId.FromPacked(cmd.Selection.Ids[i]);
+                        if (!State.TryGetUnitIndex(id, out int idx))
+                            continue;
+                        ref Unit u = ref State.Units[idx];
+                        if (u.Player != cmd.Player || u.Carry == CarryType.None
+                            || (u.Flags & UnitFlags.Hidden) != 0)
+                            continue;
+                        u.Order = OrderType.Harvest;
+                        u.Harvest = HarvestStage.ToDepot;
+                        u.AttackTarget = 0;
+                        u.PathLength = 0;
+                        u.PathCursor = 0;
+                        u.WaitTicks = 0;
+                        // Park the walk order on our own tile: movement runs
+                        // before TickHarvest recomputes the real destination,
+                        // and must not take a step toward a stale one.
+                        u.OrderX = (ushort)(u.TileX + u.StepDX);
+                        u.OrderY = (ushort)(u.TileY + u.StepDY);
+                    }
+                    break;
+
                 case CommandOp.Harvest:
                 case CommandOp.Build:
                 case CommandOp.Train:
@@ -349,6 +381,10 @@ namespace Craftwar.Sim
 
                 case CommandOp.Repair:
                     ApplyRepairCommand(cmd);
+                    break;
+
+                case CommandOp.Cast:
+                    ApplyCastCommand(cmd);
                     break;
 
                 case CommandOp.Board:
@@ -553,7 +589,14 @@ namespace Craftwar.Sim
         {
             // Integer speed: Speed/10 tiles per second at 50 ticks/sec.
             // accum += Speed*TilePixels per tick; 1 px per 500 accumulated.
-            u.MoveAccum += UnitSpeeds.Get(u.TypeId) * SimConstants.TilePixels;
+            // Slow/Haste (WarpTicks) halve/double it — a plain interpretation
+            // of the original's effect; the exact mechanism it used
+            // (UNIT.C gbHaste, an animation-frame divisor) doesn't map onto
+            // this sim's flat pixel-accumulator movement model.
+            int speed = UnitSpeeds.Get(u.TypeId);
+            if (u.WarpTicks > 0) speed *= 2;
+            else if (u.WarpTicks < 0) speed /= 2;
+            u.MoveAccum += speed * SimConstants.TilePixels;
             int pixels = u.MoveAccum / 500;
             u.MoveAccum -= pixels * 500;
             if (pixels > u.StepRemaining)

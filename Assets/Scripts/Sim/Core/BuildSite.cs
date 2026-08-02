@@ -25,6 +25,9 @@ namespace Craftwar.Sim
         Occupied,
         /// <summary>An oil platform was sited on open water with no patch under it.</summary>
         NoOilPatch,
+        /// <summary>A town hall was sited within <see cref="BuildSite.MinGoldMineGap"/>
+        /// tiles of a gold mine (collide.c PLACE_TOWNHALL_NEAR_GOLD_ERR).</summary>
+        TooCloseToGoldMine,
     }
 
     /// <summary>
@@ -35,6 +38,10 @@ namespace Craftwar.Sim
     /// </summary>
     public static class BuildSite
     {
+        /// <summary>collide.c MIN_GOLD_DIST: the gap between a town hall's
+        /// footprint and a gold mine's must be at least this many tiles.</summary>
+        public const int MinGoldMineGap = 3;
+
         public static SiteKind KindOf(GameState state, ushort buildType)
         {
             ref var row = ref state.Rules.Units[buildType];
@@ -75,6 +82,9 @@ namespace Craftwar.Sim
                     return SiteBlock.Occupied;
                 }
 
+            if (IsTownHall(buildType) && TooCloseToGoldMine(state, tileX, tileY, size))
+                return SiteBlock.TooCloseToGoldMine;
+
             // Patches are deliberately absent from the occupancy layer (they do
             // not block ships), so find the one under this site by unit scan.
             if (kind == SiteKind.OilPlatform)
@@ -84,6 +94,45 @@ namespace Craftwar.Sim
                     result = SiteBlock.NoOilPatch;
             }
             return result;
+        }
+
+        static bool IsTownHall(ushort buildType) =>
+            buildType == (ushort)UnitTypeId.TownHall || buildType == (ushort)UnitTypeId.GreatHall;
+
+        /// <summary>
+        /// collide.c mtx_check_near: blocked when the gap between the two
+        /// footprints — per axis, then Chebyshev-combined, in the same
+        /// touching-is-1 convention as <c>GameSim.FootprintDistance</c> (so a
+        /// footprint immediately next to the mine, with zero empty tiles
+        /// between them, measures 1) — is <see cref="MinGoldMineGap"/> tiles
+        /// or less: 3 in that convention is two actual empty tiles, matching
+        /// MIN_GOLD_DIST's "at least 3 tiles between them". Gold remaining
+        /// doesn't matter; even a played-out mine still keeps the site clear.
+        /// </summary>
+        static bool TooCloseToGoldMine(GameState state, int tileX, int tileY, int size)
+        {
+            for (int i = 0; i < state.HighestUnitIndex; i++)
+            {
+                ref Unit u = ref state.Units[i];
+                if (!u.IsAlive || !state.Rules.Units[u.TypeId].Is(UnitTypeFlags.GoldMine))
+                    continue;
+                int mineSize = state.Footprint(u.TypeId);
+                int dx = Gap(tileX, size, u.TileX, mineSize);
+                int dy = Gap(tileY, size, u.TileY, mineSize);
+                if ((dx > dy ? dx : dy) <= MinGoldMineGap)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Tile gap between two same-axis spans, touching-is-1 (matches
+        /// GameSim.FootprintDistance); 0 only when they actually overlap.</summary>
+        static int Gap(int a, int aSize, int b, int bSize)
+        {
+            int d1 = b - (a + aSize - 1);
+            int d2 = a - (b + bSize - 1);
+            int d = d1 > d2 ? d1 : d2;
+            return d < 0 ? 0 : d;
         }
 
         static bool TerrainOk(TerrainMap terrain, SiteKind kind, int x, int y) => kind switch

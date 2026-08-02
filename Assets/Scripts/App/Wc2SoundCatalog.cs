@@ -171,5 +171,23 @@ namespace Craftwar.App
         public const string MiscDock = "gamesfx/misc/dock.wav";
         public const string BldgMineCollapse = "gamesfx/bldg/mine.wav";
         public const string ShipsSink = "gamesfx/ships/shipsink.wav";
+
+        /// <summary>Church/Altar/Mage-Tower/Temple cast sounds, under
+        /// Gamesfx/Spells except Runes (Gamesfx/Misc — the original files it
+        /// as a "misc" effect, not a Spells/ one, oddly enough).</summary>
+        public const string SpellHeal = "gamesfx/spells/heal.wav";
+        public const string SpellExorcism = "gamesfx/spells/exorcism.wav";
+        public const string SpellBloodlust = "gamesfx/spells/blodlust.wav";
+        public const string SpellRunes = "gamesfx/misc/runes.wav";
+        public const string SpellSlow = "gamesfx/spells/slow.wav";
+        public const string SpellHaste = "gamesfx/spells/haste.wav";
+        public const string SpellInvisibility = "gamesfx/spells/invisibl.wav";
+        public const string SpellPolymorph = "gamesfx/spells/morph.wav";
+        public const string SpellFlameShield = "gamesfx/spells/flamshld.wav";
+        public const string SpellUnholyArmor = "gamesfx/spells/unhlyarm.wav";
+        public const string SpellRaiseDead = "gamesfx/spells/thunder.wav";
+        public const string SpellBlizzard = "gamesfx/spells/icestorm.wav";
+        public const string SpellWhirlwind = "gamesfx/spells/whrlwind.wav";
+        public const string SpellDeathAndDecay = "gamesfx/spells/decay.wav";
     }
 }

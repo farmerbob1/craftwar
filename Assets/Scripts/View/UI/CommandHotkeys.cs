@@ -27,7 +27,10 @@ namespace Craftwar.View
             CommandSlotKind.Stop => 'S',
             CommandSlotKind.Attack => 'A',
             CommandSlotKind.Patrol => 'P',
-            CommandSlotKind.Harvest => 'H',
+            // Return Goods replaces Harvest in the same slot when the
+            // worker/tanker is already carrying — same letter, like the
+            // Archer/Ranger and Axethrower/Berserker substitutions below.
+            CommandSlotKind.Harvest or CommandSlotKind.ReturnGoods => 'H',
             CommandSlotKind.Repair => 'R',
             CommandSlotKind.Unload => 'U',
             CommandSlotKind.BuildBasicMenu => 'B',
@@ -39,7 +42,7 @@ namespace Craftwar.View
 
             CommandSlotKind.Build or CommandSlotKind.Train or CommandSlotKind.UpgradeTo
                 => ForUnit((UnitTypeId)param),
-            CommandSlotKind.Research => ForUpgrade((UpgradeId)param),
+            CommandSlotKind.Research or CommandSlotKind.Cast => ForUpgrade((UpgradeId)param),
             _ => None,
         };
 

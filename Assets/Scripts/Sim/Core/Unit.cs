@@ -42,6 +42,7 @@ namespace Craftwar.Sim
         Patrol = 7,      // march between OrderX/Y and GoalX/Y, engaging on the way
         Board = 8,       // walk to the transport in ResourceTarget and climb in
         Unload = 9,      // transport: put everyone ashore at OrderX/Y
+        Cast = 10,       // walk into spell range of SpellTargetUnit/X/Y, then cast PendingSpell
     }
 
     /// <summary>
@@ -111,6 +112,22 @@ namespace Craftwar.Sim
         public uint Transport;      // passenger: packed id of the carrier, 0 = walking
         public byte CargoCount;     // carrier: passengers aboard
 
+        // Spellcasting (UNIT.C update_spells: unitMP/unitRage/unitWarp/unitInvis/unitFire/unitArmor)
+        public byte Mana;              // 0-255, casters only; regens over time
+        public ushort RageTicks;       // Bloodlust remaining duration, 0 = not enraged
+        public short WarpTicks;        // Slow/Haste: negative slowed, positive hasted, 0 = normal
+        public ushort InvisTicks;      // Invisibility: can't be auto-targeted while > 0
+        public ushort FireShieldTicks; // Flame Shield: reflects melee damage while > 0
+        public ushort ArmorTicks;      // Unholy Armor: total damage immunity while > 0
+
+        // Casting in progress (Order == OrderType.Cast): walk into range, then
+        // fire. PendingSpell is 1-based (UpgradeId + 1), 0 = idle, same
+        // encoding as BuildType/ResearchId elsewhere on this struct.
+        public byte PendingSpell;
+        public uint SpellTargetUnit;   // unit-target spells, 0 = ground-target
+        public ushort SpellTargetX;    // ground-target spells (and the approach
+        public ushort SpellTargetY;    // point while walking toward a unit target)
+
         public bool IsAlive => (Flags & UnitFlags.Alive) != 0;
         public bool IsMoving => StepRemaining > 0;
 
@@ -154,6 +171,16 @@ namespace Craftwar.Sim
             h.Add(RallyY);
             h.Add(Transport);
             h.Add(CargoCount);
+            h.Add(Mana);
+            h.Add(RageTicks);
+            h.Add((ushort)WarpTicks);
+            h.Add(InvisTicks);
+            h.Add(FireShieldTicks);
+            h.Add(ArmorTicks);
+            h.Add(PendingSpell);
+            h.Add(SpellTargetUnit);
+            h.Add(SpellTargetX);
+            h.Add(SpellTargetY);
         }
     }
 }

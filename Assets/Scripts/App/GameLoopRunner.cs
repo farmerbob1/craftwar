@@ -317,8 +317,9 @@ namespace Craftwar.App
         void BuildView(BakedTileCatalog catalog)
         {
             var spriteBank = BakedUnitSpriteBank.Load(_map.Era);
+            var missileSpriteBank = BakedMissileSpriteBank.Load();
             var uiState = new View.UIState();
-            unitViewPool.Init(this, spriteBank, _map.Height, uiState.Selection);
+            unitViewPool.Init(this, spriteBank, _map.Height, uiState.Selection, missileSpriteBank);
 
             _ui.InitForMatch(this, uiState);
 

@@ -206,8 +206,33 @@ namespace Craftwar.View
                     case SimEventKind.BuildSiteBlocked:
                         Play(SoundId.PlacementBlocked);
                         break;
+                    case SimEventKind.SpellCast:
+                        Play(SoundForSpell((UpgradeId)e.A));
+                        break;
+                    case SimEventKind.RuneTriggered:
+                        Play(SoundId.RuneExplode);
+                        break;
                 }
             }
         }
+
+        static SoundId SoundForSpell(UpgradeId spell) => spell switch
+        {
+            UpgradeId.Healing => SoundId.SpellHeal,
+            UpgradeId.Exorcism => SoundId.SpellExorcism,
+            UpgradeId.Bloodlust => SoundId.SpellBloodlust,
+            UpgradeId.Runes => SoundId.SpellRunes,
+            UpgradeId.Slow => SoundId.SpellSlow,
+            UpgradeId.Haste => SoundId.SpellHaste,
+            UpgradeId.Invisibility => SoundId.SpellInvisibility,
+            UpgradeId.Polymorph => SoundId.SpellPolymorph,
+            UpgradeId.FlameShield => SoundId.SpellFlameShield,
+            UpgradeId.UnholyArmor => SoundId.SpellUnholyArmor,
+            UpgradeId.RaiseDead => SoundId.SpellRaiseDead,
+            UpgradeId.Blizzard => SoundId.SpellBlizzard,
+            UpgradeId.Whirlwind => SoundId.SpellWhirlwind,
+            UpgradeId.DeathAndDecay => SoundId.SpellDeathAndDecay,
+            _ => SoundId.None,
+        };
     }
 }

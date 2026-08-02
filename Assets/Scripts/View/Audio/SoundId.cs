@@ -22,6 +22,26 @@ namespace Craftwar.View
         MineCollapsed,
         Denied,            // not enough gold/lumber/food, tech unavailable
         PlacementBlocked,
+
+        // Spell casts (SimEventKind.SpellCast, keyed by UpgradeId in AudioDirector).
+        SpellHeal,
+        SpellExorcism,
+        SpellBloodlust,
+        SpellRunes,
+        SpellSlow,
+        SpellHaste,
+        SpellInvisibility,
+        SpellPolymorph,
+        SpellFlameShield,
+        SpellUnholyArmor,
+        SpellRaiseDead,
+        SpellBlizzard,
+        SpellWhirlwind,
+        SpellDeathAndDecay,
+
+        // SimEventKind.RuneTriggered — the generic explosion SND_EXPLODE
+        // plays, distinct from the SpellRunes incantation played at cast.
+        RuneExplode,
     }
 
     /// <summary>

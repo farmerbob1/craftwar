@@ -17,6 +17,7 @@ namespace Craftwar.View
         Harvest,
         Repair,
         Unload,
+        Cast,
     }
 
     /// <summary>
@@ -32,12 +33,17 @@ namespace Craftwar.View
         /// <see cref="PendingOrder"/> is Build.</summary>
         public ushort PendingBuildType;
 
+        /// <summary>Which spell (UpgradeId) to cast; only meaningful while
+        /// <see cref="PendingOrder"/> is Cast.</summary>
+        public ushort PendingSpell;
+
         public bool HasPendingOrder => PendingOrder != PendingOrderKind.None;
 
-        public void BeginOrder(PendingOrderKind kind, ushort buildType = 0)
+        public void BeginOrder(PendingOrderKind kind, ushort buildType = 0, ushort spell = 0)
         {
             PendingOrder = kind;
             PendingBuildType = kind == PendingOrderKind.Build ? buildType : (ushort)0;
+            PendingSpell = kind == PendingOrderKind.Cast ? spell : (ushort)0;
         }
 
         /// <summary>Cancels targeting. Safe to call when nothing is pending.</summary>
@@ -45,6 +51,7 @@ namespace Craftwar.View
         {
             PendingOrder = PendingOrderKind.None;
             PendingBuildType = 0;
+            PendingSpell = 0;
         }
 
         /// <summary>A modal screen is open; world and camera input are dead.</summary>

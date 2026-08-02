@@ -206,12 +206,26 @@ namespace Craftwar.View
                 case PendingOrderKind.Unload:
                     op = CommandOp.Unload;
                     break;
+
+                case PendingOrderKind.Cast:
+                    // Ground-target spells land on the tile itself; the rest
+                    // need a unit under the cursor — nothing to cast at
+                    // empty ground for those.
+                    if (!TechTree.IsGroundTargetSpell((UpgradeId)_ui.PendingSpell) && occ == 0)
+                    {
+                        _ui.ClearPendingOrder();
+                        return;
+                    }
+                    op = CommandOp.Cast;
+                    targetPacked = occ;
+                    break;
             }
 
             var cmd = new GameCommand
             {
                 Op = op,
                 Player = LocalPlayer,
+                Param = op == CommandOp.Cast ? _ui.PendingSpell : (ushort)0,
                 TargetX = (ushort)tileX,
                 TargetY = (ushort)tileY,
                 TargetUnit = targetPacked,
@@ -331,6 +345,16 @@ namespace Craftwar.View
                         op = CommandOp.Attack;
                         targetPacked = occ;
                     }
+                    // A carrying worker/tanker right-clicking a depot it can
+                    // actually use: go drop off the load, rather than just
+                    // walking up to (or repairing) the building.
+                    else if (target.Player == LocalPlayer
+                        && (target.Flags & UnitFlags.Building) != 0
+                        && (target.Flags & UnitFlags.UnderConstruction) == 0
+                        && SelectionHasCompatibleCarrier(state, target.TypeId))
+                    {
+                        op = CommandOp.ReturnGoods;
+                    }
                     else if (target.Player == LocalPlayer
                         && (target.Flags & UnitFlags.Building) != 0
                         && (target.Flags & UnitFlags.UnderConstruction) == 0
@@ -387,6 +411,29 @@ namespace Craftwar.View
                 if (state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx)
                     && state.Rules.Units[state.Units[idx].TypeId].Is(UnitTypeFlags.Peon))
                     return true;
+            return false;
+        }
+
+        /// <summary>True if the selection holds a carrier whose current
+        /// cargo this depot type actually accepts (GameSim.FindDepot's own
+        /// carry-to-depot-flag mapping, kept in sync here).</summary>
+        bool SelectionHasCompatibleCarrier(GameState state, ushort depotTypeId)
+        {
+            ref var depotRow = ref state.Rules.Units[depotTypeId];
+            foreach (uint packed in _selection)
+            {
+                if (!state.TryGetUnitIndex(UnitId.FromPacked(packed), out int idx))
+                    continue;
+                var need = state.Units[idx].Carry switch
+                {
+                    CarryType.Wood => UnitTypeFlags.LumberDepot | UnitTypeFlags.GoldDepot,
+                    CarryType.Oil => UnitTypeFlags.OilDepot,
+                    CarryType.Gold => UnitTypeFlags.GoldDepot,
+                    _ => (UnitTypeFlags)0,
+                };
+                if (need != 0 && depotRow.Is(need))
+                    return true;
+            }
             return false;
         }
 

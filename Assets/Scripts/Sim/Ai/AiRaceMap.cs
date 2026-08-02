@@ -23,6 +23,15 @@ namespace Craftwar.Sim.Ai
         Church,        // Church / Altar of Storms
         MageHall,      // Mage Tower / Temple of the Damned
         AirHall,       // Gryphon Aviary / Dragon Roost
+        Caster,        // Mage / Death Knight (trained at MageHall)
+        AirUnit,       // Gryphon Rider / Dragon (trained at AirHall)
+        Shipyard,
+        Refinery,
+        Foundry,
+        OilWell,       // raised by tankers, not on the worker's build order
+        Tanker,
+        Warship,       // Destroyer (Elven / Troll)
+        Battleship,    // Battleship / Juggernaught
     }
 
     /// <summary>Race-neutral research goals.</summary>
@@ -36,6 +45,13 @@ namespace Craftwar.Sim.Ai
         Missile2,
         RangedUnlock,   // Rangers / Berserkers
         CavalryUnlock,  // Paladins / Ogre-Mages
+        EliteRanged1,   // Longbow / Lighter Axes
+        EliteRanged2,   // Ranger Scouting / Berserker Scouting
+        EliteRanged3,   // Ranger Marksmanship / Berserker Regeneration
+        NavalWeapon1,   // Ship Cannon 1
+        NavalWeapon2,   // Ship Cannon 2
+        NavalArmor1,    // Ship Armor 1
+        NavalArmor2,    // Ship Armor 2
     }
 
     /// <summary>
@@ -69,6 +85,15 @@ namespace Craftwar.Sim.Ai
             AiUnit.Church => UnitTypeId.Church,
             AiUnit.MageHall => UnitTypeId.MageTower,
             AiUnit.AirHall => UnitTypeId.GryphonAviary,
+            AiUnit.Caster => UnitTypeId.Mage,
+            AiUnit.AirUnit => UnitTypeId.GryphonRider,
+            AiUnit.Shipyard => UnitTypeId.HumanShipyard,
+            AiUnit.Refinery => UnitTypeId.HumanRefinery,
+            AiUnit.Foundry => UnitTypeId.HumanFoundry,
+            AiUnit.OilWell => UnitTypeId.HumanOilWell,
+            AiUnit.Tanker => UnitTypeId.HumanTanker,
+            AiUnit.Warship => UnitTypeId.ElvenDestroyer,
+            AiUnit.Battleship => UnitTypeId.Battleship,
             _ => UnitTypeId.None,
         };
 
@@ -93,6 +118,15 @@ namespace Craftwar.Sim.Ai
             AiUnit.Church => UnitTypeId.AltarOfStorms,
             AiUnit.MageHall => UnitTypeId.TempleOfTheDamned,
             AiUnit.AirHall => UnitTypeId.DragonRoost,
+            AiUnit.Caster => UnitTypeId.DeathKnight,
+            AiUnit.AirUnit => UnitTypeId.Dragon,
+            AiUnit.Shipyard => UnitTypeId.OrcShipyard,
+            AiUnit.Refinery => UnitTypeId.OrcRefinery,
+            AiUnit.Foundry => UnitTypeId.OrcFoundry,
+            AiUnit.OilWell => UnitTypeId.OrcOilWell,
+            AiUnit.Tanker => UnitTypeId.OrcTanker,
+            AiUnit.Warship => UnitTypeId.TrollDestroyer,
+            AiUnit.Battleship => UnitTypeId.Juggernaught,
             _ => UnitTypeId.None,
         };
 
@@ -107,6 +141,13 @@ namespace Craftwar.Sim.Ai
                 AiUpgrade.Missile2 => UpgradeId.Spear2,
                 AiUpgrade.RangedUnlock => UpgradeId.TrainBerserkers,
                 AiUpgrade.CavalryUnlock => UpgradeId.TrainOgreMages,
+                AiUpgrade.EliteRanged1 => UpgradeId.LighterAxes,
+                AiUpgrade.EliteRanged2 => UpgradeId.BerserkerScouting,
+                AiUpgrade.EliteRanged3 => UpgradeId.BerserkerRegeneration,
+                AiUpgrade.NavalWeapon1 => UpgradeId.OrcShipCannon1,
+                AiUpgrade.NavalWeapon2 => UpgradeId.OrcShipCannon2,
+                AiUpgrade.NavalArmor1 => UpgradeId.OrcShipArmor1,
+                AiUpgrade.NavalArmor2 => UpgradeId.OrcShipArmor2,
                 _ => UpgradeId.None,
             }
             : u switch
@@ -119,6 +160,13 @@ namespace Craftwar.Sim.Ai
                 AiUpgrade.Missile2 => UpgradeId.Arrow2,
                 AiUpgrade.RangedUnlock => UpgradeId.TrainRangers,
                 AiUpgrade.CavalryUnlock => UpgradeId.TrainPaladins,
+                AiUpgrade.EliteRanged1 => UpgradeId.Longbow,
+                AiUpgrade.EliteRanged2 => UpgradeId.RangerScouting,
+                AiUpgrade.EliteRanged3 => UpgradeId.RangerMarksmanship,
+                AiUpgrade.NavalWeapon1 => UpgradeId.HumanShipCannon1,
+                AiUpgrade.NavalWeapon2 => UpgradeId.HumanShipCannon2,
+                AiUpgrade.NavalArmor1 => UpgradeId.HumanShipArmor1,
+                AiUpgrade.NavalArmor2 => UpgradeId.HumanShipArmor2,
                 _ => UpgradeId.None,
             };
     }

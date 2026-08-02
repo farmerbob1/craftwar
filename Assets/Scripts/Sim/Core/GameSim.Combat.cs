@@ -204,7 +204,14 @@ namespace Craftwar.Sim
                             continue; // own or neutral
                         if (!CanTargetUnit(ref row, other.TypeId))
                             continue;
-                        // You cannot shoot what your sonar has not found.
+                        // You cannot shoot what your sonar has not found —
+                        // and, since IsUnitDetected also gates Invisibility,
+                        // this is the only place that check applies: an
+                        // already-locked explicit Attack order keeps hitting
+                        // its target even if it turns invisible mid-fight,
+                        // since the chase/swing logic below never re-checks
+                        // detection, only whether the target handle still
+                        // resolves.
                         if (!IsUnitDetected(u.Player, ref other))
                             continue;
                         int dist = FootprintDistance(ref u, ref other);
@@ -257,7 +264,14 @@ namespace Craftwar.Sim
             // standing there (or nearby) when it lands, exactly like the
             // original's BULLET.C (it is not a homing missile despite sharing
             // the projectile pool with one).
-            bool splash = row.Is(UnitTypeFlags.CanGroundAttack);
+            //
+            // Gryphon Rider / Dragon get the same ground-targeted splash shot,
+            // but BULLET.C hard-codes these two unit types (not a UDTA flag) to
+            // keep drifting past the impact point afterward, re-splashing every
+            // few ticks instead of stopping at one hit.
+            bool chainFireball = attacker.TypeId == (ushort)UnitTypeId.GryphonRider
+                || attacker.TypeId == (ushort)UnitTypeId.Dragon;
+            bool splash = row.Is(UnitTypeFlags.CanGroundAttack) || chainFireball;
             int damage = splash
                 ? EffectiveStrength(ref attacker) + EffectivePierce(ref attacker)
                 : RollDamage(ref attacker, ref target);
@@ -286,6 +300,9 @@ namespace Craftwar.Sim
                         SourceUnit = new UnitId((ushort)attackerIndex, attacker.Gen).Packed,
                         Damage = damage,
                         SourcePlayer = attacker.Player,
+                        ChainPulsesRemaining = (ushort)(chainFireball ? SimConstants.FireballChainPulses : 0),
+                        ChainStepX = (sbyte)Sign(destX - startX),
+                        ChainStepY = (sbyte)Sign(destY - startY),
                     };
                 }
                 else
@@ -316,6 +333,10 @@ namespace Craftwar.Sim
         void ApplyDamage(int targetIndex, int damage, byte attacker)
         {
             ref Unit target = ref State.Units[targetIndex];
+            // Unholy Armor: total immunity while it lasts (DAMAGE.C
+            // damage_damage_unit: `if (pTarget->unitArmor || !bDamage) return;`).
+            if (target.ArmorTicks > 0)
+                return;
             target.Hp -= damage;
             NotifyUnderAttack(ref target, targetIndex);
             if (target.Hp > 0)
@@ -323,6 +344,14 @@ namespace Craftwar.Sim
 
             CreditKill(attacker, target.Player, (target.Flags & UnitFlags.Building) != 0);
             var deadId = new UnitId((ushort)targetIndex, target.Gen);
+
+            // Raise Dead's scan target (SPELL.C action_raisedead) — only a
+            // fleshy unit leaves one, never a building, ship or existing
+            // undead corpse.
+            if ((target.Flags & UnitFlags.Building) == 0
+                && State.Rules.Units[target.TypeId].Is(UnitTypeFlags.Organic)
+                && !State.Rules.Units[target.TypeId].Is(UnitTypeFlags.Undead))
+                State.RegisterCorpse(target.TileX, target.TileY);
 
             bool carriedTroops = target.CargoCount > 0;
             // A razed construction site must free the builder hidden inside it,
@@ -386,9 +415,19 @@ namespace Craftwar.Sim
                     int sdy = proj.DestPixY - proj.PixY;
                     if (sdx >= -speed && sdx <= speed && sdy >= -speed && sdy <= speed)
                     {
-                        proj.Active = false;
                         ApplySplashDamage(proj.DestPixX, proj.DestPixY, proj.Damage,
                             proj.SourcePlayer, proj.SourceUnit);
+                        if (proj.ChainPulsesRemaining > 0)
+                        {
+                            // Gryphon/dragon fireball: keep drifting past the
+                            // impact point and splash again, rather than
+                            // stopping at this one hit.
+                            proj.ChainPulsesRemaining--;
+                            proj.DestPixX += proj.ChainStepX * SimConstants.FireballChainStepPx;
+                            proj.DestPixY += proj.ChainStepY * SimConstants.FireballChainStepPx;
+                            continue;
+                        }
+                        proj.Active = false;
                         continue;
                     }
                     proj.PixX += sdx > speed ? speed : sdx < -speed ? -speed : sdx;

@@ -168,6 +168,7 @@ namespace Craftwar.Sim.Ai
             if (_tier.Scouting)
                 GenScout();
             GenEconomy();
+            GenNaval();
             GenTrain();
             GenResearch();
             GenMilitary();

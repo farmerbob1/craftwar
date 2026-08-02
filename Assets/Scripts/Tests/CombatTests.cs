@@ -149,6 +149,64 @@ namespace Craftwar.Sim.Tests
                 "the bystander standing where the shot actually landed must take splash damage");
         }
 
+        /// <summary>
+        /// BULLET.C hard-codes O_DRAGON/H_GRIFFON in bullet_create_fireball to
+        /// keep drifting past the impact point after the first hit, re-running
+        /// the splash every few ticks instead of stopping at one impact — a
+        /// short chain of explosions, unlike the single-hit catapult/ballista
+        /// splash. Regression test for a bug where gryphons/dragons landed a
+        /// single direct hit like an ordinary homing arrow.
+        /// </summary>
+        [Test]
+        public unsafe void GryphonRider_FireballChainsMultipleSplashPulses()
+        {
+            var pud = MakeMap(
+                (UnitTypeId.GryphonRider, 0, 10, 10),
+                (UnitTypeId.Footman, 1, 10, 14)); // 4 tiles south: at max range
+            var sim = new GameSim(7);
+            sim.Setup(pud, RuleSet.CreateDefault());
+            sim.Advance(new List<GameCommand> { AttackOrder(sim, 0, 1) });
+
+            var none = new List<GameCommand>();
+            int projSlot = -1;
+            for (int t = 0; t < 200 && projSlot < 0; t++)
+            {
+                sim.Advance(none);
+                for (int p = 0; p < sim.State.Projectiles.Length; p++)
+                    if (sim.State.Projectiles[p].Active && sim.State.Projectiles[p].Splash)
+                    {
+                        projSlot = p;
+                        break;
+                    }
+            }
+            Assert.GreaterOrEqual(projSlot, 0, "gryphon must fire a ground-targeted splash shot");
+            Assert.AreEqual(SimConstants.FireballChainPulses,
+                sim.State.Projectiles[projSlot].ChainPulsesRemaining,
+                "a fresh fireball still has all its chain pulses ahead of it");
+
+            // Each pulse re-runs damage_area at an impact point that keeps
+            // drifting forward, so — exactly like the original — only the
+            // first pulse reliably lands on a stationary target; the rest are
+            // a trail of explosions past it. What must hold is the pulse
+            // countdown itself: 3 further splashes after the first hit,
+            // rather than the projectile just vanishing on first contact.
+            int lastPulses = sim.State.Projectiles[projSlot].ChainPulsesRemaining;
+            int pulseEvents = 0;
+            int footmanHpBefore = sim.State.Units[1].Hp;
+            for (int t = 0; t < 120 && sim.State.Projectiles[projSlot].Active; t++)
+            {
+                sim.Advance(none);
+                int pulses = sim.State.Projectiles[projSlot].ChainPulsesRemaining;
+                if (pulses < lastPulses)
+                    pulseEvents++;
+                lastPulses = pulses;
+            }
+            Assert.AreEqual(SimConstants.FireballChainPulses, pulseEvents,
+                "the fireball must re-splash on every chain pulse before it expires");
+            Assert.Less(sim.State.Units[1].Hp, footmanHpBefore,
+                "the first (point-blank) pulse must still land on the target");
+        }
+
         [Test]
         public void OutOfReactRange_NoFight()
         {

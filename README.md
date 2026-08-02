@@ -19,17 +19,20 @@ be a modern RTS front end.
 ## Status
 
 Playable single-player skirmish against computer opponents on the original melee
-maps: full tech tree, economy, naval and air units, fog of war, minimap, control
-groups, replays, and a data-driven utility-based AI. LAN and online multiplayer
-both work — host or join a match over LAN discovery, or through a self-hosted
-relay server with accounts and room browsing.
+maps: full tech tree, economy, naval and air units, Mage Tower/Temple of the
+Damned spellcasting (mana, cast range, corpse-based Raise Dead, Blizzard/
+Whirlwind/Death and Decay hazards, Runes' five-charge proximity traps), fog of
+war, minimap, control groups, replays, and a data-driven utility-based AI. LAN
+and online multiplayer both work — host or join a match over LAN discovery, or
+through a self-hosted relay server with accounts and room browsing.
 
-Milestones **M0–M11** are complete (scaffold, map pipeline, movement, combat,
-economy, tech tree, fog/minimap/sound, naval/air, HUD, AI, LAN lockstep, and
-online play via a self-hosted relay server). **M12** (a Battle.net-style social
-layer — chat channels, friends/presence, clans) is in progress. The campaign
-track (M13) is still ahead. `PROGRESS.md` is the running log and is the place
-to start if you want the detail.
+Milestones **M0–M14** are complete (scaffold, map pipeline, movement, combat,
+economy, tech tree, fog/minimap/sound, naval/air, HUD, AI, LAN lockstep, online
+play via a self-hosted relay server, lobby/matchmaking polish, and baking every
+Warcraft II asset into the project so Play mode never touches a live install).
+Spellcasting and the social layer (chat channels, friends/presence, clans) are
+the current focus. `PROGRESS.md` is the running log and is the place to start
+if you want the detail.
 
 ---
 

@@ -20,6 +20,12 @@ namespace Craftwar.Sim
     ///    is missed. <see cref="Damage"/> holds the attacker's raw (pre-armor)
     ///    strength+pierce; each victim's own armor is applied at impact
     ///    (DAMAGE.C/BULLET.C <c>damage_area_unit</c>).
+    ///  * Chained fireball (<see cref="Splash"/> true, <see cref="ChainPulsesRemaining"/>
+    ///    nonzero) — Gryphon Rider / Dragon: BULLET.C hard-codes these two unit
+    ///    types (<c>O_DRAGON</c>/<c>H_GRIFFON</c>, <c>bullet_create_fireball</c>)
+    ///    to keep drifting past the impact point after arrival, re-splashing
+    ///    every few ticks instead of stopping at one hit — one attack lands as
+    ///    a short trail of explosions rather than a single impact.
     /// </summary>
     public struct Projectile
     {
@@ -34,6 +40,9 @@ namespace Craftwar.Sim
         public uint SourceUnit;    // shooter, UnitId.Packed — excluded from its own splash
         public int Damage;         // homing: pre-rolled. splash: raw strength+pierce.
         public byte SourcePlayer;
+        public ushort ChainPulsesRemaining; // pulses left after this one (fireball/blizzard/whirlwind/rot)
+        public sbyte ChainStepX;   // -1/0/1: direction the impact point drifts per pulse
+        public sbyte ChainStepY;
 
         public void HashInto(ref StateHash h)
         {
@@ -48,6 +57,9 @@ namespace Craftwar.Sim
             h.Add(SourceUnit);
             h.Add(Damage);
             h.Add(SourcePlayer);
+            h.Add(ChainPulsesRemaining);
+            h.Add((byte)ChainStepX);
+            h.Add((byte)ChainStepY);
         }
     }
 }

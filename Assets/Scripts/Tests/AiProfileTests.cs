@@ -18,8 +18,8 @@ namespace Craftwar.Sim.Tests
             Assert.AreEqual(16, p.WorkerTarget);
             Assert.IsNotEmpty(p.BuildOrder);
             Assert.AreEqual(AiUnit.Hall, p.BuildOrder[0]);
-            Assert.AreEqual(4, p.Army.Length);
-            Assert.AreEqual(8, p.Research.Length);
+            Assert.AreEqual(9, p.Army.Length);
+            Assert.AreEqual(15, p.Research.Length);
         }
 
         [Test]

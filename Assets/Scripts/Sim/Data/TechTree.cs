@@ -333,6 +333,53 @@ namespace Craftwar.Sim
             { UpgradeId.OrcShipCannon1, UpgradeId.OrcShipCannon2,
               UpgradeId.OrcShipArmor1, UpgradeId.OrcShipArmor2 };
 
+        static readonly UpgradeId[] PaladinSpells = { UpgradeId.Healing, UpgradeId.Exorcism };
+        static readonly UpgradeId[] OgreMageSpells = { UpgradeId.Bloodlust, UpgradeId.Runes };
+
+        /// <summary>
+        /// Which researched spells a specific caster type may actually cast —
+        /// not every CanCast unit gets every spell its owner has researched;
+        /// a Paladin never gets the Mage's Blizzard just because the same
+        /// player also built a Mage Tower. GameSim.ApplyCastCommand and the
+        /// command card both gate on this.
+        /// </summary>
+        public static UpgradeId[] CastableSpellsFor(UnitTypeId caster) => caster switch
+        {
+            UnitTypeId.Paladin => PaladinSpells,
+            UnitTypeId.OgreMage => OgreMageSpells,
+            UnitTypeId.Mage => MageTowerResearch,
+            UnitTypeId.DeathKnight => TempleResearch,
+            _ => NoUpgrades,
+        };
+
+        /// <summary>DSPTBL.C gbRangedOrderTbl's RANGE_* entries: how close (in
+        /// tiles, Chebyshev — same convention as GameSim.FootprintDistance) a
+        /// caster must be before the spell fires, exact from the original.</summary>
+        public static int CastRangeFor(UpgradeId spell) => spell switch
+        {
+            UpgradeId.Healing => 6,
+            UpgradeId.Exorcism => 10,
+            UpgradeId.Bloodlust => 6,
+            UpgradeId.Runes => 10,
+            UpgradeId.Slow => 10,
+            UpgradeId.Haste => 6,
+            UpgradeId.Invisibility => 6,
+            UpgradeId.Polymorph => 10,
+            UpgradeId.FlameShield => 6,
+            UpgradeId.UnholyArmor => 6,
+            UpgradeId.RaiseDead => 6,
+            UpgradeId.Blizzard => 12,
+            UpgradeId.Whirlwind => 12,
+            UpgradeId.DeathAndDecay => 12,
+            _ => 6,
+        };
+
+        /// <summary>Spells that land on a tile rather than needing a unit
+        /// under the cursor (GameSim.Spells.cs CastAreaBlast/CastRaiseDead).</summary>
+        public static bool IsGroundTargetSpell(UpgradeId spell) => spell is UpgradeId.Runes
+            or UpgradeId.Blizzard or UpgradeId.Whirlwind or UpgradeId.DeathAndDecay
+            or UpgradeId.RaiseDead;
+
         public static UpgradeId[] Research(UnitTypeId building) => building switch
         {
             UnitTypeId.HumanFoundry => HFoundryResearch,

@@ -36,6 +36,12 @@ namespace Craftwar.Sim
         /// </summary>
         Pause,
         Resume,
+
+        /// <summary>A carrying worker/tanker walks its current cargo to the
+        /// nearest compatible depot, same as finishing a normal harvest trip
+        /// — no target needed, the sim already knows how to find one
+        /// (<c>GameSim.FindDepot</c>).</summary>
+        ReturnGoods,
     }
 
     /// <summary>

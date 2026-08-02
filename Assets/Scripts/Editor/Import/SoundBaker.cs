@@ -33,6 +33,21 @@ namespace Craftwar.EditorTools
                 new() { id = SoundId.MineCollapsed, clip = Import(source, Wc2SoundCatalog.BldgMineCollapse, clipCache) },
                 new() { id = SoundId.Denied, clip = Import(source, Wc2SoundCatalog.SfxError, clipCache) },
                 new() { id = SoundId.PlacementBlocked, clip = Import(source, Wc2SoundCatalog.SfxError, clipCache) },
+                new() { id = SoundId.SpellHeal, clip = Import(source, Wc2SoundCatalog.SpellHeal, clipCache) },
+                new() { id = SoundId.SpellExorcism, clip = Import(source, Wc2SoundCatalog.SpellExorcism, clipCache) },
+                new() { id = SoundId.SpellBloodlust, clip = Import(source, Wc2SoundCatalog.SpellBloodlust, clipCache) },
+                new() { id = SoundId.SpellRunes, clip = Import(source, Wc2SoundCatalog.SpellRunes, clipCache) },
+                new() { id = SoundId.SpellSlow, clip = Import(source, Wc2SoundCatalog.SpellSlow, clipCache) },
+                new() { id = SoundId.SpellHaste, clip = Import(source, Wc2SoundCatalog.SpellHaste, clipCache) },
+                new() { id = SoundId.SpellInvisibility, clip = Import(source, Wc2SoundCatalog.SpellInvisibility, clipCache) },
+                new() { id = SoundId.SpellPolymorph, clip = Import(source, Wc2SoundCatalog.SpellPolymorph, clipCache) },
+                new() { id = SoundId.SpellFlameShield, clip = Import(source, Wc2SoundCatalog.SpellFlameShield, clipCache) },
+                new() { id = SoundId.SpellUnholyArmor, clip = Import(source, Wc2SoundCatalog.SpellUnholyArmor, clipCache) },
+                new() { id = SoundId.SpellRaiseDead, clip = Import(source, Wc2SoundCatalog.SpellRaiseDead, clipCache) },
+                new() { id = SoundId.SpellBlizzard, clip = Import(source, Wc2SoundCatalog.SpellBlizzard, clipCache) },
+                new() { id = SoundId.SpellWhirlwind, clip = Import(source, Wc2SoundCatalog.SpellWhirlwind, clipCache) },
+                new() { id = SoundId.SpellDeathAndDecay, clip = Import(source, Wc2SoundCatalog.SpellDeathAndDecay, clipCache) },
+                new() { id = SoundId.RuneExplode, clip = Import(source, Wc2SoundCatalog.MiscExplode, clipCache) },
             };
 
             var variants = new List<SoundTable.VariantEntry>();

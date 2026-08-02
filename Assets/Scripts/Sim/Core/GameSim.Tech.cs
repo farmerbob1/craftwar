@@ -309,6 +309,7 @@ namespace Craftwar.Sim
                 t.Hp += hpDiff;
                 if (t.Hp < 1)
                     t.Hp = 1;
+                InitCasterMana(ref t);
             }
         }
 
@@ -379,7 +380,9 @@ namespace Craftwar.Sim
             return level;
         }
 
-        public int EffectiveStrength(ref Unit u)
+        public int EffectiveStrength(ref Unit u) => RageScale(ref u, EffectiveStrengthBase(ref u));
+
+        int EffectiveStrengthBase(ref Unit u)
         {
             ref UnitTypeData row = ref State.Rules.Units[u.TypeId];
             int s = row.BasicDamage;
@@ -404,7 +407,9 @@ namespace Craftwar.Sim
             return s;
         }
 
-        public int EffectivePierce(ref Unit u)
+        public int EffectivePierce(ref Unit u) => RageScale(ref u, EffectivePierceBase(ref u));
+
+        int EffectivePierceBase(ref Unit u)
         {
             ref UnitTypeData row = ref State.Rules.Units[u.TypeId];
             int pd = row.PiercingDamage;
@@ -418,6 +423,11 @@ namespace Craftwar.Sim
                 pd += row.BasicDamage; // the strength moved over from EffectiveStrength
             return pd;
         }
+
+        /// <summary>Bloodlust doubles both damage components while it lasts
+        /// (DAMAGE.C damage_unit_strength/damage_unit_pierce: <c>if (unitRage)
+        /// wDamage *= 2</c>) — applied last, after every other modifier.</summary>
+        static int RageScale(ref Unit u, int value) => u.RageTicks > 0 ? value * 2 : value;
 
         public int EffectiveArmor(ref Unit u)
         {

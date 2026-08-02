@@ -76,10 +76,18 @@ namespace Craftwar.Sim
 
         /// <summary>
         /// A submerged unit is only visible — and only targetable — where the
-        /// player has a detector. Own submarines always resolve.
+        /// player has a detector. Own submarines always resolve. An
+        /// Invisibility-spelled unit (SPELL.C action_invis) works the same
+        /// way but with no detector counter-play at all: invisible to every
+        /// other player, full stop, for as long as Unit.InvisTicks lasts.
+        /// This one check gates combat auto-acquisition (FindTargetInRange),
+        /// world-input target resolution, and rendering (UnitViewPool via
+        /// IsUnitVisible) all at once.
         /// </summary>
         public bool IsUnitDetected(int player, ref Unit u)
         {
+            if (u.InvisTicks > 0 && u.Player != player)
+                return false;
             if (!State.Rules.Units[u.TypeId].Is(UnitTypeFlags.Submarine))
                 return true;
             if (u.Player == player)

@@ -68,9 +68,17 @@ Race-neutral — resolved to Human/Orc types automatically.
 
 - **Roles**: `Worker Soldier Archer Cavalry Siege Hall Keep Castle Farm Barracks
   LumberMill Blacksmith ScoutTower GuardTower CannonTower CavalryHall Church MageHall
-  AirHall`
+  AirHall Caster AirUnit Shipyard Refinery Foundry OilWell Tanker Warship Battleship`
+  — `Caster` (Mage / Death Knight) trains at `MageHall`; `AirUnit` (Gryphon Rider /
+  Dragon) trains at `AirHall`; `Tanker`/`Warship`/`Battleship` train at `Shipyard`
+  (Battleship also needs a `Foundry`). `OilWell` is raised by a `Tanker`, not a
+  worker, so it never belongs in a `build` line — put `Tanker` in `army` instead and
+  the AI raises platforms on its own once one is idle.
 - **Upgrades**: `Weapon1 Weapon2 Armor1 Armor2 Missile1 Missile2 RangedUnlock
-  CavalryUnlock`
+  CavalryUnlock EliteRanged1 EliteRanged2 EliteRanged3 NavalWeapon1 NavalWeapon2
+  NavalArmor1 NavalArmor2` — the `EliteRanged*` trio needs a `Castle`/`Fortress`
+  (Longbow/Lighter Axes, Scouting, Marksmanship/Regeneration); `NavalWeapon*`/
+  `NavalArmor*` need a `Foundry`.
 
 ### Weights
 

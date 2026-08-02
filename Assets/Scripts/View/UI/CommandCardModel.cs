@@ -20,6 +20,8 @@ namespace Craftwar.View
         Harvest,
         Repair,
         Unload,           // transport puts its passengers ashore at a clicked tile
+        Cast,             // caster targets a spell; Param = UpgradeId
+        ReturnGoods,      // carrying worker/tanker heads for the nearest depot; no target
 
         // Page navigation on a worker's card.
         BuildBasicMenu,
@@ -68,6 +70,11 @@ namespace Craftwar.View
         public ulong StructureHash { get; private set; }
 
         readonly UnitTypeId[] _menuScratch = new UnitTypeId[32];
+        /// <summary>Distinct CanCast unit types in the current selection —
+        /// each contributes its own spell list (TechTree.CastableSpellsFor)
+        /// to the card, so a Paladin never shows a Mage's spells.</summary>
+        readonly ushort[] _casterTypeScratch = new ushort[4];
+        int _casterTypeCount;
 
         public ulong ComputeStructureHash(GameState state, SelectionState sel, byte player)
         {
@@ -84,7 +91,8 @@ namespace Craftwar.View
                     + packed
                     + (f << 32)
                     + ((ulong)u.BuildType << 40)
-                    + ((ulong)u.ResearchId << 52);
+                    + ((ulong)u.ResearchId << 52)
+                    + ((ulong)u.Carry << 60);
             }
             return h;
         }
@@ -180,7 +188,8 @@ namespace Craftwar.View
             }
 
             bool hasWorker = false, hasMobile = false, canAttack = false;
-            bool hasTanker = false, hasTransport = false;
+            bool hasTanker = false, hasTransport = false, hasCarrier = false;
+            _casterTypeCount = 0;
             int building = -1;
             foreach (uint packed in sel)
             {
@@ -208,6 +217,16 @@ namespace Craftwar.View
                     hasTransport = true;
                 if (row.Is(UnitTypeFlags.CanAttack))
                     canAttack = true;
+                if (row.Is(UnitTypeFlags.CanCast))
+                {
+                    bool seen = false;
+                    for (int k = 0; k < _casterTypeCount; k++)
+                        if (_casterTypeScratch[k] == u.TypeId) { seen = true; break; }
+                    if (!seen && _casterTypeCount < _casterTypeScratch.Length)
+                        _casterTypeScratch[_casterTypeCount++] = u.TypeId;
+                }
+                if (u.Carry != CarryType.None)
+                    hasCarrier = true;
             }
 
             // Selection keeps buildings and units apart (see
@@ -219,7 +238,7 @@ namespace Craftwar.View
                     BuildWorkerMenu(sim, state, player, hasTanker && !hasWorker);
                 else
                     BuildActionMenu(hasWorker, canAttack, sim, state, player,
-                        hasTanker, hasTransport);
+                        hasTanker, hasTransport, hasCarrier);
                 return;
             }
             if (building >= 0)
@@ -233,7 +252,8 @@ namespace Craftwar.View
         /// </summary>
         void BuildActionMenu(bool hasWorker, bool canAttack,
             GameSim sim, GameState state, byte player,
-            bool hasTanker = false, bool hasTransport = false)
+            bool hasTanker = false, bool hasTransport = false,
+            bool hasCarrier = false)
         {
             Slots[0] = Action(CommandSlotKind.Move, "Move");
             Slots[1] = Action(CommandSlotKind.Stop, "Stop");
@@ -247,15 +267,46 @@ namespace Craftwar.View
 
             if (hasTanker)
             {
-                // Tankers pump oil and raise platforms; they have no other jobs.
-                Slots[4] = Action(CommandSlotKind.Harvest, "Harvest Oil");
+                // Tankers pump oil and raise platforms; they have no other
+                // jobs — except when already holding a load, in which case
+                // the same slot offers to go drop it off instead.
+                Slots[4] = hasCarrier
+                    ? Action(CommandSlotKind.ReturnGoods, "Return Goods")
+                    : Action(CommandSlotKind.Harvest, "Harvest Oil");
                 if (CountTankerBuildable(sim, state, player) > 0)
                     Slots[6] = Action(CommandSlotKind.BuildBasicMenu, "Build");
             }
 
+            if (_casterTypeCount > 0)
+            {
+                ulong researched = state.Players[player].Researched;
+                int slot = 4;
+                for (int c = 0; c < _casterTypeCount && slot <= 8; c++)
+                {
+                    var spells = TechTree.CastableSpellsFor((UnitTypeId)_casterTypeScratch[c]);
+                    foreach (var spell in spells)
+                    {
+                        if (slot > 8 || (researched & (1ul << (int)spell)) == 0)
+                            continue;
+                        Slots[slot++] = new CommandSlot
+                        {
+                            Kind = CommandSlotKind.Cast,
+                            Param = (ushort)spell,
+                            BuildingSlot = -1,
+                            Label = UnitNames.Of(spell),
+                            Enabled = true,
+                        };
+                    }
+                }
+            }
+
             if (!hasWorker)
                 return;
-            Slots[4] = Action(CommandSlotKind.Harvest, "Harvest");
+            // A worker already holding a load offers to deliver it instead
+            // of starting a fresh harvest — same slot, same hotkey.
+            Slots[4] = hasCarrier
+                ? Action(CommandSlotKind.ReturnGoods, "Return Goods")
+                : Action(CommandSlotKind.Harvest, "Harvest");
             Slots[5] = Action(CommandSlotKind.Repair, "Repair");
             // Hide a page button with nothing behind it — early game the
             // advanced structures are all still gated.
@@ -437,6 +488,8 @@ namespace Craftwar.View
                     case CommandSlotKind.Harvest:
                     case CommandSlotKind.Repair:
                     case CommandSlotKind.Unload:
+                    case CommandSlotKind.Cast:
+                    case CommandSlotKind.ReturnGoods:
                     case CommandSlotKind.BuildBasicMenu:
                     case CommandSlotKind.BuildAdvancedMenu:
                     case CommandSlotKind.BackToActions:

@@ -277,6 +277,18 @@
     margin-top: 2px;
 }
 
+.sel-mana-bar {
+    width: 56px;
+    height: 5px;
+    margin-top: 2px;
+}
+
+.sel-mana-text {
+    color: var(--cw-text);
+    font-size: 11px;
+    margin-top: 2px;
+}
+
 .sel-info {
     flex-grow: 1;
     justify-content: center;

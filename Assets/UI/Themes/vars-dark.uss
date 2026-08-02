@@ -23,6 +23,7 @@
     --cw-hp-mid: rgb(240, 196, 32);
     --cw-hp-low: rgb(214, 58, 46);
     --cw-warn: rgb(214, 58, 46);
+    --cw-mana: rgb(64, 140, 219);
 
     --cw-btn-bg: rgb(38, 41, 47);
     --cw-btn-bg-hover: rgb(52, 56, 64);

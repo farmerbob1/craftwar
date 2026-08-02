@@ -20,8 +20,9 @@ namespace Craftwar.View
         readonly UIState _ui;
 
         readonly VisualElement _single;
-        readonly Label _portraitInitials, _name, _level, _hpText;
+        readonly Label _portraitInitials, _name, _level, _hpText, _manaText;
         readonly VisualElement _hpFill, _portrait;
+        readonly VisualElement _manaBar, _manaFill;
         IIconProvider _icons;
 
         readonly VisualElement[] _statRows = new VisualElement[(int)Stat.Count];
@@ -35,11 +36,13 @@ namespace Craftwar.View
         readonly VisualElement _grid;
         readonly UnitTileView[] _tiles = new UnitTileView[GameCommand.MaxSelection];
 
-        string _lastName, _lastLevel, _lastHpText, _lastProgress;
+        string _lastName, _lastLevel, _lastHpText, _lastProgress, _lastManaText;
         ushort _lastPortraitType = ushort.MaxValue;
         bool _levelShown = true;
+        bool _manaShown = true; // seeded true, same reasoning as _singleShown below
         int _lastHpPercent = -1;
         HpBand _lastBand = HpBand.None;
+        int _lastManaPercent = -1;
         int _lastProgressPercent = -1;
         // Seeded true so the constructor's initial hide is not swallowed by the
         // no-op guards below.
@@ -70,6 +73,18 @@ namespace Craftwar.View
             portraitCol.Add(hpBar);
 
             _hpText = AddLabel(portraitCol, "sel-hp-text");
+
+            // Mana bar: only shown for CanCast units — hidden by default,
+            // toggled per-selection in RenderSingle.
+            _manaBar = new VisualElement { pickingMode = PickingMode.Ignore };
+            _manaBar.AddToClassList("bar");
+            _manaBar.AddToClassList("sel-mana-bar");
+            _manaFill = new VisualElement { pickingMode = PickingMode.Ignore };
+            _manaFill.AddToClassList("bar__fill");
+            _manaFill.AddToClassList("bar__fill--mana");
+            _manaBar.Add(_manaFill);
+            portraitCol.Add(_manaBar);
+            _manaText = AddLabel(portraitCol, "sel-mana-text");
             header.Add(portraitCol);
 
             var info = Column("sel-info");
@@ -286,6 +301,31 @@ namespace Craftwar.View
                 _hpText.text = hpText;
             }
             HpBarUtil.Apply(_hpFill, u.Hp, row.Hp, ref _lastHpPercent, ref _lastBand);
+
+            bool showMana = row.Is(UnitTypeFlags.CanCast);
+            if (showMana != _manaShown)
+            {
+                _manaShown = showMana;
+                _manaBar.EnableInClassList("selection__hidden", !showMana);
+                _manaText.EnableInClassList("selection__hidden", !showMana);
+            }
+            if (showMana)
+            {
+                string manaText = u.Mana + "/" + SimConstants.MaxMana;
+                if (manaText != _lastManaText)
+                {
+                    _lastManaText = manaText;
+                    _manaText.text = manaText;
+                }
+                // No colour banding for mana — it's a resource, not a health
+                // warning; the fill's flat blue comes from bar__fill--mana.
+                int manaPercent = u.Mana * 100 / SimConstants.MaxMana;
+                if (manaPercent != _lastManaPercent)
+                {
+                    _lastManaPercent = manaPercent;
+                    _manaFill.style.width = Length.Percent(manaPercent);
+                }
+            }
 
             bool isBuilding = (u.Flags & UnitFlags.Building) != 0;
             bool canAttack = row.Is(UnitTypeFlags.CanAttack);

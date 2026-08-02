@@ -210,11 +210,19 @@ namespace Craftwar.View
                 case CommandSlotKind.Unload:
                     _ui.BeginOrder(PendingOrderKind.Unload);
                     return;
+                case CommandSlotKind.Cast:
+                    _ui.BeginOrder(PendingOrderKind.Cast, spell: s.Param);
+                    return;
 
-                // Stop needs no target.
+                // Stop and Return Goods need no target — the sim already
+                // knows where "home" is (GameSim.FindDepot).
                 case CommandSlotKind.Stop:
                     _ui.ClearPendingOrder();
                     SubmitSelection(CommandOp.Stop);
+                    return;
+                case CommandSlotKind.ReturnGoods:
+                    _ui.ClearPendingOrder();
+                    SubmitSelection(CommandOp.ReturnGoods);
                     return;
 
                 case CommandSlotKind.Train:
@@ -396,6 +404,9 @@ namespace Craftwar.View
                     PendingOrderKind.Harvest => "Select a mine or forest",
                     PendingOrderKind.Repair => "Select a building to repair",
                     PendingOrderKind.Unload => "Select a shore to unload at",
+                    PendingOrderKind.Cast => TechTree.IsGroundTargetSpell((UpgradeId)_ui.PendingSpell)
+                        ? "Select a spot to cast it"
+                        : "Select a target",
                     _ => string.Empty,
                 };
                 SetStatus(prompt);

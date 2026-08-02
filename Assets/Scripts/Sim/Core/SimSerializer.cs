@@ -413,6 +413,16 @@ namespace Craftwar.Sim
             w.WriteUShort(u.RallyX); w.WriteUShort(u.RallyY);
             w.WriteUInt(u.Transport);
             w.WriteByte(u.CargoCount);
+            w.WriteByte(u.Mana);
+            w.WriteUShort(u.RageTicks);
+            w.WriteUShort((ushort)u.WarpTicks);
+            w.WriteUShort(u.InvisTicks);
+            w.WriteUShort(u.FireShieldTicks);
+            w.WriteUShort(u.ArmorTicks);
+            w.WriteByte(u.PendingSpell);
+            w.WriteUInt(u.SpellTargetUnit);
+            w.WriteUShort(u.SpellTargetX);
+            w.WriteUShort(u.SpellTargetY);
         }
 
         static Unit ReadUnit(ref ByteReader r) => new Unit
@@ -447,6 +457,16 @@ namespace Craftwar.Sim
             RallyX = r.ReadUShort(), RallyY = r.ReadUShort(),
             Transport = r.ReadUInt(),
             CargoCount = r.ReadByte(),
+            Mana = r.ReadByte(),
+            RageTicks = r.ReadUShort(),
+            WarpTicks = (short)r.ReadUShort(),
+            InvisTicks = r.ReadUShort(),
+            FireShieldTicks = r.ReadUShort(),
+            ArmorTicks = r.ReadUShort(),
+            PendingSpell = r.ReadByte(),
+            SpellTargetUnit = r.ReadUInt(),
+            SpellTargetX = r.ReadUShort(),
+            SpellTargetY = r.ReadUShort(),
         };
 
         // --- Run-length coding ---------------------------------------------------

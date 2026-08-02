@@ -117,6 +117,48 @@ namespace Craftwar.Sim.Tests
             Assert.IsTrue(anyChopped, "the map must lose a tree and open the tile");
         }
 
+        /// <summary>
+        /// A worker interrupted mid-delivery (Move/Attack/Stop all clear
+        /// Order/Harvest but never touch Carry) is left holding cargo with no
+        /// order to drop it off. Regression test for that stuck state: the
+        /// Return Goods command must pick it back up and finish the trip.
+        /// </summary>
+        [Test]
+        public void ReturnGoods_DeliversCargoAfterAnInterruptedTrip()
+        {
+            var sim = Boot(BaseMap());
+            int peasant = SlotOf(sim, UnitTypeId.Peasant);
+            int mine = SlotOf(sim, UnitTypeId.GoldMine);
+            uint minePacked = new UnitId((ushort)mine, sim.State.Units[mine].Gen).Packed;
+
+            var none = new List<GameCommand>();
+            sim.Advance(new List<GameCommand> { Cmd(sim, CommandOp.Harvest, peasant, targetUnit: minePacked) });
+            int t = 0;
+            for (; t < 2000 && sim.State.Units[peasant].Carry == CarryType.None; t++)
+                sim.Advance(none);
+            Assert.Less(t, 2000, "peasant must pick up a load");
+
+            // Interrupt the trip home: a Move order switches Order away from
+            // Harvest (TickHarvest's per-tick dispatch gates on Order ==
+            // Harvest, so the stale Harvest stage stops mattering) but never
+            // touches Carry, exactly like an Attack or a manual Stop would.
+            sim.Advance(new List<GameCommand> { Cmd(sim, CommandOp.Move, peasant, tx: 30, ty: 30) });
+            for (int i = 0; i < 100; i++)
+                sim.Advance(none);
+            Assert.AreEqual(CarryType.Gold, sim.State.Units[peasant].Carry,
+                "the interrupted worker keeps its load — this is the stuck state");
+            Assert.AreNotEqual(OrderType.Harvest, sim.State.Units[peasant].Order,
+                "the worker is off doing something else, not delivering the load");
+
+            int goldBefore = sim.State.Players[0].Gold;
+            sim.Advance(new List<GameCommand> { Cmd(sim, CommandOp.ReturnGoods, peasant) });
+            for (int i = 0; i < 3000 && sim.State.Units[peasant].Carry != CarryType.None; i++)
+                sim.Advance(none);
+
+            Assert.AreEqual(CarryType.None, sim.State.Units[peasant].Carry, "the load must be delivered");
+            Assert.Greater(sim.State.Players[0].Gold, goldBefore, "gold must actually arrive");
+        }
+
         [Test]
         public void BuildFarm_ConstructsRampsHpAndRaisesFood()
         {

@@ -297,6 +297,7 @@ namespace Craftwar.Sim
                                 ref Unit nu = ref State.Units[ui];
                                 nu.Hp = State.Rules.Units[trained].Hp;
                                 nu.Facing = 4; // south, fresh out the door
+                                InitCasterMana(ref nu);
                                 if (b.RallyX != 0 || b.RallyY != 0)
                                 {
                                     nu.Order = OrderType.Move;

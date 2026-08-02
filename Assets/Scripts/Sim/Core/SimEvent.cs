@@ -13,6 +13,8 @@ namespace Craftwar.Sim
         MineCollapsed,
         PlayerDefeated,       // Player = the slot that just lost
         PlayerVictorious,     // Player = the slot that just won
+        SpellCast,            // A = (ushort)UpgradeId, UnitPacked = caster
+        RuneTriggered,        // A = TileX, B = TileY — SPELL.C update_runes' gamesnd_explode
     }
 
     public enum DenyReason : byte

@@ -71,6 +71,16 @@ namespace Craftwar.View
         Texture2D MaskFor(ushort typeId, byte carry);
     }
 
+    /// <summary>Resolves in-flight projectile art; implemented by the asset
+    /// layer. May be null (nothing baked yet) — callers fall back to a
+    /// placeholder rather than treating it as an error.</summary>
+    public interface IMissileSpriteProvider
+    {
+        /// <summary>5 baked facings (N, NE, E, SE, S) mirrored for the other
+        /// three. Null when this missile type has no baked art.</summary>
+        Sprite Get(byte missileType, byte facing, out bool flipX);
+    }
+
     /// <summary>
     /// Projects sim units into pooled SpriteRenderers, interpolating between
     /// the previous and current tick positions. Pure view: never mutates sim
@@ -147,10 +157,12 @@ namespace Craftwar.View
         /// <summary>Shared with input and the UI; the pool only reads it.</summary>
         public SelectionState Selected { get; private set; }
 
-        public void Init(ISimHost host, IUnitSpriteProvider sprites, int mapHeight, SelectionState selection)
+        public void Init(ISimHost host, IUnitSpriteProvider sprites, int mapHeight, SelectionState selection,
+            IMissileSpriteProvider missileSprites = null)
         {
             _host = host;
             _sprites = sprites;
+            _missileSprites = missileSprites;
             _mapHeight = mapHeight;
             Selected = selection;
             _teamColorMaterial = Resources.Load<Material>(TeamColorResourcePath);
@@ -181,6 +193,11 @@ namespace Craftwar.View
         }
 
         readonly Dictionary<int, SpriteRenderer> _projectileViews = new Dictionary<int, SpriteRenderer>();
+        /// <summary>Last tick's sim pixel position per projectile slot, so
+        /// UpdateProjectiles can derive a travel direction — Projectile
+        /// itself carries no facing, only where it is now.</summary>
+        readonly Dictionary<int, Vector2Int> _prevProjPix = new Dictionary<int, Vector2Int>();
+        IMissileSpriteProvider _missileSprites;
 
         /// <summary>
         /// A unit that has left the sim but is still on screen: first its own
@@ -763,6 +780,10 @@ namespace Craftwar.View
                     psr.sprite = _projectileSprite;
                     psr.sortingOrder = 20000;
                     _projectileViews[p] = psr;
+                    // No prior tick to derive a heading from yet; South is as
+                    // good a default as any for the one frame it's visible.
+                    ref var fresh = ref state.Projectiles[p];
+                    _prevProjPix[p] = new Vector2Int(fresh.PixX, fresh.PixY);
                 }
                 if (_projectileViews.TryGetValue(p, out var sr))
                 {
@@ -770,11 +791,25 @@ namespace Craftwar.View
                     {
                         Destroy(sr.gameObject);
                         _projectileViews.Remove(p);
+                        _prevProjPix.Remove(p);
                         continue;
                     }
                     ref var proj = ref state.Projectiles[p];
                     sr.transform.position = new Vector3(
                         proj.PixX / 32f, _mapHeight - proj.PixY / 32f, 0f);
+
+                    Sprite art = null;
+                    bool flipX = false;
+                    if (_missileSprites != null)
+                    {
+                        Vector2Int prev = _prevProjPix.TryGetValue(p, out var pv)
+                            ? pv : new Vector2Int(proj.PixX, proj.PixY);
+                        byte facing = GameSim.FacingFrom(proj.PixX - prev.x, proj.PixY - prev.y);
+                        art = _missileSprites.Get(proj.MissileType, facing, out flipX);
+                    }
+                    sr.sprite = art != null ? art : _projectileSprite;
+                    sr.flipX = flipX;
+                    _prevProjPix[p] = new Vector2Int(proj.PixX, proj.PixY);
                 }
             }
         }
