@@ -331,8 +331,12 @@ namespace Craftwar.View
                 case CommandSlotKind.UpgradeTo:
                     return UnitIconTable.IconFor((UnitTypeId)s.Param);
                 case CommandSlotKind.Research:
+                case CommandSlotKind.Cast:
                     // Upgrades carry their icon in the data (UGRD offset 364),
-                    // indexing the same bank as the table.
+                    // indexing the same bank as the table. Spells are also
+                    // UpgradeId-keyed (s.Param is the spell's UpgradeId, same
+                    // as BeginOrder's Cast param below), so they share Research's
+                    // lookup rather than falling into the order-icon default.
                     var rules = _host?.Sim?.State.Rules;
                     return rules == null ? UnitIconTable.None : rules.Upgrades[s.Param].Icon;
                 default:

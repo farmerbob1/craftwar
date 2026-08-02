@@ -375,10 +375,15 @@ namespace Craftwar.Sim
         };
 
         /// <summary>Spells that land on a tile rather than needing a unit
-        /// under the cursor (GameSim.Spells.cs CastAreaBlast/CastRaiseDead).</summary>
+        /// under the cursor (GameSim.Spells.cs CastAreaBlast/CastRaiseDead).
+        /// Exorcism belongs here too: DSPTBL.C dispatches it via
+        /// dispatch_spell_area, not dispatch_spell_unit/fleshy — the caster
+        /// walks toward the clicked point itself (never re-chases a moving
+        /// unit) and then sweeps an expanding ring from there (see
+        /// GameSim.Spells.cs CastExorcism), exactly like Blizzard/Runes/Rot.</summary>
         public static bool IsGroundTargetSpell(UpgradeId spell) => spell is UpgradeId.Runes
             or UpgradeId.Blizzard or UpgradeId.Whirlwind or UpgradeId.DeathAndDecay
-            or UpgradeId.RaiseDead;
+            or UpgradeId.RaiseDead or UpgradeId.Exorcism;
 
         public static UpgradeId[] Research(UnitTypeId building) => building switch
         {

@@ -13,14 +13,19 @@ namespace Craftwar.Sim
     ///  * Heal/Bloodlust/Slow/Haste/Invisibility/Flame Shield/Unholy Armor
     ///    require the target to be the caster's own unit (the original
     ///    enforces this at the click-to-target cursor, not in the action
-    ///    routine itself); Exorcism/Polymorph require an enemy target
-    ///    (Exorcism additionally requires Undead).
+    ///    routine itself); Polymorph requires an enemy target. Exorcism needs
+    ///    no such simplification — it's ground-targeted and area-effect in
+    ///    the original too (see CastExorcism), so there's no single "the
+    ///    target" to restrict.
     ///  * Blizzard/Death and Decay reuse the exact chain-pulse mechanic
     ///    BULLET.C's disp_bullet_blizzard/rot use (a fixed number of repeat
-    ///    hits, exact damage and hit counts) but land all of them stationary;
-    ///    Whirlwind does too, though the original's typhoon also wanders
-    ///    slowly around its cast point for its whole 800-tick life
-    ///    (disp_bullet_typhoon) — the wandering itself isn't reproduced.
+    ///    hits, exact damage and hit counts, exact scatter for Blizzard/Death
+    ///    and Decay's 5 independent landing points); Death and Decay and
+    ///    Whirlwind land all their hits stationary, but Blizzard's shards
+    ///    genuinely fly in from the northwest each hit, per blizzard_shards
+    ///    (see SpawnAreaBlast/TickProjectiles). Whirlwind's original typhoon
+    ///    also wanders slowly around its cast point for its whole 800-tick
+    ///    life (disp_bullet_typhoon) — the wandering itself isn't reproduced.
     ///  * Flame Shield: exhaustively grepped for `unitFire` (its status flag)
     ///    across the whole available source — it is only ever a "don't
     ///    recast" / "can't target a flyer" guard. No damage-reflection or any
@@ -262,6 +267,13 @@ namespace Craftwar.Sim
                 u.PathCursor = 0;
                 u.Facing = FacingFrom(Sign(targetX - u.TileX), Sign(targetY - u.TileY));
                 ExecuteSpell(i, spell);
+                // Casting resolves in a single tick — with no other signal, the
+                // view has nothing to tell it the caster just did something and
+                // would leave it standing. Reusing the attack cooldown is what
+                // already drives the attack-pose window for a normal swing (see
+                // UnitViewPool.PickAnimBlock), so a cast plays the same pose for
+                // the same brief window, with no new view-side concept needed.
+                u.Cooldown = (byte)SimConstants.AttackCooldownTicks;
                 CancelCast(ref u);
             }
         }
@@ -357,10 +369,18 @@ namespace Craftwar.Sim
         /// <summary>
         /// Shared by Runes/Blizzard/Whirlwind/Death and Decay: spawns
         /// <paramref name="chainCount"/> independent chain-pulse splash shots
-        /// (each <paramref name="hitsPerChain"/> hits at the same point, one
-        /// per tick — BULLET.C disp_bullet_blizzard/rot's exact recursive
-        /// re-arm, reusing the gryphon fireball's chain-pulse projectile),
-        /// each landing within <paramref name="scatterTiles"/> of the target.
+        /// (each <paramref name="hitsPerChain"/> hits at the same landing
+        /// point, one per tick — BULLET.C disp_bullet_blizzard/rot's exact
+        /// recursive re-arm, reusing the gryphon fireball's chain-pulse
+        /// projectile), each landing within <paramref name="scatterTiles"/>
+        /// of the target. Whirlwind/Death and Decay pulse in place at their
+        /// landing point (<see cref="Projectile.PixX"/> starts equal to
+        /// <see cref="Projectile.DestPixX"/>); Blizzard (<see
+        /// cref="SimConstants.EffectBlizzard"/>) is the one exception —
+        /// BULLET.C's blizzard_shards launches every individual shard,
+        /// including the first, from a point northwest of where it lands
+        /// (see TickProjectiles' matching re-launch on each chain pulse), so
+        /// it starts already in flight instead of already arrived.
         /// </summary>
         void SpawnAreaBlast(int casterIdx, ushort tileX, ushort tileY, byte missileType,
             int damagePerHit, int chainCount, int hitsPerChain, int scatterTiles)
@@ -368,6 +388,7 @@ namespace Craftwar.Sim
             ref Unit caster = ref State.Units[casterIdx];
             uint sourcePacked = new UnitId((ushort)casterIdx, caster.Gen).Packed;
             int w = State.Terrain.Width, h = State.Terrain.Height;
+            bool flyingShards = missileType == SimConstants.EffectBlizzard;
 
             for (int c = 0; c < chainCount; c++)
             {
@@ -379,6 +400,12 @@ namespace Craftwar.Sim
                 }
                 int pixX = hx * SimConstants.TilePixels + SimConstants.TilePixels / 2;
                 int pixY = hy * SimConstants.TilePixels + SimConstants.TilePixels / 2;
+                int startPixX = pixX, startPixY = pixY;
+                if (flyingShards)
+                {
+                    startPixX = BlizzardShardLaunchCoord(pixX, SimConstants.BlizzardShardOffsetX);
+                    startPixY = BlizzardShardLaunchCoord(pixY, SimConstants.BlizzardShardOffsetY);
+                }
 
                 bool spawned = false;
                 for (int p = 0; p < State.Projectiles.Length; p++)
@@ -389,8 +416,8 @@ namespace Craftwar.Sim
                     {
                         Active = true,
                         MissileType = missileType,
-                        PixX = pixX,
-                        PixY = pixY,
+                        PixX = startPixX,
+                        PixY = startPixY,
                         Splash = true,
                         DestPixX = pixX,
                         DestPixY = pixY,
@@ -409,6 +436,17 @@ namespace Craftwar.Sim
                 if (!spawned)
                     ApplySplashDamage(pixX, pixY, damagePerHit, caster.Player, sourcePacked);
             }
+        }
+
+        /// <summary>BULLET.C blizzard_shards: a shard's launch point sits
+        /// <paramref name="offsetMagnitude"/> px northwest of where it lands,
+        /// jittered by up to <see cref="SimConstants.BlizzardShardJitterPx"/>
+        /// so consecutive shards in the same chain don't all fly the exact
+        /// same line.</summary>
+        int BlizzardShardLaunchCoord(int landingPix, int offsetMagnitude)
+        {
+            int jitter = SimConstants.BlizzardShardJitterPx;
+            return landingPix - offsetMagnitude + State.Rng.Next(jitter * 2 + 1) - jitter;
         }
 
         /// <summary>SPELL.C action_heal: mana buys HP at a fixed rate, capped
@@ -440,30 +478,80 @@ namespace Craftwar.Sim
             EmitSpellCast(casterIdx, UpgradeId.Healing);
         }
 
-        /// <summary>SPELL.C exorcism(): mana buys direct (unarmored) damage to
-        /// an enemy Undead unit, capped by its remaining HP.</summary>
+        /// <summary>SPELL.C action_exorcism: an AREA spell (dispatch_spell_area,
+        /// see <see cref="TechTree.IsGroundTargetSpell"/>), not a single-target
+        /// one — it sweeps an expanding square ring (Chebyshev distance 0..3)
+        /// out from the cast point, hitting every Undead unit the ring touches
+        /// (<see cref="ExorcismStrike"/> == the original's exorcism()), and
+        /// stops expanding the instant mana drops below one hit's cost (the
+        /// original's <c>enough_mana</c> check, made once per ring — so a ring
+        /// already in progress can still land a few more, even a 0-damage,
+        /// hits on whatever mana remains before the NEXT ring's check catches
+        /// it). Delta 0 is just the cast-point cell itself, hit twice — the
+        /// original's own dx/dy loops collapse to the same cell there, an
+        /// upstream quirk kept for fidelity rather than special-cased away.
+        /// No ownership check: SPELL.C's exorcism() tests only
+        /// <c>IS_UNDEAD</c>, so this can strike the caster's own Undead units
+        /// too, exactly like the original.</summary>
         void CastExorcism(int casterIdx)
         {
             ref Unit caster = ref State.Units[casterIdx];
-            if (!State.TryGetUnitIndex(UnitId.FromPacked(caster.SpellTargetUnit), out int ti))
-                return;
-            ref Unit target = ref State.Units[ti];
-            if (!target.IsAlive || target.Player == caster.Player
-                || target.Player >= SimConstants.MaxPlayers
-                || !State.Rules.Units[target.TypeId].Is(UnitTypeFlags.Undead))
+            ushort tx = caster.SpellTargetX, ty = caster.SpellTargetY;
+            if (State.Terrain == null || !State.Terrain.InBounds(tx, ty))
                 return;
 
+            bool hitAny = false;
+            for (int delta = 0; delta <= SimConstants.ExorcismMaxRingDelta; delta++)
+            {
+                if (caster.Mana < SimConstants.ExorcismManaCostPerDamage)
+                    break;
+
+                for (int dx = -delta; dx <= delta; dx++)
+                {
+                    int x1 = tx + dx;
+                    hitAny |= ExorcismStrike(casterIdx, x1, ty + delta);
+                    hitAny |= ExorcismStrike(casterIdx, x1, ty - delta);
+                }
+                for (int dy = -delta + 1; dy <= delta - 1; dy++)
+                {
+                    int y1 = ty + dy;
+                    hitAny |= ExorcismStrike(casterIdx, tx + delta, y1);
+                    hitAny |= ExorcismStrike(casterIdx, tx - delta, y1);
+                }
+            }
+            if (hitAny)
+                EmitSpellCast(casterIdx, UpgradeId.Exorcism);
+        }
+
+        /// <summary>SPELL.C exorcism(): one ring cell's worth of the Exorcism
+        /// sweep. No-ops (and spends nothing) off-map or on a non-Undead cell;
+        /// otherwise buys unarmored damage at the caster's current mana,
+        /// capped by the target's remaining HP, even down to a 0-damage hit
+        /// that still flashes and consumes 0 mana once the caster is too poor
+        /// to hurt it — matching the original exactly rather than skipping
+        /// the flash below some minimum.</summary>
+        bool ExorcismStrike(int casterIdx, int x, int y)
+        {
+            if (State.Terrain == null || !State.Terrain.InBounds(x, y))
+                return false;
+            uint occ = State.OccupancySurface[y * State.Terrain.Width + x];
+            if (occ == 0 || !State.TryGetUnitIndex(UnitId.FromPacked(occ), out int ti))
+                return false;
+            ref Unit target = ref State.Units[ti];
+            if (!target.IsAlive || !State.Rules.Units[target.TypeId].Is(UnitTypeFlags.Undead))
+                return false;
+
+            ref Unit caster = ref State.Units[casterIdx];
             int dmg = caster.Mana / SimConstants.ExorcismManaCostPerDamage;
             if (dmg > target.Hp)
                 dmg = target.Hp;
-            if (dmg <= 0)
-                return;
 
-            caster.Mana -= (byte)(dmg * SimConstants.ExorcismManaCostPerDamage);
             var (ex, ey) = CenterOf(ref target);
-            ApplyDamage(ti, dmg, caster.Player);
             SpawnEffect(ex, ey, SimConstants.EffectExorcism, caster.Player);
-            EmitSpellCast(casterIdx, UpgradeId.Exorcism);
+            if (dmg > 0)
+                ApplyDamage(ti, dmg, caster.Player);
+            caster.Mana -= (byte)(dmg * SimConstants.ExorcismManaCostPerDamage);
+            return true;
         }
 
         /// <summary>SPELL.C action_bloodlust: a flat mana cost enrages the
@@ -516,7 +604,7 @@ namespace Craftwar.Sim
             if (PlaceRune(tx, ty - 1, owner)) placed++;
 
             int refund = SimConstants.RunesRefundPerFailedTrap * (5 - placed);
-            caster.Mana = (byte)System.Math.Min(SimConstants.MaxMana, caster.Mana + refund);
+            caster.Mana = (byte)Min(SimConstants.MaxMana, caster.Mana + refund);
 
             EmitSpellCast(casterIdx, UpgradeId.Runes);
         }
@@ -685,7 +773,8 @@ namespace Craftwar.Sim
 
             caster.Mana -= (byte)SimConstants.BlizzardManaCost;
             SpawnAreaBlast(casterIdx, tx, ty, SimConstants.EffectBlizzard, SimConstants.BlizzardDamagePerHit,
-                SimConstants.BlizzardChains, SimConstants.BlizzardHitsPerChain, scatterTiles: 0);
+                SimConstants.BlizzardChains, SimConstants.BlizzardHitsPerChain,
+                scatterTiles: SimConstants.BlizzardScatterTiles);
             EmitSpellCast(casterIdx, UpgradeId.Blizzard);
         }
 

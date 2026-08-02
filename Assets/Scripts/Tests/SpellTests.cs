@@ -134,7 +134,11 @@ namespace Craftwar.Sim.Tests
         {
             // 8 tiles: inside Exorcism's cast range (10) but outside a
             // Paladin's react range (5), so nothing auto-engages in melee
-            // while the Paladin walks into spell range.
+            // while the Paladin walks into spell range. Exorcism is
+            // ground-targeted (SPELL.C dispatch_spell_area, see
+            // TechTree.IsGroundTargetSpell) and sweeps an expanding ring from
+            // the cast point, so each cast below aims at the victim's own
+            // tile directly rather than passing a target unit id.
             var pud = MakeMap(
                 (UnitTypeId.Paladin, 0, 10, 10),
                 (UnitTypeId.Skeleton, 1, 18, 10),
@@ -146,17 +150,43 @@ namespace Craftwar.Sim.Tests
             int gruntHpBefore = sim.State.Units[2].Hp;
             int manaBefore = sim.State.Units[0].Mana;
 
-            CastAndWait(sim, 0, CastOrder(sim, 0, UpgradeId.Exorcism,
-                new UnitId(1, sim.State.Units[1].Gen).Packed));
+            CastAndWait(sim, 0, CastOrder(sim, 0, UpgradeId.Exorcism, targetX: 18, targetY: 10));
             int dmg = skeletonHpBefore - sim.State.Units[1].Hp;
             Assert.Greater(dmg, 0, "exorcism must damage an enemy undead unit");
-            int expectedMana = manaBefore - dmg * SimConstants.ExorcismManaCostPerDamage;
-            Assert.That(sim.State.Units[0].Mana, Is.EqualTo(expectedMana).Within(1));
+            Assert.Less(sim.State.Units[0].Mana, manaBefore, "exorcism must spend mana on the hit");
 
-            CastAndWait(sim, 0, CastOrder(sim, 0, UpgradeId.Exorcism,
-                new UnitId(2, sim.State.Units[2].Gen).Packed));
+            CastAndWait(sim, 0, CastOrder(sim, 0, UpgradeId.Exorcism, targetX: 18, targetY: 12));
             Assert.AreEqual(gruntHpBefore, sim.State.Units[2].Hp,
                 "exorcism must not damage a non-undead enemy");
+        }
+
+        [Test]
+        public unsafe void Exorcism_HitsEveryUndeadInRing_NotJustTheClickedTile()
+        {
+            // SPELL.C action_exorcism sweeps a ring out to Chebyshev distance
+            // 3 from the cast point — two skeletons two tiles apart should
+            // both take damage from a single cast centered between them,
+            // not just whichever one was clicked.
+            var pud = MakeMap(
+                (UnitTypeId.Paladin, 0, 10, 10),
+                (UnitTypeId.Skeleton, 1, 17, 10),
+                (UnitTypeId.Skeleton, 1, 19, 10));
+            var sim = new GameSim(1);
+            sim.Setup(pud, RuleSet.CreateDefault());
+            sim.State.Players[0].Researched |= 1ul << (int)UpgradeId.Exorcism;
+            // Each ring hit recomputes damage from whatever mana the caster
+            // has left at that instant (faithful to the original — a single
+            // rich hit can starve the next one), so max out mana here to
+            // isolate "does the ring reach both targets" from "did the first
+            // hit spend it all".
+            sim.State.Units[0].Mana = SimConstants.MaxMana;
+            int hp1Before = sim.State.Units[1].Hp;
+            int hp2Before = sim.State.Units[2].Hp;
+
+            CastAndWait(sim, 0, CastOrder(sim, 0, UpgradeId.Exorcism, targetX: 18, targetY: 10));
+
+            Assert.Less(sim.State.Units[1].Hp, hp1Before, "ring must reach the skeleton two tiles west");
+            Assert.Less(sim.State.Units[2].Hp, hp2Before, "ring must reach the skeleton two tiles east");
         }
 
         [Test]

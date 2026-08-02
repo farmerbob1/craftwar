@@ -125,6 +125,7 @@ namespace Craftwar.Sim
         public const int HealManaCostPerHp = 6;
         public const int HealMaxHpPerCast = 40;          // HEAL_MAX
         public const int ExorcismManaCostPerDamage = 4;
+        public const int ExorcismMaxRingDelta = 3;       // SPELL.C action_exorcism's delta=0..3 expanding ring scan
         public const int BloodlustManaCost = 50;
         public const int BloodlustRageTicks = 1000;      // RAGE_TIME: ~20s at 50 Hz
 
@@ -178,14 +179,21 @@ namespace Craftwar.Sim
         // mechanics (bullet_create_blizzard/rot chain a fixed number of
         // repeat hits via disp_bullet_blizzard/rot recursively re-arming
         // themselves), reusing this sim's existing chain-pulse projectile.
-        // Simplified in one respect: all three are stationary here — the
-        // original's Whirlwind (typhoon) also wanders slowly around its cast
-        // point for its whole duration (disp_bullet_typhoon), which this
-        // doesn't reproduce.
+        // Whirlwind and Death and Decay are stationary here — the original's
+        // Whirlwind (typhoon) also wanders slowly around its cast point for
+        // its whole duration (disp_bullet_typhoon), which this doesn't
+        // reproduce. Blizzard is NOT stationary: BULLET.C's blizzard_shards
+        // actually flies each shard in from a fixed offset northwest of its
+        // landing point (see BlizzardShardOffsetX/Y below) before it hits and
+        // respawns the next one, rather than pulsing in place like Rot.
         public const int BlizzardManaCost = 25;          // SPELL_BLIZZARD, paid once for the whole barrage
         public const int BlizzardChains = 5;             // action_blizzard's 5 bullet_create_blizzard calls
         public const int BlizzardHitsPerChain = 10;       // BLIZZARD_TIMES
         public const int BlizzardDamagePerHit = 10;      // BLIZZARD_DMG
+        public const int BlizzardScatterTiles = 2;       // bullet_create_blizzard's (rand%5-2) tile jitter per chain
+        public const int BlizzardShardOffsetX = 110;     // BLIZZARD_MIN_X magnitude: shard launch point vs. landing point
+        public const int BlizzardShardOffsetY = 170;     // BLIZZARD_MIN_Y magnitude
+        public const int BlizzardShardJitterPx = 11;      // BLIZZARD_OFF_X magnitude: per-shard launch-point jitter
         public const int DeathAndDecayManaCost = 25;     // SPELL_ROT
         public const int DeathAndDecayChains = 5;        // action_rot's 5 bullet_create_rot calls
         public const int DeathAndDecayHitsPerChain = 10;  // ROT_TIMES

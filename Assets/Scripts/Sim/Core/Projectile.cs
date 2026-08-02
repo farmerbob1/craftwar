@@ -25,7 +25,21 @@ namespace Craftwar.Sim
     ///    types (<c>O_DRAGON</c>/<c>H_GRIFFON</c>, <c>bullet_create_fireball</c>)
     ///    to keep drifting past the impact point after arrival, re-splashing
     ///    every few ticks instead of stopping at one hit — one attack lands as
-    ///    a short trail of explosions rather than a single impact.
+    ///    a short trail of explosions rather than a single impact. <see
+    ///    cref="ChainStepX"/>/<see cref="ChainStepY"/> hold the drift
+    ///    direction.
+    ///  * Chained area spell (<see cref="Splash"/> true, <see cref="ChainPulsesRemaining"/>
+    ///    nonzero, <see cref="MissileType"/> one of the synthetic
+    ///    <c>SimConstants.Effect*</c> ids) — Blizzard/Whirlwind/Death and
+    ///    Decay (GameSim.Spells.cs's SpawnAreaBlast): repeat hits at a fixed
+    ///    landing point (<see cref="DestPixX"/>/<see cref="DestPixY"/>, never
+    ///    moves) rather than drifting like the fireball case, so <see
+    ///    cref="ChainStepX"/>/<see cref="ChainStepY"/> stay 0. Blizzard is the
+    ///    one exception within this case: each pulse re-launches <see
+    ///    cref="PixX"/>/<see cref="PixY"/> from a fresh point northwest of the
+    ///    landing point (see TickProjectiles) so the shard is visibly back in
+    ///    flight for every hit, matching BULLET.C's blizzard_shards — Whirlwind
+    ///    and Death and Decay instead sit at their landing point the whole time.
     /// </summary>
     public struct Projectile
     {

@@ -163,6 +163,7 @@ namespace Craftwar.Sim
 
         static int Max(int a, int b) => a > b ? a : b;
         static int Max0(int v) => v < 0 ? 0 : v;
+        static int Min(int a, int b) => a < b ? a : b;
 
         bool CanTargetUnit(ref UnitTypeData attacker, ushort targetTypeId)
         {
@@ -419,12 +420,26 @@ namespace Craftwar.Sim
                             proj.SourcePlayer, proj.SourceUnit);
                         if (proj.ChainPulsesRemaining > 0)
                         {
-                            // Gryphon/dragon fireball: keep drifting past the
-                            // impact point and splash again, rather than
-                            // stopping at this one hit.
                             proj.ChainPulsesRemaining--;
-                            proj.DestPixX += proj.ChainStepX * SimConstants.FireballChainStepPx;
-                            proj.DestPixY += proj.ChainStepY * SimConstants.FireballChainStepPx;
+                            if (proj.MissileType == SimConstants.EffectBlizzard)
+                            {
+                                // Blizzard: BULLET.C's blizzard_shards respawns a
+                                // brand-new shard for every remaining hit, each
+                                // flying in fresh from a jittered point northwest
+                                // of the (unchanged) landing point, rather than
+                                // the impact point itself moving — contrast the
+                                // gryphon/dragon fireball case below.
+                                proj.PixX = BlizzardShardLaunchCoord(proj.DestPixX, SimConstants.BlizzardShardOffsetX);
+                                proj.PixY = BlizzardShardLaunchCoord(proj.DestPixY, SimConstants.BlizzardShardOffsetY);
+                            }
+                            else
+                            {
+                                // Gryphon/dragon fireball: keep drifting past the
+                                // impact point and splash again, rather than
+                                // stopping at this one hit.
+                                proj.DestPixX += proj.ChainStepX * SimConstants.FireballChainStepPx;
+                                proj.DestPixY += proj.ChainStepY * SimConstants.FireballChainStepPx;
+                            }
                             continue;
                         }
                         proj.Active = false;

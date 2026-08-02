@@ -77,8 +77,11 @@ namespace Craftwar.View
     public interface IMissileSpriteProvider
     {
         /// <summary>5 baked facings (N, NE, E, SE, S) mirrored for the other
-        /// three. Null when this missile type has no baked art.</summary>
-        Sprite Get(byte missileType, byte facing, out bool flipX);
+        /// three. <paramref name="frameStep"/> advances a multi-cycle bank
+        /// (mage/death-knight bolts, griffon hammer, throwing axe) through its
+        /// animation; single-cycle banks (arrow, rock, ...) ignore it. Null
+        /// when this missile type has no baked art.</summary>
+        Sprite Get(byte missileType, byte facing, int frameStep, out bool flipX);
     }
 
     /// <summary>
@@ -96,6 +99,18 @@ namespace Craftwar.View
         readonly Dictionary<int, SpriteRenderer> _views = new Dictionary<int, SpriteRenderer>();
         readonly Dictionary<int, SpriteRenderer> _selBoxes = new Dictionary<int, SpriteRenderer>();
         readonly Dictionary<int, SpriteRenderer> _shadows = new Dictionary<int, SpriteRenderer>();
+        readonly Dictionary<int, SpriteRenderer> _fireShields = new Dictionary<int, SpriteRenderer>();
+
+        /// <summary>BULLET.C's disp_bullet_fireshield orbits a small flame
+        /// around Flame Shield's target for the whole buff (sgnFlameSpinX/Y,
+        /// a 51-entry baked ellipse) rather than a one-shot sparkle. Ballpark
+        /// tile-radius/period reproduced as a plain sinusoid here — the exact
+        /// hand-tuned ellipse isn't, and no dedicated Flame Shield art has
+        /// been identified in the decoded asset set, so this borrows the
+        /// generic spell-sparkle loop rather than guessing a GRP filename.</summary>
+        const float FireShieldOrbitRadiusX = 0.5f;
+        const float FireShieldOrbitRadiusY = 0.3f;
+        const float FireShieldOrbitSpeed = 3f;
 
         // Sorting bands. Ground units interleave by screen row; flyers sit in
         // their own band above all of them, still below projectiles (20000)
@@ -302,6 +317,47 @@ namespace Craftwar.View
             sh.enabled = true;
         }
 
+        /// <summary>Flame Shield's persistent orbiting flame — see the
+        /// <see cref="_fireShields"/> field doc. Hidden (not destroyed) once
+        /// the buff ends or the unit drops out of sight, same lifecycle as
+        /// <see cref="UpdateShadow"/>; actually removed only when the unit
+        /// itself stops being live (with the rest of the per-slot views).</summary>
+        void UpdateFireShield(int slot, bool active, bool visible, int unitSortingOrder,
+            float worldX, float worldY, bool airborne)
+        {
+            if (!active || !visible || _missileSprites == null)
+            {
+                if (_fireShields.TryGetValue(slot, out var stale) && stale != null)
+                    stale.enabled = false;
+                return;
+            }
+
+            if (!_fireShields.TryGetValue(slot, out var sr) || sr == null)
+            {
+                var go = new GameObject($"fireshield_{slot}");
+                go.transform.SetParent(transform, false);
+                sr = go.AddComponent<SpriteRenderer>();
+                _fireShields[slot] = sr;
+            }
+
+            float phase = Time.time * FireShieldOrbitSpeed + slot * 0.7f;
+            float ox = Mathf.Cos(phase) * FireShieldOrbitRadiusX;
+            float oy = Mathf.Sin(phase) * FireShieldOrbitRadiusY;
+            sr.transform.position = new Vector3(
+                worldX + ox, worldY + oy + (airborne ? AirLift : 0f), 0f);
+
+            Sprite art = _missileSprites.Get(SimConstants.EffectSparkle, 0, (int)(Time.time * 12f), out bool flipX);
+            if (art == null)
+            {
+                sr.enabled = false;
+                return;
+            }
+            sr.sprite = art;
+            sr.flipX = flipX;
+            sr.sortingOrder = unitSortingOrder + 1; // always above the unit it's orbiting
+            sr.enabled = true;
+        }
+
         /// <summary>
         /// Which frame block to draw this instant, from the bank's real layout
         /// (see <see cref="AnimLayout"/>). Returns -1 for single-pose banks.
@@ -464,6 +520,9 @@ namespace Craftwar.View
                     || _host.Sim.IsUnitVisible(LocalPlayer, ref u);
                 sr.enabled = inSight;
 
+                UpdateFireShield(i, u.FireShieldTicks > 0, inSight && baseColor.a > 0f,
+                    sr.sortingOrder, worldX, worldY, airborne);
+
                 if (u.Player != LocalPlayer && (u.Flags & UnitFlags.Building) != 0)
                 {
                     int origin = OriginIndex(state, ref u);
@@ -501,6 +560,18 @@ namespace Craftwar.View
                 if (_shadows[key] != null)
                     Destroy(_shadows[key].gameObject);
                 _shadows.Remove(key);
+            }
+
+            // Fire Shield orbits belong to live units only; drop the rest.
+            _toRemove.Clear();
+            foreach (var kv in _fireShields)
+                if (!_live.Contains(kv.Key))
+                    _toRemove.Add(kv.Key);
+            foreach (int key in _toRemove)
+            {
+                if (_fireShields[key] != null)
+                    Destroy(_fireShields[key].gameObject);
+                _fireShields.Remove(key);
             }
 
             _toRemove.Clear();
@@ -805,7 +876,7 @@ namespace Craftwar.View
                         Vector2Int prev = _prevProjPix.TryGetValue(p, out var pv)
                             ? pv : new Vector2Int(proj.PixX, proj.PixY);
                         byte facing = GameSim.FacingFrom(proj.PixX - prev.x, proj.PixY - prev.y);
-                        art = _missileSprites.Get(proj.MissileType, facing, out flipX);
+                        art = _missileSprites.Get(proj.MissileType, facing, (int)(Time.time * 12f), out flipX);
                     }
                     sr.sprite = art != null ? art : _projectileSprite;
                     sr.flipX = flipX;
